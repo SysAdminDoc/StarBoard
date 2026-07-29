@@ -159,12 +159,15 @@ function visibleRepos() {
 
 /* ---------- rendering ---------- */
 
-function statNode(kind, value, delta) {
+function statNode(kind, value, delta, approx = false) {
   const wrap = document.createElement('span');
   wrap.className = `stat ${kind}`;
   wrap.appendChild(svg(kind === 'stars' ? STAR_PATH : FORK_PATH));
   const b = document.createElement('b');
-  b.textContent = nf.format(value);
+  // GitHub's own pages abbreviate past 1,000, so web mode can only report a
+  // rounded figure there. Say so rather than implying false precision.
+  b.textContent = approx ? `~${nf.format(value)}` : nf.format(value);
+  if (approx) b.title = 'Approximate — github.com abbreviates counts above 1,000';
   wrap.appendChild(b);
   wrap.appendChild(deltaNode(delta));
   return wrap;
@@ -232,8 +235,8 @@ function rowNode(repo, rank) {
 
   const stats = document.createElement('div');
   stats.className = 'stats';
-  stats.appendChild(statNode('stars', repo.stargazers_count, repo.starsDelta));
-  stats.appendChild(statNode('forks', repo.forks_count, repo.forksDelta));
+  stats.appendChild(statNode('stars', repo.stargazers_count, repo.starsDelta, repo.approx));
+  stats.appendChild(statNode('forks', repo.forks_count, repo.forksDelta, repo.approx));
   a.appendChild(stats);
 
   return a;
@@ -350,9 +353,16 @@ function render() {
 
   el.count.textContent = `${nf.format(rows.length)} shown`;
   el.updated.textContent = `Updated ${relative(cache.fetchedAt)}`;
-  el.rate.textContent = cache.rate?.remaining != null
-    ? `${cache.rate.remaining}/${cache.rate.limit} API calls left`
-    : '';
+  if (cache.source === 'web') {
+    const n = cache.pagesFetched || 0;
+    el.rate.textContent = `via github.com · ${n} page${n === 1 ? '' : 's'}`;
+    el.rate.title = 'Read from your github.com repositories tab — no API token in use';
+  } else {
+    el.rate.textContent = cache.rate?.remaining != null
+      ? `${cache.rate.remaining}/${cache.rate.limit} API calls left`
+      : '';
+    el.rate.title = 'GitHub API requests remaining this hour';
+  }
 
   if (!rows.length) {
     renderEmpty('Nothing matches', 'Try clearing the filter or enabling forks and archived repos.');

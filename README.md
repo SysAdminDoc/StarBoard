@@ -1,6 +1,6 @@
 # StarBoard
 
-[![Version](https://img.shields.io/badge/version-1.0.0-58a6ff)](https://github.com/SysAdminDoc/StarBoard/releases)
+[![Version](https://img.shields.io/badge/version-1.1.0-58a6ff)](https://github.com/SysAdminDoc/StarBoard/releases)
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-e3b341)](#install)
 [![Manifest](https://img.shields.io/badge/manifest-v3-8b949e)](manifest.json)
@@ -27,10 +27,11 @@ projects are doing best**, and **what moved since yesterday**.
 - **Live totals** — aggregate stars, forks and repo count, each with its own delta.
 - **Toolbar badge** — total stars, or stars gained since the baseline, on the extension icon.
 - **Search and filter** — filter by name, description or language; toggle forks and archived repos in or out.
+- **Two data sources** — the GitHub API, or your signed-in github.com session with **no token at all**.
 - **Private repos** — supported when you add a token.
 - **Background refresh** — configurable interval, so the numbers are current before you open it.
 - **Dark by default**, with a light theme and a match-system option.
-- **No telemetry.** The only host it ever contacts is `api.github.com`.
+- **No telemetry.** The only hosts it ever contacts are `api.github.com` and, in web mode, `github.com`.
 
 ## Install
 
@@ -47,9 +48,11 @@ Works in Chrome, Edge, Brave and other Chromium browsers (Manifest V3, Chrome 11
 > Chromium refuses self-signed CRX installs (`CRX_REQUIRED_PROOF_MISSING`).
 > **The ZIP is the asset to install.**
 
-## Tokens and rate limits
+## Data sources
 
-StarBoard works with no token at all. A token only buys you headroom and private repos:
+Pick one in **Settings → Where to read from**.
+
+### GitHub API (default)
 
 | | Requests/hour | Private repos |
 |---|---|---|
@@ -59,6 +62,36 @@ StarBoard works with no token at all. A token only buys you headroom and private
 
 A full refresh of a 200-repo account costs 3–4 requests. The token is stored in
 `chrome.storage.local` in your browser profile and is sent only to `api.github.com`.
+
+### GitHub website (no token)
+
+Reads your own repositories tab — `github.com/<you>?tab=repositories` — using the
+session you are already signed in with, and parses it into the same data the API
+returns. No token, no registration, nothing to paste.
+
+The first time you select it, Chrome asks permission to read `github.com`.
+It is an *optional* permission, so a default install never requests it.
+
+Two honest caveats:
+
+- **Counts above 1,000 are approximate.** GitHub's own pages render `1.2k`
+  rather than `1,247`, so a repo that large cannot report an exact figure —
+  and a `+3` gain is invisible at that resolution. Affected repos are shown as
+  `~1,200` rather than pretending to be precise. Under 1,000, counts are exact.
+- **It costs more bandwidth.** One page load per 30 repos (~12× the API's
+  payload for the same data), fetched one page at a time.
+
+Star and fork numbers are otherwise identical to the API's — the test suite
+asserts exact parity across every repo, so a GitHub markup change fails loudly
+instead of quietly reporting wrong numbers.
+
+**Recommendation:** use the API. Web mode exists for when you would rather not
+manage a token, and it is a perfectly good choice if none of your repos are near
+1,000 stars.
+
+<p align="center">
+  <img src="docs/screenshot-web-mode.png" width="440" alt="StarBoard running in web mode, footer reading via github.com" />
+</p>
 
 ## How the deltas work
 
@@ -78,13 +111,20 @@ py -3.12 scripts/build.py        # build dist/*.zip and dist/*.crx
 npm install                      # playwright, for the smoke test
 node tests/smoke.mjs             # drive the real popup against the live API
 node tests/smoke.mjs --zip       # same, against the built artifact
+node tests/smoke.mjs --no-web    # skip the (slower) scraping checks
 ```
 
 `tests/smoke.mjs` loads the extension into a throwaway Chromium profile, seeds
 settings, performs a real fetch, and asserts on ordering, deltas, filtering,
-sorting, the toolbar badge, the options page and both themes. It hits the live
-GitHub API unauthenticated (3–4 of your 60 hourly requests); set `GITHUB_TOKEN`
-to use the authenticated limit.
+sorting, the toolbar badge, the options page and both themes — 25 checks. It
+hits the live GitHub API unauthenticated (3–4 of your 60 hourly requests); set
+`GITHUB_TOKEN` to use the authenticated limit.
+
+The web-mode half runs in a second browser with `https://github.com/*` promoted
+from an optional to a declared permission, because the consent bubble is native
+UI that automation cannot click. Every line of fetch, pagination and parsing
+logic still executes for real; only the consent step — which must stay human in
+production — is bypassed.
 
 ### Layout
 
@@ -93,7 +133,9 @@ manifest.json        MV3 manifest
 src/popup.*          the ranked list UI
 src/options.*        settings page
 src/background.js    service worker — owns every fetch, the alarm and the badge
+src/offscreen.*      hidden DOM host; web mode's parser lives here
 src/lib/github.js    REST client: pagination, rate limits, error mapping
+src/lib/scrape.js    github.com HTML -> the same shape github.js returns
 src/lib/storage.js   settings, cache and baseline persistence
 scripts/build.py     ZIP + CRX3 packaging
 scripts/make_icons.py  icon generation

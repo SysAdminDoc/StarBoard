@@ -14,6 +14,7 @@
 export const DEFAULTS = {
   username: '',
   token: '',
+  dataSource: 'api', // 'api' = api.github.com | 'web' = scrape github.com, no token
   refreshMinutes: 60,
   baselineHours: 24,
   includeForks: false,

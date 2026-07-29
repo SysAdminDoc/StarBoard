@@ -17,8 +17,61 @@ import {
 } from './lib/storage.js';
 
 const ALARM = 'starboard-refresh';
+const OFFSCREEN_PATH = 'src/offscreen.html';
+const GITHUB_ORIGIN = 'https://github.com/*';
 
 let inFlight = null;
+let offscreenReady = null;
+
+/** Web mode needs github.com access, granted on demand from the options page. */
+async function hasWebPermission() {
+  return chrome.permissions.contains({ origins: [GITHUB_ORIGIN] });
+}
+
+/**
+ * Spin up (once) the hidden document that owns DOMParser. Concurrent callers
+ * share one creation promise — createDocument throws if one already exists.
+ */
+async function ensureOffscreen() {
+  if (await chrome.offscreen.hasDocument()) return;
+  if (!offscreenReady) {
+    offscreenReady = chrome.offscreen
+      .createDocument({
+        url: OFFSCREEN_PATH,
+        reasons: [chrome.offscreen.Reason.DOM_PARSER],
+        justification: 'Parse github.com HTML into repo data for no-token mode.',
+      })
+      .finally(() => {
+        offscreenReady = null;
+      });
+  }
+  await offscreenReady;
+}
+
+/** Fetch + parse github.com in the offscreen document. */
+async function fetchAccountViaWeb(username) {
+  if (!username) {
+    throw new GitHubError('Web mode needs a GitHub username. Add one in Settings.');
+  }
+  if (!(await hasWebPermission())) {
+    throw new GitHubError(
+      'StarBoard needs permission to read github.com. Open Settings and re-select "GitHub website".',
+    );
+  }
+
+  await ensureOffscreen();
+  try {
+    const res = await chrome.runtime.sendMessage({
+      target: 'offscreen',
+      type: 'scrape-account',
+      username,
+    });
+    if (!res?.ok) throw new GitHubError(res?.error?.message || 'Could not read github.com.');
+    return res.result;
+  } finally {
+    if (await chrome.offscreen.hasDocument()) await chrome.offscreen.closeDocument();
+  }
+}
 
 function compact(n) {
   if (n < 1000) return String(n);
@@ -76,12 +129,15 @@ async function refresh({ rebase = false } = {}) {
   inFlight = (async () => {
     const settings = await getSettings();
     try {
-      const result = await fetchAccount(settings);
+      const result =
+        settings.dataSource === 'web'
+          ? await fetchAccountViaWeb(settings.username)
+          : await fetchAccount(settings);
       const baseline = rebase
         ? await resetBaseline(result.repos)
         : await resolveBaseline(result.repos, settings.baselineHours);
 
-      const cache = { ...result, error: null };
+      const cache = { ...result, source: result.source || 'api', error: null };
       await setCache(cache);
       await updateBadge();
       return { ok: true, cache, baseline };
@@ -129,6 +185,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.target === 'offscreen') return false; // belongs to the offscreen document
+
   (async () => {
     switch (msg?.type) {
       case 'refresh':

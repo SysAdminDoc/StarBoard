@@ -22,6 +22,15 @@
         </label>
 
         <label class="field">
+          <span class="label">Where to read from</span>
+          <select id="dataSource">
+            <option value="api">GitHub API — recommended</option>
+            <option value="web">GitHub website — no token needed</option>
+          </select>
+          <span class="hint" id="sourceHint"></span>
+        </label>
+
+        <label class="field" id="tokenField">
           <span class="label">Personal access token <span class="opt">optional</span></span>
           <input id="token" type="password" placeholder="ghp_… or github_pat_…" spellcheck="false" autocomplete="off" />
           <span class="hint">
