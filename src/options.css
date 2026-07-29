@@ -1,0 +1,269 @@
+/* StarBoard — options page. */
+
+:root,
+:root[data-theme='dark'] {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-2: #1c2129;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --faint: #6e7681;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --red: #f85149;
+}
+
+:root[data-theme='light'] {
+  --bg: #ffffff;
+  --surface: #f6f8fa;
+  --surface-2: #eef1f4;
+  --border: #d0d7de;
+  --text: #1f2328;
+  --muted: #59636e;
+  --faint: #818b98;
+  --accent: #0969da;
+  --green: #1a7f37;
+  --red: #cf222e;
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme='auto'] {
+    --bg: #ffffff;
+    --surface: #f6f8fa;
+    --surface-2: #eef1f4;
+    --border: #d0d7de;
+    --text: #1f2328;
+    --muted: #59636e;
+    --faint: #818b98;
+    --accent: #0969da;
+    --green: #1a7f37;
+    --red: #cf222e;
+  }
+}
+
+html {
+  background: var(--bg);
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='auto'] {
+  color-scheme: light dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 32px 20px 60px;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+}
+
+.version {
+  font-size: 12px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.card {
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.card h2 {
+  margin: 0 0 14px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+
+.field {
+  display: block;
+  margin-bottom: 16px;
+}
+
+.field:last-of-type {
+  margin-bottom: 0;
+}
+
+.field.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.field.row .label {
+  margin-bottom: 0;
+  font-weight: 500;
+}
+
+.opt {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+input[type='text'],
+input[type='password'],
+select {
+  padding: 6px 10px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+input[type='text'],
+input[type='password'] {
+  width: 100%;
+}
+
+select {
+  cursor: pointer;
+  min-width: 180px;
+}
+
+input:focus,
+select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hint code {
+  padding: 1px 5px;
+  font-size: 11.5px;
+  background: var(--surface-2);
+  border-radius: 4px;
+}
+
+.note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+a {
+  color: var(--accent);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.primary-btn,
+.secondary-btn {
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.1s ease;
+}
+
+.primary-btn {
+  color: #fff;
+  background: #238636;
+  border: 1px solid rgba(240, 246, 252, 0.1);
+}
+
+.primary-btn:hover {
+  background: #2ea043;
+}
+
+.secondary-btn {
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.secondary-btn:hover {
+  border-color: var(--faint);
+}
+
+.primary-btn:active,
+.secondary-btn:active {
+  transform: translateY(1px);
+}
+
+.status {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.status.ok {
+  color: var(--green);
+}
+
+.status.err {
+  color: var(--red);
+}
+
+.card.danger {
+  border-color: color-mix(in srgb, var(--red) 30%, var(--border));
+}
+
+footer {
+  margin-top: 24px;
+  font-size: 12px;
+  color: var(--faint);
+  text-align: center;
+}

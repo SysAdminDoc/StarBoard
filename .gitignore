@@ -1,0 +1,31 @@
+# Build output
+dist/
+
+# Self-host packing key — regenerating this changes the extension ID
+.keys/
+*.pem
+
+# Node (smoke tests only)
+node_modules/
+package-lock.json
+
+# Test output
+tests/screenshots/
+tests/.profile/
+tests/.unpacked/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Agent working notes
+CLAUDE.md
+CODEX_CHANGELOG.md
+.claude/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
