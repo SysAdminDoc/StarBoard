@@ -1,0 +1,11 @@
+{
+  "username": "octocat",
+  "token": "",
+  "refreshMinutes": 60,
+  "baselineHours": 24,
+  "includeForks": false,
+  "includeArchived": true,
+  "sortKey": "stars",
+  "badgeMode": "stars",
+  "theme": "dark"
+}

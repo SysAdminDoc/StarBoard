@@ -5,7 +5,7 @@
  * blank), then asks the service worker for a refresh in the background.
  */
 
-import { getSettings, setSettings, getCache, getBaseline, applyTheme } from './lib/storage.js';
+import { getSettings, getCache, getBaseline, applyTheme } from './lib/storage.js';
 
 const LANG_COLORS = {
   JavaScript: '#f1e05a',
@@ -342,14 +342,31 @@ function withId(node, id) {
 
 function renderBanner() {
   const err = state.cache?.error;
-  if (!err) {
-    el.banner.hidden = true;
+  if (err) {
+    el.banner.hidden = false;
+    const retained =
+      state.cache?.pendingSource
+        ? ` Showing the last successful ${state.cache.source === 'web' ? 'website' : 'API'} snapshot.`
+        : ' Showing the last successful snapshot.';
+    el.banner.textContent =
+      err.rateLimited && err.resetAt
+        ? `${err.message} Retry ${relative(err.resetAt)}.${retained}`
+        : `${err.message}.${retained}`.replace('..', '.');
     return;
   }
-  el.banner.hidden = false;
-  el.banner.textContent = err.rateLimited && err.resetAt
-    ? `${err.message} Resets ${relative(err.resetAt)}. Add a token in Settings for 5,000 requests/hour.`
-    : err.message;
+  if (state.cache?.complete === false) {
+    const reason = {
+      cap: `the ${state.cache.cap?.maxRepositories || 1500}-repository safety cap was reached`,
+      'parser-drift': 'a later GitHub page could not be parsed',
+      'rate-limited': 'GitHub asked StarBoard to slow down',
+      timeout: 'a later GitHub page timed out',
+      network: 'a later GitHub page could not be loaded',
+    }[state.cache.partialReason] || 'the refresh could not finish';
+    el.banner.hidden = false;
+    el.banner.textContent = `Partial snapshot: ${reason}. Loaded data remains usable and is labeled partial.`;
+    return;
+  }
+  el.banner.hidden = true;
 }
 
 function render() {
@@ -393,11 +410,19 @@ function render() {
   renderTotals(rows);
 
   el.count.textContent = `${nf.format(rows.length)} shown`;
-  el.updated.textContent = `Updated ${relative(cache.fetchedAt)}`;
+  el.updated.textContent = `${cache.stale ? 'Last successful update' : 'Updated'} ${relative(cache.fetchedAt)}`;
   el.rate.hidden = !settings.showSourceStatus;
   if (cache.source === 'web') {
     const n = cache.pagesFetched || 0;
-    el.rate.textContent = `via github.com · ${n} page${n === 1 ? '' : 's'}`;
+    const confidence =
+      cache.confidence === 'partial'
+        ? ` · partial (${cache.partialReason || 'incomplete'})`
+        : cache.confidence === 'approximate'
+          ? ' · some counts approximate'
+          : cache.confidence === 'stale'
+            ? ' · stale'
+            : '';
+    el.rate.textContent = `via github.com · ${n} page${n === 1 ? '' : 's'}${confidence}`;
     el.rate.title = 'Read from your github.com repositories tab — no API token in use';
   } else {
     el.rate.textContent = cache.rate?.remaining != null
@@ -442,6 +467,12 @@ async function doRefresh(rebase = false) {
     } else {
       announce(`Refresh failed. ${res?.error?.message || 'The cached snapshot is still shown.'}`);
     }
+  } catch (error) {
+    state.cache = (await getCache()) || {
+      error: { message: error.message || 'The background refresh did not respond.' },
+    };
+    render();
+    announce(`Refresh failed. ${error.message || 'The background refresh did not respond.'}`);
   } finally {
     refreshing = false;
     el.refresh.classList.remove('spinning');
@@ -451,7 +482,9 @@ async function doRefresh(rebase = false) {
 }
 
 async function patch(changes) {
-  state.settings = await setSettings(changes);
+  const response = await chrome.runtime.sendMessage({ type: 'patch-settings', changes });
+  if (!response?.ok) throw new Error(response?.error?.message || 'Could not save settings.');
+  state.settings = response.settings;
   chrome.runtime.sendMessage({ type: 'update-badge' }).catch(() => {});
   render();
 }
@@ -495,8 +528,16 @@ el.incArchived.addEventListener('change', () => patch({ includeArchived: el.incA
   render();
   if (!el.search.disabled) el.search.focus();
 
-  // Refresh on open when the cache is missing or older than a minute — the
-  // popup is the strongest signal that the user wants current numbers.
-  const stale = !state.cache?.fetchedAt || Date.now() - state.cache.fetchedAt > 60_000;
-  if ((state.settings.username || state.settings.token) && stale) doRefresh(false);
+  // Website reads are intentionally conservative: opening the popup never
+  // turns the six-hour automatic floor into an implicit one-minute poll.
+  const age = state.cache?.fetchedAt ? Date.now() - state.cache.fetchedAt : Infinity;
+  const interval =
+    state.settings.dataSource === 'web'
+      ? Math.max(360, state.settings.refreshMinutes || 360) * 60_000
+      : 60_000;
+  const retryAllowed = !state.cache?.error?.retryAt || state.cache.error.retryAt <= Date.now();
+  const stale =
+    !state.cache?.fetchedAt ||
+    (state.settings.refreshMinutes > 0 && age > interval && retryAllowed);
+  if (hasSetup() && stale) doRefresh(false);
 })();

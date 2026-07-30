@@ -29,8 +29,18 @@
 - Raised small-text contrast, limited screen-reader announcements to targeted
   status regions, disabled setup-only controls until usable, and made refresh
   health neutral until a successful fetch.
+- Made alarm, manual, source-change and rebase refreshes deterministic: cache
+  and baseline now publish under one generation, while failed source switches
+  retain and label the last successful snapshot.
+- Added schema-v3 storage envelopes, sequential legacy migrations, validation,
+  redacted quarantine metadata and last-known-good recovery.
+- Bounded website reads with 20-second request timeouts, serial retry/backoff,
+  `Retry-After`, deduplication, a 1,500-repository cap and visible
+  exact/approximate/partial/stale states.
+- Set website polling to 12 hours by default with a six-hour automatic minimum;
+  manual refresh remains available at any time.
 
-No repository-count semantics or permission scopes changed.
+No permission scopes changed.
 
 ## v1.1.0 — 2026-07-29
 

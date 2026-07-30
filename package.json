@@ -8,7 +8,9 @@
   "scripts": {
     "icons": "py -3.12 scripts/make_icons.py",
     "build": "py -3.12 scripts/build.py",
-    "test": "node tests/smoke.mjs"
+    "test": "npm run test:unit && npm run test:smoke",
+    "test:unit": "node tests/unit.mjs",
+    "test:smoke": "node tests/smoke.mjs"
   },
   "devDependencies": {
     "playwright": "^1.61.0"

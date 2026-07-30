@@ -1,10 +1,16 @@
 /** StarBoard — settings page. */
 
-import { getSettings, setSettings, applyTheme } from './lib/storage.js';
+import {
+  getSettings,
+  getCache,
+  clearPortfolioData,
+  applyTheme,
+} from './lib/storage.js';
 import { fetchAccount } from './lib/github.js';
 import { scrapeAccount } from './lib/scrape.js';
 
 const GITHUB_ORIGIN = 'https://github.com/*';
+const WEB_MIN_REFRESH_MINUTES = 360;
 
 const $ = (id) => document.getElementById(id);
 const fields = {
@@ -31,11 +37,28 @@ function syncSourceUI() {
   const web = fields.dataSource.value === 'web';
   $('sourceHint').textContent = SOURCE_HINTS[fields.dataSource.value];
   $('tokenField').style.display = web ? 'none' : '';
+  for (const option of fields.refreshMinutes.options) {
+    const minutes = Number(option.value);
+    option.disabled = web && minutes > 0 && minutes < WEB_MIN_REFRESH_MINUTES;
+  }
+  if (
+    web &&
+    Number(fields.refreshMinutes.value) > 0 &&
+    Number(fields.refreshMinutes.value) < WEB_MIN_REFRESH_MINUTES
+  ) {
+    fields.refreshMinutes.value = String(WEB_MIN_REFRESH_MINUTES);
+  }
 }
 
 const parser = new DOMParser();
 const parseHTML = (html) => parser.parseFromString(html, 'text/html');
 const status = $('status');
+
+async function patchSettings(changes) {
+  const response = await chrome.runtime.sendMessage({ type: 'patch-settings', changes });
+  if (!response?.ok) throw new Error(response?.error?.message || 'Could not save settings.');
+  return response.settings;
+}
 
 let statusTimer;
 function say(message, kind = '') {
@@ -62,10 +85,7 @@ async function withBusy(button, busyLabel, work) {
 
 async function showStorageInfo() {
   const bytes = await chrome.storage.local.getBytesInUse(null);
-  const [{ cache }, settings] = await Promise.all([
-    chrome.storage.local.get('cache'),
-    getSettings(),
-  ]);
+  const [cache, settings] = await Promise.all([getCache(), getSettings()]);
   const repos = cache?.repos?.length || 0;
   const badgeRepos = cache?.repos?.filter((repo) => settings.includeForks || !repo.fork);
   const stars = badgeRepos?.reduce((total, repo) => total + repo.stargazers_count, 0);
@@ -130,11 +150,21 @@ fields.dataSource.addEventListener('change', async () => {
       return;
     }
     syncSourceUI();
-    await setSettings({ dataSource: fields.dataSource.value });
-    await chrome.runtime.sendMessage({ type: 'settings-changed' });
+    const source = fields.dataSource.value;
+    const refreshMinutes = Number(fields.refreshMinutes.value);
+    await patchSettings({ dataSource: source, refreshMinutes });
+    say(`Switching to ${source === 'web' ? 'github.com' : 'the GitHub API'}…`);
+    const result = await chrome.runtime.sendMessage({
+      type: 'settings-changed',
+      refresh: true,
+      source,
+      reason: 'source-change',
+    });
     say(
-      `Reading from ${fields.dataSource.value === 'web' ? 'github.com' : 'the GitHub API'}.`,
-      'ok',
+      result?.ok
+        ? `Now reading from ${source === 'web' ? 'github.com' : 'the GitHub API'}.`
+        : `${result?.error?.message || 'Source refresh failed.'} The prior snapshot is still shown.`,
+      result?.ok ? 'ok' : 'err',
     );
   } finally {
     fields.dataSource.disabled = false;
@@ -158,11 +188,16 @@ $('save').addEventListener('click', async () => {
         return;
       }
     }
-    await setSettings(next);
+    await patchSettings(next);
     fields.username.value = next.username;
     await chrome.runtime.sendMessage({ type: 'settings-changed' });
     say('Saved — refreshing…');
-    const res = await chrome.runtime.sendMessage({ type: 'refresh' });
+    const res = await chrome.runtime.sendMessage({
+      type: 'refresh',
+      force: true,
+      source: next.dataSource,
+      reason: 'settings-save',
+    });
     if (res?.ok) {
       say(`Synced ${res.cache.repos.length} repos for @${res.cache.profile.login}.`, 'ok');
       await showStorageInfo();
@@ -206,15 +241,16 @@ $('test').addEventListener('click', async () => {
 });
 
 $('clear').addEventListener('click', async () => {
-  await chrome.storage.local.remove(['cache', 'baseline']);
+  await clearPortfolioData();
   await chrome.runtime.sendMessage({ type: 'update-badge' });
   await showStorageInfo();
   say('Cached repos and baseline cleared. Settings kept.', 'ok');
 });
 
 let settingsSaveQueue = Promise.resolve();
+let pendingSettingsSaves = 0;
 
-for (const key of [
+const INSTANT_SETTING_KEYS = [
   'refreshMinutes',
   'baselineHours',
   'badgeMode',
@@ -224,17 +260,28 @@ for (const key of [
   'showMetadata',
   'showForkStats',
   'showSourceStatus',
-]) {
+];
+
+for (const key of INSTANT_SETTING_KEYS) {
   fields[key].addEventListener('change', () => {
-    const value = collect()[key];
+    pendingSettingsSaves += 1;
+    document.body.dataset.settingsState = 'saving';
     settingsSaveQueue = settingsSaveQueue
       .then(async () => {
-        await setSettings({ [key]: value });
-        if (key === 'theme') applyTheme(value);
+        const values = collect();
+        const patch = Object.fromEntries(
+          INSTANT_SETTING_KEYS.map((settingKey) => [settingKey, values[settingKey]]),
+        );
+        await patchSettings(patch);
+        if (key === 'theme') applyTheme(values.theme);
         await chrome.runtime.sendMessage({ type: 'settings-changed' });
         say('Saved.', 'ok');
       })
-      .catch((err) => say(err.message || 'Could not save that setting.', 'err'));
+      .catch((err) => say(err.message || 'Could not save that setting.', 'err'))
+      .finally(() => {
+        pendingSettingsSaves -= 1;
+        if (pendingSettingsSaves === 0) document.body.dataset.settingsState = 'saved';
+      });
   });
 }
 

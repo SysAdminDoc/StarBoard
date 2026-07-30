@@ -9,18 +9,20 @@
 import { fetchAccount, GitHubError } from './lib/github.js';
 import {
   getSettings,
+  setSettings,
   getCache,
-  setCache,
   getBaseline,
-  resolveBaseline,
-  resetBaseline,
+  setCache,
+  chooseBaseline,
+  commitRefresh,
 } from './lib/storage.js';
+import { createRefreshCoordinator } from './lib/refresh-coordinator.js';
 
 const ALARM = 'starboard-refresh';
+const RETRY_ALARM = 'starboard-retry';
 const OFFSCREEN_PATH = 'src/offscreen.html';
 const GITHUB_ORIGIN = 'https://github.com/*';
 
-let inFlight = null;
 let offscreenReady = null;
 
 /** Web mode needs github.com access, granted on demand from the options page. */
@@ -92,7 +94,11 @@ async function fetchAccountViaWeb(username) {
       type: 'scrape-account',
       username,
     });
-    if (!res?.ok) throw new GitHubError(res?.error?.message || 'Could not read github.com.');
+    if (!res?.ok) {
+      const error = new Error(res?.error?.message || 'Could not read github.com.');
+      Object.assign(error, res?.error || {});
+      throw error;
+    }
     return res.result;
   } finally {
     if (await hasOffscreenDocument()) await chrome.offscreen.closeDocument();
@@ -106,12 +112,16 @@ function compact(n) {
   return `${(n / 1000000).toFixed(1)}M`;
 }
 
-async function updateBadge() {
-  const [settings, cache, baseline] = await Promise.all([
-    getSettings(),
-    getCache(),
-    getBaseline(),
-  ]);
+async function updateBadge(snapshot = null) {
+  const { settings, cache, baseline } =
+    snapshot ||
+    Object.fromEntries(
+      await Promise.all([
+        getSettings().then((value) => ['settings', value]),
+        getCache().then((value) => ['cache', value]),
+        getBaseline().then((value) => ['baseline', value]),
+      ]),
+    );
   if (settings.badgeMode === 'off' || !cache?.repos?.length) {
     await chrome.action.setBadgeText({ text: '' });
     return;
@@ -142,47 +152,95 @@ async function updateBadge() {
   await chrome.action.setBadgeBackgroundColor({ color });
 }
 
-/**
- * Fetch, roll the baseline if due, persist. Concurrent callers share the same
- * in-flight promise instead of firing duplicate API requests.
- *
- * The baseline stays in its own storage key — never copied into the cache —
- * so there is exactly one source of truth for what deltas are measured from.
- */
-async function refresh({ rebase = false } = {}) {
-  if (inFlight) return inFlight;
+function generationId() {
+  return `${Date.now().toString(36)}-${crypto.randomUUID()}`;
+}
 
-  inFlight = (async () => {
-    const settings = await getSettings();
-    try {
-      const result =
-        settings.dataSource === 'web'
-          ? await fetchAccountViaWeb(settings.username)
-          : await fetchAccount(settings);
-      const baseline = rebase
-        ? await resetBaseline(result.repos)
-        : await resolveBaseline(result.repos, settings.baselineHours);
+async function scheduleRetry(retryAt) {
+  await chrome.alarms.clear(RETRY_ALARM);
+  if (Number.isFinite(retryAt) && retryAt > Date.now()) {
+    chrome.alarms.create(RETRY_ALARM, { when: retryAt });
+  }
+}
 
-      const cache = { ...result, source: result.source || 'api', error: null };
-      await setCache(cache);
-      await updateBadge();
-      return { ok: true, cache, baseline };
-    } catch (err) {
-      const detail = {
-        message: err.message,
-        rateLimited: err instanceof GitHubError && err.rateLimited,
-        resetAt: err instanceof GitHubError ? err.resetAt : null,
-        at: Date.now(),
+/** Run one generation selected by the refresh coordinator. */
+async function runRefresh(intent) {
+  const { settings } = intent;
+  const generation = generationId();
+  try {
+    const result =
+      settings.dataSource === 'web'
+        ? await fetchAccountViaWeb(settings.username)
+        : await fetchAccount(settings);
+    const existingBaseline = await getBaseline();
+    const baseline = chooseBaseline(existingBaseline, result.repos, settings.baselineHours, {
+      rebase: intent.rebase,
+      generation,
+    });
+    const previous = await getCache();
+    const source = result.source || 'api';
+    const complete = result.complete !== false;
+    const approximate = !!result.approximate;
+    const cache = {
+      ...result,
+      source,
+      requestedSource: settings.dataSource,
+      previousSource: previous?.source && previous.source !== source ? previous.source : null,
+      complete,
+      partialReason: result.partialReason || null,
+      confidence: complete ? (approximate ? 'approximate' : 'exact') : 'partial',
+      stale: false,
+      pendingSource: null,
+      error: null,
+    };
+    const committed = await commitRefresh(cache, baseline, generation);
+    await updateBadge({ settings, ...committed });
+    await scheduleRetry(result.retryAt);
+    return { ok: true, ...committed, generation };
+  } catch (err) {
+    const detail = {
+      message: err.message,
+      code: err.code || 'REFRESH_FAILED',
+      status: err.status || 0,
+      rateLimited:
+        (err instanceof GitHubError && err.rateLimited) || err.code === 'RATE_LIMITED',
+      resetAt: err instanceof GitHubError ? err.resetAt : err.retryAt || null,
+      retryAt: err.retryAt || (err instanceof GitHubError ? err.resetAt : null),
+      at: Date.now(),
+      requestedSource: settings.dataSource,
+    };
+    const [previous, baseline] = await Promise.all([getCache(), getBaseline()]);
+    let cache = previous;
+    if (previous) {
+      cache = {
+        ...previous,
+        stale: true,
+        confidence: 'stale',
+        pendingSource:
+          previous.source !== settings.dataSource ? settings.dataSource : null,
+        error: detail,
       };
-      const prev = await getCache();
-      if (prev) await setCache({ ...prev, error: detail });
-      return { ok: false, error: detail, cache: prev };
-    } finally {
-      inFlight = null;
+      await setCache(cache);
+      await updateBadge({ settings, cache, baseline });
     }
-  })();
+    await scheduleRetry(detail.retryAt);
+    return { ok: false, error: detail, cache, baseline };
+  }
+}
 
-  return inFlight;
+const refreshCoordinator = createRefreshCoordinator(runRefresh);
+
+async function refresh({ rebase = false, force = false, reason = 'manual', source = null } = {}) {
+  const settings = await getSettings();
+  const selectedSource = source || settings.dataSource;
+  return refreshCoordinator.request({
+    rebase,
+    force,
+    source: selectedSource,
+    accountKey: `${selectedSource}:${settings.username}:${settings.token ? 'authenticated' : 'public'}`,
+    settings: { ...settings, dataSource: selectedSource },
+    reasons: [reason],
+  });
 }
 
 async function syncAlarm() {
@@ -198,7 +256,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   await syncAlarm();
   await updateBadge();
   const settings = await getSettings();
-  if (settings.username || settings.token) refresh();
+  if (settings.username || settings.token) refresh({ reason: 'installed' });
 });
 
 chrome.runtime.onStartup.addListener(async () => {
@@ -207,7 +265,9 @@ chrome.runtime.onStartup.addListener(async () => {
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === ALARM) refresh();
+  if (alarm.name === ALARM || alarm.name === RETRY_ALARM) {
+    refresh({ reason: alarm.name === RETRY_ALARM ? 'retry' : 'alarm' });
+  }
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -215,13 +275,35 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   (async () => {
     switch (msg?.type) {
+      case 'patch-settings': {
+        const settings = await setSettings(msg.changes || {});
+        sendResponse({ ok: true, settings });
+        break;
+      }
       case 'refresh':
-        sendResponse(await refresh({ rebase: !!msg.rebase }));
+        sendResponse(
+          await refresh({
+            rebase: !!msg.rebase,
+            force: !!msg.force,
+            reason: msg.reason || 'manual',
+            source: msg.source || null,
+          }),
+        );
         break;
       case 'settings-changed':
         await syncAlarm();
         await updateBadge();
-        sendResponse({ ok: true });
+        if (msg.refresh) {
+          sendResponse(
+            await refresh({
+              force: true,
+              reason: msg.reason || 'settings-change',
+              source: msg.source || null,
+            }),
+          );
+        } else {
+          sendResponse({ ok: true });
+        }
         break;
       case 'update-badge':
         await updateBadge();

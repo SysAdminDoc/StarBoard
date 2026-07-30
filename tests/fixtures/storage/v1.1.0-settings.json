@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "savedAt": 1735689600000,
+  "generation": null,
+  "data": {
+    "username": "octocat",
+    "token": "",
+    "dataSource": "web",
+    "refreshMinutes": 60,
+    "baselineHours": 24,
+    "includeForks": false,
+    "includeArchived": true,
+    "sortKey": "stars",
+    "badgeMode": "stars",
+    "theme": "dark"
+  }
+}

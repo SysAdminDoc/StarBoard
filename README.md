@@ -30,7 +30,8 @@ projects are doing best**, and **what moved since yesterday**.
 - **Two data sources** — your signed-in github.com session with **no token at
   all** by default, or the GitHub API when you need exact high-count metrics.
 - **Private repos** — supported when you add a token.
-- **Background refresh** — configurable interval, so the numbers are current before you open it.
+- **Background refresh** — configurable interval, with a conservative 12-hour
+  website default and six-hour automatic minimum.
 - **Purpose-built portfolio UI** — a compact night-observatory dashboard, a
   crisp daylight theme and a match-system option.
 - **Your preferred signal density** — independently show or hide follower
@@ -86,7 +87,11 @@ Two honest caveats:
   and a `+3` gain is invisible at that resolution. Affected repos are shown as
   `~1,200` rather than pretending to be precise. Under 1,000, counts are exact.
 - **It costs more bandwidth.** One page load per 30 repos (~12× the API's
-  payload for the same data), fetched one page at a time.
+  payload for the same data), fetched one page at a time. Requests time out and
+  retry serially, deduplicate rows, and stop at a documented 50-page /
+  1,500-repository safety cap. If a later page fails or GitHub markup drifts,
+  StarBoard labels the retained result partial instead of presenting it as
+  complete.
 
 Star and fork numbers are otherwise identical to the API's — the test suite
 asserts exact parity across every repo, so a GitHub markup change fails loudly
@@ -133,10 +138,12 @@ node tests/smoke.mjs --zip       # same, against the built artifact
 node tests/smoke.mjs --no-web    # skip the (slower) scraping checks
 ```
 
-`tests/smoke.mjs` loads the extension into a throwaway Chromium profile, seeds
+`tests/unit.mjs` covers storage migrations and recovery, refresh coalescing,
+and request timeout/backoff without network access. `tests/smoke.mjs` loads the
+extension into a throwaway Chromium profile, seeds
 settings, performs a real fetch, and asserts on ordering, deltas, filtering,
 sorting, source defaults, popup-detail switches, the toolbar badge, the options
-page and both themes — 30 checks. It
+page and both themes — 48 checks. It
 hits the live GitHub API unauthenticated (3–4 of your 60 hourly requests); set
 `GITHUB_TOKEN` to use the authenticated limit.
 
@@ -156,9 +163,12 @@ src/background.js    service worker — owns every fetch, the alarm and the badg
 src/offscreen.*      hidden DOM host; web mode's parser lives here
 src/lib/github.js    REST client: pagination, rate limits, error mapping
 src/lib/scrape.js    github.com HTML -> the same shape github.js returns
-src/lib/storage.js   settings, cache and baseline persistence
+src/lib/request.js   timeout, Retry-After and bounded retry policy
+src/lib/refresh-coordinator.js  refresh intent serialization/coalescing
+src/lib/storage.js   versioned settings/cache/baseline persistence and recovery
 scripts/build.py     ZIP + CRX3 packaging
 scripts/make_icons.py  icon generation
+tests/unit.mjs       deterministic state, refresh and request checks
 tests/smoke.mjs      end-to-end browser test
 ```
 

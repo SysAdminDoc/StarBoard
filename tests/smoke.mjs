@@ -27,6 +27,11 @@ const SKIP_WEB = args.includes('--no-web');
 const USERNAME = args.find((a) => !a.startsWith('--')) || 'SysAdminDoc';
 const TOKEN = process.env.GITHUB_TOKEN || '';
 const WEB_BUILD = resolve(HERE, '.webbuild');
+const WEB_FIXTURES = {
+  page1: readFileSync(resolve(HERE, 'fixtures', 'web', 'repositories-page-1.html'), 'utf8'),
+  page2: readFileSync(resolve(HERE, 'fixtures', 'web', 'repositories-page-2.html'), 'utf8'),
+  drift: readFileSync(resolve(HERE, 'fixtures', 'web', 'repositories-parser-drift.html'), 'utf8'),
+};
 const CHROME_EXECUTABLE = process.env.STARBOARD_CHROME_EXECUTABLE || '';
 const BROWSER_CHANNEL = CHROME_EXECUTABLE
   ? { executablePath: CHROME_EXECUTABLE }
@@ -225,6 +230,7 @@ async function testWebMode(source) {
 
     // The options page must hide the token field and explain the tradeoff.
     const options = await ctx.newPage();
+    captureErrors(options, 'options');
     await options.goto(`chrome-extension://${extId}/src/options.html`);
     await options.waitForSelector('#dataSource');
     check('options reflects web mode', (await options.inputValue('#dataSource')) === 'web');
@@ -307,6 +313,73 @@ async function main() {
     check(
       'token field is hidden for the default source',
       await firstRunOptions.$eval('#tokenField', (node) => node.style.display === 'none'),
+    );
+    check(
+      'website source defaults to a 12-hour interval',
+      (await firstRunOptions.inputValue('#refreshMinutes')) === '720',
+    );
+    check(
+      'website source disables automatic intervals below six hours',
+      await firstRunOptions.$$eval(
+        '#refreshMinutes option',
+        (options) =>
+          options
+            .filter((option) => Number(option.value) > 0 && Number(option.value) < 360)
+            .every((option) => option.disabled),
+      ),
+    );
+    const webContract = await firstRunOptions.evaluate(async (fixtures) => {
+      const { scrapeAccount } = await import('./lib/scrape.js');
+      const parse = (html) => new DOMParser().parseFromString(html, 'text/html');
+      const response = (html) => ({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        text: async () => html,
+      });
+      const fetchPages = async (url) =>
+        response(new URL(url).searchParams.get('page') === '2' ? fixtures.page2 : fixtures.page1);
+      const complete = await scrapeAccount('octocat', parse, {
+        fetchImpl: fetchPages,
+        sleep: async () => {},
+        maxPages: 2,
+      });
+      const capped = await scrapeAccount('octocat', parse, {
+        fetchImpl: fetchPages,
+        sleep: async () => {},
+        maxPages: 1,
+      });
+      const drifted = await scrapeAccount('octocat', parse, {
+        fetchImpl: async (url) =>
+          response(
+            new URL(url).searchParams.get('page') === '2' ? fixtures.drift : fixtures.page1,
+          ),
+        sleep: async () => {},
+        maxPages: 2,
+      });
+      return {
+        deduped: complete.repos.length,
+        duplicatesRemoved: complete.duplicatesRemoved,
+        approximate: complete.confidence,
+        capped: [capped.complete, capped.partialReason, capped.cap.maxRepositories],
+        drifted: [drifted.complete, drifted.partialReason],
+      };
+    }, WEB_FIXTURES);
+    check(
+      'website contract deduplicates and labels approximation',
+      webContract.deduped === 2 &&
+        webContract.duplicatesRemoved === 1 &&
+        webContract.approximate === 'approximate',
+      JSON.stringify(webContract),
+    );
+    check(
+      'website contract exposes cap and parser-drift partial states',
+      webContract.capped[0] === false &&
+        webContract.capped[1] === 'cap' &&
+        webContract.capped[2] === 30 &&
+        webContract.drifted[0] === false &&
+        webContract.drifted[1] === 'parser-drift',
+      JSON.stringify(webContract),
     );
     await firstRunOptions.close();
 
@@ -401,6 +474,60 @@ async function main() {
     const banner = await popup.$('#banner:not([hidden])');
     check('no error banner', !banner, banner ? await banner.textContent() : '');
 
+    const committedGeneration = await popup.evaluate(async () => {
+      const stored = await chrome.storage.local.get(['settings', 'cache', 'baseline']);
+      return {
+        versions: [stored.settings?.schemaVersion, stored.cache?.schemaVersion, stored.baseline?.schemaVersion],
+        cacheGeneration: stored.cache?.generation,
+        baselineGeneration: stored.baseline?.generation,
+      };
+    });
+    check(
+      'settings, cache, and baseline use versioned envelopes',
+      committedGeneration.versions.every((version) => version === 3),
+      JSON.stringify(committedGeneration),
+    );
+    check(
+      'cache and baseline publish as one generation',
+      !!committedGeneration.cacheGeneration &&
+        committedGeneration.cacheGeneration === committedGeneration.baselineGeneration,
+      committedGeneration.cacheGeneration,
+    );
+
+    // A failed source switch must keep the prior generation clearly labeled,
+    // then a forced refresh of the saved API source should recover it.
+    const failedSwitch = await popup.evaluate(() =>
+      chrome.runtime.sendMessage({
+        type: 'refresh',
+        force: true,
+        source: 'web',
+        reason: 'source-failure-smoke',
+      }),
+    );
+    check(
+      'failed source refresh retains labeled last-known-good data',
+      failedSwitch?.ok === false &&
+        failedSwitch.cache?.source === 'api' &&
+        failedSwitch.cache?.pendingSource === 'web' &&
+        failedSwitch.cache?.stale === true &&
+        failedSwitch.cache?.generation === committedGeneration.cacheGeneration,
+      JSON.stringify({
+        ok: failedSwitch?.ok,
+        source: failedSwitch?.cache?.source,
+        pendingSource: failedSwitch?.cache?.pendingSource,
+        stale: failedSwitch?.cache?.stale,
+      }),
+    );
+    const recoveredSwitch = await popup.evaluate(() =>
+      chrome.runtime.sendMessage({
+        type: 'refresh',
+        force: true,
+        source: 'api',
+        reason: 'source-recovery-smoke',
+      }),
+    );
+    check('saved source recovers after a failed switch', recoveredSwitch?.ok === true);
+
     const totals = await popup.textContent('#total-stars');
     check('totals populated', totals !== '0', `${totals} stars across ${rows.length} repos`);
     await popup.screenshot({ path: `${SHOTS}/02-popup.png` });
@@ -481,8 +608,10 @@ async function main() {
     ]) {
       await options.uncheck(selector);
     }
+    await options.waitForFunction(() => document.body.dataset.settingsState === 'saved');
     await options.waitForFunction(async () => {
-      const { settings } = await chrome.storage.local.get('settings');
+      const { getSettings } = await import('./lib/storage.js');
+      const settings = await getSettings();
       return (
         settings.showFollowers === false &&
         settings.showDescriptions === false &&
@@ -514,9 +643,17 @@ async function main() {
         detailVisibility.totalForksHidden,
       JSON.stringify(detailVisibility),
     );
+    const sourceStatusState = await popup.evaluate(async () => {
+      const { getSettings } = await import('./lib/storage.js');
+      return {
+        hidden: document.querySelector('#rate').hidden,
+        setting: (await getSettings()).showSourceStatus,
+      };
+    });
     check(
       'source-status switch hides quota details',
-      await popup.$eval('#rate', (node) => node.hidden),
+      sourceStatusState.hidden && sourceStatusState.setting === false,
+      JSON.stringify(sourceStatusState),
     );
     for (const selector of [
       '#showFollowers',
@@ -527,8 +664,10 @@ async function main() {
     ]) {
       await options.check(selector);
     }
+    await options.waitForFunction(() => document.body.dataset.settingsState === 'saved');
     await options.waitForFunction(async () => {
-      const { settings } = await chrome.storage.local.get('settings');
+      const { getSettings } = await import('./lib/storage.js');
+      const settings = await getSettings();
       return (
         settings.showFollowers &&
         settings.showDescriptions &&
@@ -550,12 +689,13 @@ async function main() {
     // Deltas: plant a baseline that is deliberately behind the live counts and
     // confirm the popup reports the gain rather than just the total.
     await popup.evaluate(async () => {
-      const { cache } = await chrome.storage.local.get('cache');
+      const { getCache, setBaseline } = await import('./lib/storage.js');
+      const cache = await getCache();
       const counts = {};
       for (const r of cache.repos) {
         counts[r.full_name] = [Math.max(0, r.stargazers_count - 3), Math.max(0, r.forks_count - 1)];
       }
-      await chrome.storage.local.set({ baseline: { at: Date.now(), counts } });
+      await setBaseline({ at: Date.now(), counts, generation: cache.generation });
     });
     await popup.reload();
     await popup.waitForSelector('.row .stat.stars .delta.up', { timeout: 30000 });
@@ -566,10 +706,8 @@ async function main() {
     // Expected gain is not simply 3-per-repo: the planted baseline clamps at
     // zero, so repos with fewer than 3 stars contribute less.
     const expected = await popup.evaluate(async () => {
-      const [{ cache }, { baseline }] = await Promise.all([
-        chrome.storage.local.get('cache'),
-        chrome.storage.local.get('baseline'),
-      ]);
+      const { getCache, getBaseline } = await import('./lib/storage.js');
+      const [cache, baseline] = await Promise.all([getCache(), getBaseline()]);
       return cache.repos
         .filter((r) => !r.fork)
         .reduce((sum, r) => sum + (r.stargazers_count - baseline.counts[r.full_name][0]), 0);
@@ -590,6 +728,11 @@ async function main() {
 
     // Switching the theme in options must take effect in the popup.
     await options.selectOption('#theme', 'light');
+    await options.waitForFunction(() => document.body.dataset.settingsState === 'saved');
+    await options.waitForFunction(async () => {
+      const { getSettings } = await import('./lib/storage.js');
+      return (await getSettings()).theme === 'light';
+    });
     await popup.reload();
     await popup.waitForSelector('.row', { timeout: 30000 });
     const lightBg = await popup.evaluate(() => getComputedStyle(document.body).backgroundColor);

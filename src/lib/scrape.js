@@ -14,9 +14,27 @@
  * the star/fork deltas quietly wrong.
  */
 
+import { RequestPolicyError, requestText } from './request.js';
+
 const PAGE_SIZE = 30; // rows per repositories-tab page
 const MAX_PAGES = 50; // 1,500 repos — a stop so a broken "next" link can't spin
 const PAGE_DELAY_MS = 250; // be a considerate client between page loads
+const REQUEST_TIMEOUT_MS = 20_000;
+const REQUEST_RETRIES = 2;
+
+export class WebSourceError extends Error {
+  constructor(
+    message,
+    { code = 'WEB_SOURCE_FAILED', status = 0, retryAt = null, partialReason = null } = {},
+  ) {
+    super(message);
+    this.name = 'WebSourceError';
+    this.code = code;
+    this.status = status;
+    this.retryAt = retryAt;
+    this.partialReason = partialReason;
+  }
+}
 
 export function reposUrl(username, page = 1) {
   const u = encodeURIComponent(username);
@@ -145,55 +163,162 @@ export function isMissingUser(doc) {
  * `parseHTML` is injected so this works anywhere a DOM exists — the offscreen
  * document at refresh time, the options page for "Test connection".
  */
-export async function scrapeAccount(username, parseHTML) {
+export async function scrapeAccount(username, parseHTML, options = {}) {
+  const {
+    fetchImpl = fetch,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    random = Math.random,
+    now = Date.now,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+    retries = REQUEST_RETRIES,
+    maxPages = MAX_PAGES,
+    pageDelayMs = PAGE_DELAY_MS,
+  } = options;
+
+  if (!username) {
+    throw new WebSourceError('Web mode needs a GitHub username.', { code: 'USERNAME_REQUIRED' });
+  }
+
+  let requestAttempts = 0;
   const load = async (page) => {
-    const res = await fetch(reposUrl(username, page), {
-      credentials: 'include',
-      headers: { Accept: 'text/html' },
-      redirect: 'follow',
-    });
-    if (res.status === 404) throw new Error(`GitHub has no user named "${username}" (404).`);
-    if (res.status === 429) {
-      throw new Error('GitHub is rate limiting the browser. Try again in a few minutes.');
+    let requested;
+    try {
+      requested = await requestText(reposUrl(username, page), {
+        fetchImpl,
+        sleep,
+        random,
+        now,
+        timeoutMs,
+        retries,
+        credentials: 'include',
+        headers: { Accept: 'text/html' },
+        redirect: 'follow',
+      });
+    } catch (error) {
+      if (error instanceof RequestPolicyError) {
+        throw new WebSourceError(
+          error.code === 'RATE_LIMITED'
+            ? 'GitHub is rate limiting website requests.'
+            : error.code === 'TIMEOUT'
+              ? 'github.com took too long to respond.'
+              : 'Could not finish reading github.com.',
+          {
+            code: error.code,
+            status: error.status,
+            retryAt: error.retryAt,
+          },
+        );
+      }
+      throw error;
     }
-    if (!res.ok) throw new Error(`github.com returned ${res.status}.`);
-    return parseHTML(await res.text());
+    requestAttempts += requested.attempts;
+    if (requested.response.status === 404) {
+      throw new WebSourceError(`GitHub has no user named "${username}" (404).`, {
+        code: 'USER_NOT_FOUND',
+        status: 404,
+      });
+    }
+    if (!requested.response.ok) {
+      throw new WebSourceError(`github.com returned ${requested.response.status}.`, {
+        code: 'HTTP_ERROR',
+        status: requested.response.status,
+      });
+    }
+    return parseHTML(requested.value);
   };
 
   const first = await load(1);
-  if (isMissingUser(first)) throw new Error(`GitHub has no user named "${username}".`);
+  if (isMissingUser(first)) {
+    throw new WebSourceError(`GitHub has no user named "${username}".`, {
+      code: 'USER_NOT_FOUND',
+      status: 404,
+    });
+  }
 
   const profile = parseProfile(first, username);
   const page1 = parseRepoPage(first, profile.login);
-  if (!page1.rowCount) {
-    throw new Error(
-      'Could not read any repos from github.com — the page layout may have changed. Switch to API mode in Settings.',
+  if (!page1.rowCount && !first.querySelector('#user-repositories-list')) {
+    throw new WebSourceError(
+      'Could not read repositories from github.com — its page layout may have changed.',
+      { code: 'PARSER_DRIFT', partialReason: 'parser-drift' },
     );
   }
 
-  const repos = [...page1.repos];
+  const byName = new Map();
+  let duplicatesRemoved = 0;
+  const addRepos = (repos) => {
+    for (const repo of repos) {
+      if (byName.has(repo.full_name)) duplicatesRemoved += 1;
+      byName.set(repo.full_name, repo);
+    }
+  };
+  addRepos(page1.repos);
+
   let hasNext = page1.hasNext;
   let page = 1;
+  let partialReason = null;
+  let retryAt = null;
 
-  while (hasNext && page < MAX_PAGES) {
-    page += 1;
-    await new Promise((r) => setTimeout(r, PAGE_DELAY_MS));
-    const parsed = parseRepoPage(await load(page), profile.login);
-    repos.push(...parsed.repos);
-    hasNext = parsed.hasNext && parsed.rowCount > 0;
+  while (hasNext && page < maxPages) {
+    const nextPage = page + 1;
+    await sleep(pageDelayMs);
+    let doc;
+    try {
+      doc = await load(nextPage);
+    } catch (error) {
+      partialReason =
+        error.partialReason ||
+        (error.code === 'RATE_LIMITED'
+          ? 'rate-limited'
+          : error.code === 'TIMEOUT'
+            ? 'timeout'
+            : 'network');
+      retryAt = error.retryAt || null;
+      break;
+    }
+    const parsed = parseRepoPage(doc, profile.login);
+    if (!parsed.rowCount) {
+      partialReason = 'parser-drift';
+      break;
+    }
+    page = nextPage;
+    addRepos(parsed.repos);
+    hasNext = parsed.hasNext;
   }
 
-  profile.public_repos = repos.filter((r) => !r.private).length;
+  if (hasNext && page >= maxPages) partialReason = 'cap';
+
+  const repos = [...byName.values()];
+  profile.public_repos = repos.filter((repo) => !repo.private).length;
+  const approximate = repos.some((repo) => repo.approx);
+  const complete = !partialReason;
 
   return {
     profile,
     repos,
-    rate: null, // no documented quota on the website
+    rate: null,
     source: 'web',
     pagesFetched: page,
-    approximate: repos.some((r) => r.approx),
-    fetchedAt: Date.now(),
+    requestAttempts,
+    duplicatesRemoved,
+    approximate,
+    complete,
+    partialReason,
+    confidence: complete ? (approximate ? 'approximate' : 'exact') : 'partial',
+    cap: {
+      maxPages,
+      maxRepositories: maxPages * PAGE_SIZE,
+      reached: partialReason === 'cap',
+    },
+    retryAt,
+    fetchedAt: now(),
   };
 }
 
-export { PAGE_SIZE };
+export {
+  MAX_PAGES,
+  PAGE_DELAY_MS,
+  PAGE_SIZE,
+  REQUEST_RETRIES,
+  REQUEST_TIMEOUT_MS,
+};

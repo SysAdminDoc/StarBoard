@@ -25,7 +25,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: false, error: { message: `Unknown offscreen job: ${msg.type}` } });
       }
     } catch (err) {
-      sendResponse({ ok: false, error: { message: err.message } });
+      sendResponse({
+        ok: false,
+        error: {
+          message: err.message,
+          code: err.code || 'WEB_SOURCE_FAILED',
+          status: err.status || 0,
+          retryAt: err.retryAt || null,
+          partialReason: err.partialReason || null,
+        },
+      });
     }
   })();
 
