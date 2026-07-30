@@ -12,13 +12,17 @@ package-lock.json
 # Test output
 tests/screenshots/
 tests/.profile/
+tests/.profile-web/
 tests/.unpacked/
+tests/.webbuild/
 
 # Python
 __pycache__/
 *.py[cod]
 
 # Agent working notes
+*.md
+!README.md
 CLAUDE.md
 CODEX_CHANGELOG.md
 .claude/

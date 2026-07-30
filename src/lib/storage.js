@@ -14,7 +14,7 @@
 export const DEFAULTS = {
   username: '',
   token: '',
-  dataSource: 'api', // 'api' = api.github.com | 'web' = scrape github.com, no token
+  dataSource: 'web', // 'web' = github.com, no token | 'api' = api.github.com
   refreshMinutes: 60,
   baselineHours: 24,
   includeForks: false,
@@ -22,18 +22,36 @@ export const DEFAULTS = {
   sortKey: 'stars',
   badgeMode: 'stars', // 'stars' | 'delta' | 'off'
   theme: 'dark', // 'dark' | 'light' | 'auto'
+  showFollowers: true,
+  showDescriptions: true,
+  showMetadata: true,
+  showForkStats: true,
+  showSourceStatus: true,
 };
 
 /** Apply a theme to the current document. Pages default to dark markup-side. */
 export function applyTheme(theme) {
+  // Theme is loaded asynchronously from extension storage. Disable transitions
+  // across that first paint so light mode does not briefly animate out of the
+  // dark markup default.
+  document.documentElement.classList.add('theme-switching');
   document.documentElement.dataset.theme = theme || DEFAULTS.theme;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => document.documentElement.classList.remove('theme-switching'));
+  });
 }
 
 const AREA = chrome.storage.local;
 
 export async function getSettings() {
   const { settings } = await AREA.get('settings');
-  return { ...DEFAULTS, ...(settings || {}) };
+  if (!settings) return { ...DEFAULTS };
+
+  // Profiles saved before data-source selection existed used the API. Keep
+  // that established behavior on upgrade while new installs start on the
+  // website source.
+  const dataSource = Object.hasOwn(settings, 'dataSource') ? settings.dataSource : 'api';
+  return { ...DEFAULTS, ...settings, dataSource };
 }
 
 export async function setSettings(patch) {

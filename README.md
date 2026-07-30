@@ -1,6 +1,6 @@
 # StarBoard
 
-[![Version](https://img.shields.io/badge/version-1.1.0-58a6ff)](https://github.com/SysAdminDoc/StarBoard/releases)
+[![Version](https://img.shields.io/badge/version-1.2.0-7aa2ff)](https://github.com/SysAdminDoc/StarBoard/releases)
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-e3b341)](#install)
 [![Manifest](https://img.shields.io/badge/manifest-v3-8b949e)](manifest.json)
@@ -9,7 +9,7 @@ One click on the toolbar shows every repo you own, ranked most stars to least �
 and how many stars and forks each one has picked up since you last looked.
 
 <p align="center">
-  <img src="docs/screenshot-deltas.png" width="440" alt="StarBoard popup showing repos ranked by stars with star and fork gains" />
+  <img src="docs/screenshot-deltas.png" width="440" alt="StarBoard's night-observatory popup showing repositories ranked by star momentum" />
 </p>
 
 ## Why
@@ -27,11 +27,26 @@ projects are doing best**, and **what moved since yesterday**.
 - **Live totals** — aggregate stars, forks and repo count, each with its own delta.
 - **Toolbar badge** — total stars, or stars gained since the baseline, on the extension icon.
 - **Search and filter** — filter by name, description or language; toggle forks and archived repos in or out.
-- **Two data sources** — the GitHub API, or your signed-in github.com session with **no token at all**.
+- **Two data sources** — your signed-in github.com session with **no token at
+  all** by default, or the GitHub API when you need exact high-count metrics.
 - **Private repos** — supported when you add a token.
 - **Background refresh** — configurable interval, so the numbers are current before you open it.
-- **Dark by default**, with a light theme and a match-system option.
+- **Purpose-built portfolio UI** — a compact night-observatory dashboard, a
+  crisp daylight theme and a match-system option.
+- **Your preferred signal density** — independently show or hide follower
+  count, descriptions, language and activity, fork statistics, and source
+  quota details.
 - **No telemetry.** The only hosts it ever contacts are `api.github.com` and, in web mode, `github.com`.
+
+## Make it yours
+
+The popup can stay information-rich or become a quieter leaderboard. Every
+supporting detail has its own switch, while theme, refresh rhythm, baseline
+cadence and toolbar-badge behavior remain independently configurable.
+
+<p align="center">
+  <img src="docs/screenshot-options.png" width="1000" alt="StarBoard settings showing GitHub website as the default source and independent popup-detail switches" />
+</p>
 
 ## Install
 
@@ -40,7 +55,8 @@ No signed build is published — install unpacked:
 1. Download `StarBoard-vX.Y.Z.zip` from [Releases](https://github.com/SysAdminDoc/StarBoard/releases) and unzip it (or clone this repo).
 2. Open `chrome://extensions` and turn on **Developer mode**.
 3. Click **Load unpacked** and select the folder.
-4. Click the StarBoard icon → **Open settings** → enter your GitHub username → **Save & refresh**.
+4. Click the StarBoard icon → **Open settings** → enter your GitHub username →
+   **Save & refresh**, then accept the one-time permission to read github.com.
 
 Works in Chrome, Edge, Brave and other Chromium browsers (Manifest V3, Chrome 110+).
 
@@ -50,27 +66,18 @@ Works in Chrome, Edge, Brave and other Chromium browsers (Manifest V3, Chrome 11
 
 ## Data sources
 
-Pick one in **Settings → Where to read from**.
+Pick one in **Settings → Where to read from**. New profiles start with the
+website source; an existing installation keeps its saved source choice.
 
-### GitHub API (default)
-
-| | Requests/hour | Private repos |
-|---|---|---|
-| No token | 60 (shared per IP) | No |
-| `public_repo` scope, or fine-grained w/ read-only **Metadata** | 5,000 | No |
-| `repo` scope | 5,000 | Yes |
-
-A full refresh of a 200-repo account costs 3–4 requests. The token is stored in
-`chrome.storage.local` in your browser profile and is sent only to `api.github.com`.
-
-### GitHub website (no token)
+### GitHub website (default, no token)
 
 Reads your own repositories tab — `github.com/<you>?tab=repositories` — using the
 session you are already signed in with, and parses it into the same data the API
 returns. No token, no registration, nothing to paste.
 
-The first time you select it, Chrome asks permission to read `github.com`.
-It is an *optional* permission, so a default install never requests it.
+The first time you save or select this source, Chrome asks permission to read
+`github.com`. The permission remains optional in the manifest and is only
+requested from that explicit user action.
 
 Two honest caveats:
 
@@ -85,13 +92,25 @@ Star and fork numbers are otherwise identical to the API's — the test suite
 asserts exact parity across every repo, so a GitHub markup change fails loudly
 instead of quietly reporting wrong numbers.
 
-**Recommendation:** use the API. Web mode exists for when you would rather not
-manage a token, and it is a perfectly good choice if none of your repos are near
-1,000 stars.
-
 <p align="center">
   <img src="docs/screenshot-web-mode.png" width="440" alt="StarBoard running in web mode, footer reading via github.com" />
 </p>
+
+### GitHub API (secondary)
+
+| | Requests/hour | Private repos |
+|---|---|---|
+| No token | 60 (shared per IP) | No |
+| `public_repo` scope, or fine-grained w/ read-only **Metadata** | 5,000 | No |
+| `repo` scope | 5,000 | Yes |
+
+A full refresh of a 200-repo account costs 3–4 requests. The token is stored in
+`chrome.storage.local` in your browser profile and is sent only to
+`api.github.com`.
+
+Use the API source when you need exact counts above 1,000, lower bandwidth, or
+private repositories through a token. Otherwise the website source is the
+recommended zero-setup choice.
 
 ## How the deltas work
 
@@ -116,7 +135,8 @@ node tests/smoke.mjs --no-web    # skip the (slower) scraping checks
 
 `tests/smoke.mjs` loads the extension into a throwaway Chromium profile, seeds
 settings, performs a real fetch, and asserts on ordering, deltas, filtering,
-sorting, the toolbar badge, the options page and both themes — 25 checks. It
+sorting, source defaults, popup-detail switches, the toolbar badge, the options
+page and both themes — 30 checks. It
 hits the live GitHub API unauthenticated (3–4 of your 60 hourly requests); set
 `GITHUB_TOKEN` to use the authenticated limit.
 

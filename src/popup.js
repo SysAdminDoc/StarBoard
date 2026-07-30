@@ -50,6 +50,7 @@ const el = {
   totalStarsDelta: $('total-stars-delta'),
   totalForks: $('total-forks'),
   totalForksDelta: $('total-forks-delta'),
+  totalForksWrap: $('total-forks-wrap'),
   totalRepos: $('total-repos'),
   rebase: $('rebase'),
   since: $('since'),
@@ -60,11 +61,39 @@ const el = {
   count: $('count'),
   banner: $('banner'),
   list: $('list'),
+  footer: $('footer'),
   updated: $('updated'),
   rate: $('rate'),
+  liveStatus: $('live-status'),
 };
 
 let state = { settings: null, cache: null, baseline: null, query: '' };
+let refreshing = false;
+
+function hasSetup() {
+  return !!(state.settings?.username || state.settings?.token);
+}
+
+function syncControls() {
+  const hasRows = !!state.cache?.repos;
+  el.refresh.disabled = !hasSetup() || refreshing;
+  el.rebase.disabled = !hasRows || refreshing;
+  el.search.disabled = !hasRows;
+  el.sort.disabled = !hasRows;
+  el.incForks.disabled = !hasRows;
+  el.incArchived.disabled = !hasRows;
+  el.list.setAttribute(
+    'aria-busy',
+    String(refreshing || (hasSetup() && !state.cache?.repos && !state.cache?.error)),
+  );
+}
+
+function announce(message) {
+  el.liveStatus.textContent = '';
+  requestAnimationFrame(() => {
+    el.liveStatus.textContent = message;
+  });
+}
 
 /* ---------- formatting ---------- */
 
@@ -194,49 +223,54 @@ function rowNode(repo, rank) {
   name.textContent = repo.name;
   main.appendChild(name);
 
-  if (repo.description) {
+  if (state.settings.showDescriptions && repo.description) {
     const desc = document.createElement('div');
     desc.className = 'desc';
     desc.textContent = repo.description;
     main.appendChild(desc);
   }
 
-  const meta = document.createElement('div');
-  meta.className = 'meta';
+  if (state.settings.showMetadata) {
+    const meta = document.createElement('div');
+    meta.className = 'meta';
 
-  if (repo.language) {
-    const lang = document.createElement('span');
-    lang.className = 'lang';
-    const dot = document.createElement('span');
-    dot.className = 'dot';
-    if (LANG_COLORS[repo.language]) dot.style.background = LANG_COLORS[repo.language];
-    lang.append(dot, document.createTextNode(repo.language));
-    meta.appendChild(lang);
+    if (repo.language) {
+      const lang = document.createElement('span');
+      lang.className = 'lang';
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      if (LANG_COLORS[repo.language]) dot.style.background = LANG_COLORS[repo.language];
+      lang.append(dot, document.createTextNode(repo.language));
+      meta.appendChild(lang);
+    }
+
+    const pushed = document.createElement('span');
+    pushed.textContent = relative(repo.pushed_at);
+    meta.appendChild(pushed);
+
+    for (const [flag, label] of [
+      [repo.private, 'private'],
+      [repo.fork, 'fork'],
+      [repo.archived, 'archived'],
+    ]) {
+      if (!flag) continue;
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = label;
+      meta.appendChild(tag);
+    }
+
+    main.appendChild(meta);
   }
 
-  const pushed = document.createElement('span');
-  pushed.textContent = relative(repo.pushed_at);
-  meta.appendChild(pushed);
-
-  for (const [flag, label] of [
-    [repo.private, 'private'],
-    [repo.fork, 'fork'],
-    [repo.archived, 'archived'],
-  ]) {
-    if (!flag) continue;
-    const tag = document.createElement('span');
-    tag.className = 'tag';
-    tag.textContent = label;
-    meta.appendChild(tag);
-  }
-
-  main.appendChild(meta);
   a.appendChild(main);
 
   const stats = document.createElement('div');
   stats.className = 'stats';
   stats.appendChild(statNode('stars', repo.stargazers_count, repo.starsDelta, repo.approx));
-  stats.appendChild(statNode('forks', repo.forks_count, repo.forksDelta, repo.approx));
+  if (state.settings.showForkStats) {
+    stats.appendChild(statNode('forks', repo.forks_count, repo.forksDelta, repo.approx));
+  }
   a.appendChild(stats);
 
   return a;
@@ -290,6 +324,8 @@ function renderTotals(rows) {
   el.totalForksDelta.replaceWith(withId(deltaNode(dForks), 'total-forks-delta'));
   el.totalStarsDelta = $('total-stars-delta');
   el.totalForksDelta = $('total-forks-delta');
+  el.totalForksWrap.hidden = !state.settings.showForkStats;
+  el.totals.classList.toggle('fork-stats-hidden', !state.settings.showForkStats);
 
   const at = state.baseline?.at;
   el.since.textContent = at ? `Δ since ${relative(at)}` : 'Δ since —';
@@ -318,17 +354,22 @@ function renderBanner() {
 
 function render() {
   const { settings, cache } = state;
+  const healthy = !!cache?.fetchedAt && !cache.error;
+  el.footer.classList.toggle('is-healthy', healthy);
+  syncControls();
 
   if (cache?.profile) {
     el.avatar.src = cache.profile.avatar_url;
     el.login.textContent = cache.profile.login;
     el.login.href = cache.profile.html_url;
-    el.subline.textContent = `${nf.format(cache.profile.followers)} followers · ${nf.format(
-      cache.repos.length,
-    )} repos synced`;
+    const synced = `${nf.format(cache.repos.length)} repos synced`;
+    el.subline.textContent = settings.showFollowers
+      ? `${nf.format(cache.profile.followers)} followers · ${synced}`
+      : synced;
   } else {
-    el.login.textContent = 'StarBoard';
-    el.subline.textContent = settings.username ? `@${settings.username}` : 'Not configured';
+    el.login.textContent = settings.username ? `@${settings.username}` : 'No account';
+    el.login.href = settings.username ? `https://github.com/${settings.username}` : '#';
+    el.subline.textContent = settings.username ? 'Waiting to sync' : 'Open settings to connect';
   }
 
   renderBanner();
@@ -353,6 +394,7 @@ function render() {
 
   el.count.textContent = `${nf.format(rows.length)} shown`;
   el.updated.textContent = `Updated ${relative(cache.fetchedAt)}`;
+  el.rate.hidden = !settings.showSourceStatus;
   if (cache.source === 'web') {
     const n = cache.pagesFetched || 0;
     el.rate.textContent = `via github.com · ${n} page${n === 1 ? '' : 's'}`;
@@ -377,12 +419,12 @@ function render() {
 
 /* ---------- actions ---------- */
 
-let refreshing = false;
-
 async function doRefresh(rebase = false) {
   if (refreshing) return;
   refreshing = true;
   el.refresh.classList.add('spinning');
+  el.refresh.setAttribute('aria-label', 'Refreshing repositories');
+  syncControls();
   try {
     const res = await chrome.runtime.sendMessage({ type: 'refresh', rebase });
     state.cache = res?.cache ?? (await getCache());
@@ -391,9 +433,20 @@ async function doRefresh(rebase = false) {
       state.cache = { error: res.error };
     }
     render();
+    if (res?.ok) {
+      announce(
+        rebase
+          ? `Comparison baseline reset for ${res.cache.repos.length} repositories.`
+          : `Refresh complete. ${res.cache.repos.length} repositories loaded.`,
+      );
+    } else {
+      announce(`Refresh failed. ${res?.error?.message || 'The cached snapshot is still shown.'}`);
+    }
   } finally {
     refreshing = false;
     el.refresh.classList.remove('spinning');
+    el.refresh.setAttribute('aria-label', 'Refresh now');
+    syncControls();
   }
 }
 
@@ -440,7 +493,7 @@ el.incArchived.addEventListener('change', () => patch({ includeArchived: el.incA
   el.incArchived.checked = state.settings.includeArchived;
 
   render();
-  el.search.focus();
+  if (!el.search.disabled) el.search.focus();
 
   // Refresh on open when the cache is missing or older than a minute — the
   // popup is the strongest signal that the user wants current numbers.

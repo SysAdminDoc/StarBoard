@@ -29,11 +29,37 @@ async function hasWebPermission() {
 }
 
 /**
+ * Detect the hidden document without assuming the latest offscreen API.
+ *
+ * `chrome.offscreen.hasDocument()` only arrived long after StarBoard's
+ * declared Chrome 110 floor. Chrome 116+ exposes runtime contexts; Chrome
+ * 110-115 can still discover the document through the service worker client
+ * list.
+ */
+async function hasOffscreenDocument() {
+  if (typeof chrome.offscreen.hasDocument === 'function') {
+    return chrome.offscreen.hasDocument();
+  }
+
+  if (typeof chrome.runtime.getContexts === 'function') {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT'],
+      documentUrls: [chrome.runtime.getURL(OFFSCREEN_PATH)],
+    });
+    return contexts.length > 0;
+  }
+
+  const offscreenUrl = chrome.runtime.getURL(OFFSCREEN_PATH);
+  const workerClients = await globalThis.clients.matchAll();
+  return workerClients.some((client) => client.url === offscreenUrl);
+}
+
+/**
  * Spin up (once) the hidden document that owns DOMParser. Concurrent callers
  * share one creation promise — createDocument throws if one already exists.
  */
 async function ensureOffscreen() {
-  if (await chrome.offscreen.hasDocument()) return;
+  if (await hasOffscreenDocument()) return;
   if (!offscreenReady) {
     offscreenReady = chrome.offscreen
       .createDocument({
@@ -69,7 +95,7 @@ async function fetchAccountViaWeb(username) {
     if (!res?.ok) throw new GitHubError(res?.error?.message || 'Could not read github.com.');
     return res.result;
   } finally {
-    if (await chrome.offscreen.hasDocument()) await chrome.offscreen.closeDocument();
+    if (await hasOffscreenDocument()) await chrome.offscreen.closeDocument();
   }
 }
 

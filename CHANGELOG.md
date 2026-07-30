@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.2.0 — 2026-07-29
+
+### Changed
+
+- Reimagined the popup as a compact **portfolio signal board**: total stars now
+  anchor the summary, secondary totals sit in scan-friendly tiles, and ranked
+  repositories use clearer top-three treatments and contained cards.
+- Rebuilt Settings as a responsive two-column **control room** with stronger
+  section hierarchy, inline guidance, a toolbar-badge preview and a clearer
+  local-data boundary.
+- Replaced the GitHub-clone styling with StarBoard's own night-observatory
+  visual system: deep navy surfaces, amber rank signals, periwinkle focus
+  states and restrained green deltas. Daylight and match-system themes carry
+  the same hierarchy.
+- Prevented asynchronous theme loading from briefly animating dark control
+  colors into light mode. Reduced-motion and keyboard-focus behavior remain
+  explicit throughout.
+- Made the **GitHub website** the default source for new profiles, with the API
+  retained as the secondary exact-count option. Existing installations keep
+  their saved source choice, and website permission is still requested only
+  from an explicit click.
+- Added independent popup-detail switches for follower count, repository
+  descriptions, language/activity metadata, fork statistics and source/quota
+  status.
+- Restored the documented Chrome 110 floor for website-mode offscreen parsing
+  and added static theme fallbacks for browsers without `color-mix()`.
+- Raised small-text contrast, limited screen-reader announcements to targeted
+  status regions, disabled setup-only controls until usable, and made refresh
+  health neutral until a successful fetch.
+
+No repository-count semantics or permission scopes changed.
+
 ## v1.1.0 — 2026-07-29
 
 ### Added

@@ -7,112 +7,235 @@
   </head>
   <body>
     <div class="page">
-      <header>
-        <h1>StarBoard</h1>
-        <span class="version" id="version"></span>
+      <header class="page-header">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32">
+              <path d="M16 1.5 19.1 12.9 30.5 16l-11.4 3.1L16 30.5l-3.1-11.4L1.5 16l11.4-3.1L16 1.5Z" />
+              <circle cx="25.5" cy="6.5" r="1.5" />
+            </svg>
+          </span>
+          <span>
+            <span class="eyebrow">Control room</span>
+            <span class="title-row">
+              <h1>StarBoard</h1>
+              <span class="version" id="version"></span>
+            </span>
+          </span>
+        </div>
+        <p>Keep your repository signal current, comparable, and close at hand.</p>
       </header>
 
-      <section class="card">
-        <h2>Account</h2>
+      <main class="settings-grid">
+        <section class="card account-card">
+          <div class="section-heading">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20">
+                <path d="M10 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-6.5 7.25c0-3.04 2.91-5.25 6.5-5.25s6.5 2.21 6.5 5.25a.75.75 0 0 1-1.5 0c0-1.93-2.05-3.75-5-3.75s-5 1.82-5 3.75a.75.75 0 0 1-1.5 0Z" />
+              </svg>
+            </span>
+            <span>
+              <h2>Account</h2>
+              <p>Connect the portfolio you want StarBoard to watch.</p>
+            </span>
+          </div>
 
-        <label class="field">
-          <span class="label">GitHub username</span>
-          <input id="username" type="text" placeholder="octocat" spellcheck="false" autocomplete="off" />
-          <span class="hint">The account whose repos you want to track.</span>
-        </label>
+          <label class="field">
+            <span class="label">GitHub username</span>
+            <input id="username" type="text" placeholder="octocat" spellcheck="false" autocomplete="off" />
+            <span class="hint">The account whose repos you want to track.</span>
+          </label>
 
-        <label class="field">
-          <span class="label">Where to read from</span>
-          <select id="dataSource">
-            <option value="api">GitHub API — recommended</option>
-            <option value="web">GitHub website — no token needed</option>
-          </select>
-          <span class="hint" id="sourceHint"></span>
-        </label>
+          <label class="field">
+            <span class="label">Where to read from</span>
+            <select id="dataSource">
+              <option value="web">GitHub website — default, no token</option>
+              <option value="api">GitHub API — token optional</option>
+            </select>
+            <span class="hint" id="sourceHint"></span>
+          </label>
 
-        <label class="field" id="tokenField">
-          <span class="label">Personal access token <span class="opt">optional</span></span>
-          <input id="token" type="password" placeholder="ghp_… or github_pat_…" spellcheck="false" autocomplete="off" />
-          <span class="hint">
-            Without a token GitHub allows 60 requests per hour and only shows public repos. A
-            token with the <code>public_repo</code> scope (or a fine-grained token with read-only
-            <em>Metadata</em>) raises that to 5,000/hour; add <code>repo</code> to include private
-            repos. Stored locally in this browser profile only, never transmitted anywhere except
-            api.github.com.
-            <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">Create one →</a>
-          </span>
-        </label>
+          <label class="field" id="tokenField">
+            <span class="label">Personal access token <span class="opt">optional</span></span>
+            <input id="token" type="password" placeholder="ghp_… or github_pat_…" spellcheck="false" autocomplete="off" />
+            <span class="hint">
+              Without a token GitHub allows 60 requests per hour and only shows public repos. A
+              token with the <code>public_repo</code> scope (or a fine-grained token with read-only
+              <em>Metadata</em>) raises that to 5,000/hour; add <code>repo</code> to include private
+              repos. Stored locally in this browser profile only, never transmitted anywhere except
+              api.github.com.
+              <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">Create one →</a>
+            </span>
+          </label>
 
-        <div class="actions">
-          <button id="save" class="primary-btn">Save &amp; refresh</button>
-          <button id="test" class="secondary-btn">Test connection</button>
-          <span id="status" class="status"></span>
-        </div>
-      </section>
+          <div class="actions">
+            <button id="save" class="primary-btn" type="button">Save &amp; refresh</button>
+            <button id="test" class="secondary-btn" type="button">Test connection</button>
+            <span
+              id="status"
+              class="status"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            ></span>
+          </div>
+        </section>
 
-      <section class="card">
-        <h2>Refresh</h2>
+        <section class="card refresh-card">
+          <div class="section-heading">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20">
+                <path d="M10 2a8 8 0 1 0 7.27 4.65.75.75 0 0 0-1.36.63A6.5 6.5 0 1 1 10 3.5V5a.5.5 0 0 0 .8.4l2.4-1.8a.5.5 0 0 0 0-.8L10.8 1a.5.5 0 0 0-.8.4V2Z" />
+              </svg>
+            </span>
+            <span>
+              <h2>Refresh rhythm</h2>
+              <p>Choose how often the signal and its comparison point move.</p>
+            </span>
+          </div>
 
-        <label class="field row">
-          <span class="label">Auto-refresh every</span>
-          <select id="refreshMinutes">
-            <option value="0">Never (manual only)</option>
-            <option value="15">15 minutes</option>
-            <option value="30">30 minutes</option>
-            <option value="60">1 hour</option>
-            <option value="180">3 hours</option>
-            <option value="360">6 hours</option>
-            <option value="720">12 hours</option>
-            <option value="1440">24 hours</option>
-          </select>
-        </label>
+          <label class="field row">
+            <span class="label">Auto-refresh every</span>
+            <select id="refreshMinutes">
+              <option value="0">Never (manual only)</option>
+              <option value="15">15 minutes</option>
+              <option value="30">30 minutes</option>
+              <option value="60">1 hour</option>
+              <option value="180">3 hours</option>
+              <option value="360">6 hours</option>
+              <option value="720">12 hours</option>
+              <option value="1440">24 hours</option>
+            </select>
+          </label>
 
-        <label class="field row">
-          <span class="label">Reset the change baseline every</span>
-          <select id="baselineHours">
-            <option value="0">Never (manual only)</option>
-            <option value="6">6 hours</option>
-            <option value="24">24 hours</option>
-            <option value="168">7 days</option>
-            <option value="720">30 days</option>
-          </select>
-        </label>
-        <p class="note">
-          The baseline is the snapshot that <b>+N</b> star and fork changes are measured against.
-          Reset it any time from the popup by clicking the “Δ since …” button.
-        </p>
-      </section>
+          <label class="field row">
+            <span class="label">Reset the change baseline every</span>
+            <select id="baselineHours">
+              <option value="0">Never (manual only)</option>
+              <option value="6">6 hours</option>
+              <option value="24">24 hours</option>
+              <option value="168">7 days</option>
+              <option value="720">30 days</option>
+            </select>
+          </label>
+          <p class="note callout">
+            The baseline is the snapshot that <b>+N</b> star and fork changes are measured against.
+            Reset it any time from the popup by clicking the “Δ since …” button.
+          </p>
+        </section>
 
-      <section class="card">
-        <h2>Appearance</h2>
-        <label class="field row">
-          <span class="label">Theme</span>
-          <select id="theme">
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-            <option value="auto">Match system</option>
-          </select>
-        </label>
-        <label class="field row">
-          <span class="label">Show on the extension icon</span>
-          <select id="badgeMode">
-            <option value="stars">Total stars</option>
-            <option value="delta">Stars gained since baseline</option>
-            <option value="off">Nothing</option>
-          </select>
-        </label>
-      </section>
+        <section class="card appearance-card">
+          <div class="section-heading">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20">
+                <path d="m10 1.25 1.42 5.33L16.75 8l-5.33 1.42L10 14.75 8.58 9.42 3.25 8l5.33-1.42L10 1.25Zm5.75 11 1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2Z" />
+              </svg>
+            </span>
+            <span>
+              <h2>Appearance</h2>
+              <p>Match the interface and toolbar signal to your workspace.</p>
+            </span>
+          </div>
+          <label class="field row">
+            <span class="label">Theme</span>
+            <select id="theme">
+              <option value="dark">Night observatory</option>
+              <option value="light">Daylight</option>
+              <option value="auto">Match system</option>
+            </select>
+          </label>
+          <label class="field row">
+            <span class="label">Show on the extension icon</span>
+            <select id="badgeMode">
+              <option value="stars">Total stars</option>
+              <option value="delta">Stars gained since baseline</option>
+              <option value="off">Nothing</option>
+            </select>
+          </label>
+          <div class="badge-preview" aria-label="Toolbar badge preview">
+            <span aria-hidden="true">✦</span>
+            <b id="badgePreview">—</b>
+          </div>
+          <p class="note badge-caption">A preview using the latest cached portfolio total.</p>
+        </section>
 
-      <section class="card danger">
-        <h2>Data</h2>
-        <p class="note">
-          Everything StarBoard stores lives in this browser profile:
-          <span id="storageInfo">—</span>
-        </p>
-        <div class="actions">
-          <button id="clear" class="secondary-btn">Clear cached data</button>
-        </div>
-      </section>
+        <section class="card details-card">
+          <div class="section-heading">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20">
+                <path d="M3 4.25a.75.75 0 0 1 .75-.75h6.5a.75.75 0 0 1 0 1.5h-6.5A.75.75 0 0 1 3 4.25Zm0 5.75a.75.75 0 0 1 .75-.75h12.5a.75.75 0 0 1 0 1.5H3.75A.75.75 0 0 1 3 10Zm0 5.75a.75.75 0 0 1 .75-.75h9.5a.75.75 0 0 1 0 1.5h-9.5a.75.75 0 0 1-.75-.75ZM15 4.25a1.75 1.75 0 1 1 3.5 0 1.75 1.75 0 0 1-3.5 0Z" />
+              </svg>
+            </span>
+            <span>
+              <h2>Popup details</h2>
+              <p>Choose exactly how much context appears around the rankings.</p>
+            </span>
+          </div>
+
+          <div class="toggle-list">
+            <label class="toggle-row">
+              <span>
+                <b>Follower count</b>
+                <small>Show followers beside the synced repository count.</small>
+              </span>
+              <input id="showFollowers" type="checkbox" role="switch" />
+            </label>
+            <label class="toggle-row">
+              <span>
+                <b>Repository descriptions</b>
+                <small>Include the one-line description under each name.</small>
+              </span>
+              <input id="showDescriptions" type="checkbox" role="switch" />
+            </label>
+            <label class="toggle-row">
+              <span>
+                <b>Language and activity</b>
+                <small>Show language, last push time and repository tags.</small>
+              </span>
+              <input id="showMetadata" type="checkbox" role="switch" />
+            </label>
+            <label class="toggle-row">
+              <span>
+                <b>Fork statistics</b>
+                <small>Show fork totals and per-repository fork counts.</small>
+              </span>
+              <input id="showForkStats" type="checkbox" role="switch" />
+            </label>
+            <label class="toggle-row">
+              <span>
+                <b>Source and quota status</b>
+                <small>Show API quota or website page count in the footer.</small>
+              </span>
+              <input id="showSourceStatus" type="checkbox" role="switch" />
+            </label>
+          </div>
+        </section>
+
+        <section class="card data-card">
+          <div class="section-heading">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20">
+                <path d="M16.5 4.5C16.5 2.57 13.59 1 10 1S3.5 2.57 3.5 4.5v11c0 1.93 2.91 3.5 6.5 3.5s6.5-1.57 6.5-3.5v-11Zm-1.5 0C15 5.42 12.86 6.5 10 6.5S5 5.42 5 4.5 7.14 2.5 10 2.5s5 1.08 5 2Zm0 3.27V10c0 .92-2.14 2-5 2s-5-1.08-5-2V7.77C6.2 8.54 8.02 9 10 9s3.8-.46 5-1.23Zm0 5.5v2.23c0 .92-2.14 2-5 2s-5-1.08-5-2v-2.23c1.2.77 3.02 1.23 5 1.23s3.8-.46 5-1.23Z" />
+              </svg>
+            </span>
+            <span>
+              <h2>Local data</h2>
+              <p>Inspect or clear the snapshot stored in this browser profile.</p>
+            </span>
+          </div>
+          <p class="note storage-note">
+            Everything StarBoard stores stays local:
+            <span id="storageInfo">—</span>
+          </p>
+          <div class="actions">
+            <button id="clear" class="danger-btn" type="button">Clear cached data</button>
+          </div>
+          <p class="note callout data-callout">
+            Clearing removes repository counts and baseline history. Your account and appearance
+            settings are preserved.
+          </p>
+        </section>
+      </main>
 
       <footer>
         <a href="https://github.com/SysAdminDoc/StarBoard" target="_blank" rel="noreferrer">StarBoard on GitHub</a>

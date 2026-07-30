@@ -7,12 +7,32 @@
   </head>
   <body>
     <header class="header">
-      <img id="avatar" class="avatar" alt="" width="34" height="34" />
-      <div class="identity">
-        <a id="login" class="login" href="#" target="_blank" rel="noreferrer">StarBoard</a>
-        <div id="subline" class="subline">Loading…</div>
+      <div class="brand" aria-label="StarBoard">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32">
+            <path d="M16 1.5 19.1 12.9 30.5 16l-11.4 3.1L16 30.5l-3.1-11.4L1.5 16l11.4-3.1L16 1.5Z" />
+            <circle cx="25.5" cy="6.5" r="1.5" />
+          </svg>
+        </span>
+        <span class="brand-copy">
+          <b>StarBoard</b>
+          <small>Portfolio signal</small>
+        </span>
       </div>
-      <button id="refresh" class="icon-btn" title="Refresh now" aria-label="Refresh now">
+      <div class="identity">
+        <img id="avatar" class="avatar" alt="" width="30" height="30" />
+        <span class="account-copy">
+          <a id="login" class="login" href="#" target="_blank" rel="noreferrer">Loading…</a>
+          <span id="subline" class="subline">Connecting</span>
+        </span>
+      </div>
+      <button
+        id="refresh"
+        class="icon-btn"
+        title="Refresh now"
+        aria-label="Refresh now"
+        disabled
+      >
         <svg viewBox="0 0 16 16" aria-hidden="true">
           <path
             d="M8 3a5 5 0 1 0 4.546 2.914.75.75 0 0 1 1.362-.628A6.5 6.5 0 1 1 8 1.5V.31a.25.25 0 0 1 .4-.2l2.26 1.69a.25.25 0 0 1 0 .4L8.4 3.89a.25.25 0 0 1-.4-.2Z"
@@ -32,25 +52,38 @@
     </header>
 
     <section id="totals" class="totals" hidden>
-      <div class="total">
-        <span class="total-label">Stars</span>
+      <div class="orbit" aria-hidden="true"></div>
+      <div class="total total-hero">
+        <span class="metric-icon star-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16">
+            <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z" />
+          </svg>
+        </span>
         <span class="total-row">
           <b id="total-stars">0</b>
           <span id="total-stars-delta" class="delta"></span>
         </span>
+        <span class="total-label">Total stars</span>
       </div>
-      <div class="total">
-        <span class="total-label">Forks</span>
-        <span class="total-row">
-          <b id="total-forks">0</b>
-          <span id="total-forks-delta" class="delta"></span>
-        </span>
+      <div class="secondary-totals">
+        <div id="total-forks-wrap" class="total">
+          <span class="total-label">Forks</span>
+          <span class="total-row">
+            <b id="total-forks">0</b>
+            <span id="total-forks-delta" class="delta"></span>
+          </span>
+        </div>
+        <div class="total">
+          <span class="total-label">Repos</span>
+          <span class="total-row"><b id="total-repos">0</b></span>
+        </div>
       </div>
-      <div class="total">
-        <span class="total-label">Repos</span>
-        <span class="total-row"><b id="total-repos">0</b></span>
-      </div>
-      <button id="rebase" class="ghost-btn" title="Start measuring changes from right now">
+      <button
+        id="rebase"
+        class="ghost-btn"
+        title="Start measuring changes from right now"
+        disabled
+      >
         <span id="since">since —</span>
       </button>
     </section>
@@ -65,37 +98,40 @@
         <input
           id="search"
           type="search"
-          placeholder="Filter repos…"
+          placeholder="Filter repositories…"
+          aria-label="Filter repositories"
           autocomplete="off"
           spellcheck="false"
+          disabled
         />
       </div>
-      <select id="sort" title="Sort order">
-        <option value="stars">★ Stars</option>
-        <option value="starsDelta">★ Δ Stars gained</option>
-        <option value="forks">⑂ Forks</option>
-        <option value="forksDelta">⑂ Δ Forks gained</option>
+      <select id="sort" title="Sort order" aria-label="Sort repositories" disabled>
+        <option value="stars">Stars</option>
+        <option value="starsDelta">Momentum · stars</option>
+        <option value="forks">Forks</option>
+        <option value="forksDelta">Momentum · forks</option>
         <option value="updated">Recently pushed</option>
-        <option value="name">Name</option>
+        <option value="name">Name A–Z</option>
       </select>
     </div>
 
     <div class="chips">
-      <label class="chip"><input type="checkbox" id="incForks" /> Forks</label>
-      <label class="chip"><input type="checkbox" id="incArchived" /> Archived</label>
+      <label class="chip"><input type="checkbox" id="incForks" disabled /> Include forks</label>
+      <label class="chip"><input type="checkbox" id="incArchived" disabled /> Archived</label>
       <span class="spacer"></span>
       <span id="count" class="count"></span>
     </div>
 
     <div id="banner" class="banner" hidden></div>
 
-    <main id="list" class="list" aria-live="polite"></main>
+    <main id="list" class="list" aria-busy="true"></main>
 
-    <footer class="footer">
+    <footer id="footer" class="footer">
       <span id="updated">—</span>
       <span class="spacer"></span>
       <span id="rate" class="rate"></span>
     </footer>
+    <p id="live-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
 
     <script type="module" src="popup.js"></script>
   </body>

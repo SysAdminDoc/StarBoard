@@ -27,6 +27,10 @@ const SKIP_WEB = args.includes('--no-web');
 const USERNAME = args.find((a) => !a.startsWith('--')) || 'SysAdminDoc';
 const TOKEN = process.env.GITHUB_TOKEN || '';
 const WEB_BUILD = resolve(HERE, '.webbuild');
+const CHROME_EXECUTABLE = process.env.STARBOARD_CHROME_EXECUTABLE || '';
+const BROWSER_CHANNEL = CHROME_EXECUTABLE
+  ? { executablePath: CHROME_EXECUTABLE }
+  : { channel: 'chromium' };
 
 /**
  * Web mode reads github.com through an *optional* host permission, granted by
@@ -73,6 +77,53 @@ function check(name, pass, detail = '') {
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
 }
 
+function captureErrors(target, label) {
+  target.on('console', (message) => {
+    if (message.type() === 'error') console.error(`${label} console: ${message.text()}`);
+  });
+  target.on('pageerror', (error) => console.error(`${label} error: ${error.message}`));
+}
+
+async function closeContext(context) {
+  await Promise.race([
+    context.close(),
+    new Promise((resolveClose) => setTimeout(resolveClose, 5000)),
+  ]);
+}
+
+async function minimumTextContrast(page, theme) {
+  return page.evaluate((nextTheme) => {
+    const root = document.documentElement;
+    const previous = root.dataset.theme;
+    root.dataset.theme = nextTheme;
+    const styles = getComputedStyle(root);
+    const read = (name) => styles.getPropertyValue(name).trim();
+    const rgb = (value) => {
+      const hex = value.replace('#', '');
+      return [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255);
+    };
+    const luminance = (value) => {
+      const channels = rgb(value).map((channel) =>
+        channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+      );
+      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    };
+    const ratio = (foreground, background) => {
+      const first = luminance(foreground);
+      const second = luminance(background);
+      return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+    };
+    const values = [
+      ratio(read('--faint'), read('--bg')),
+      ratio(read('--faint'), read('--surface')),
+      ratio(read('--muted'), read('--bg')),
+      ratio(read('--muted'), read('--surface')),
+    ];
+    root.dataset.theme = previous;
+    return Math.min(...values);
+  }, theme);
+}
+
 /**
  * Web (no-token) mode. The decisive assertion is parity: scraping github.com
  * must yield the same star counts as the API for every repo both can see. If
@@ -85,7 +136,7 @@ async function testWebMode(source) {
 
   const variant = buildWebVariant(source);
   const ctx = await chromium.launchPersistentContext(profile, {
-    channel: 'chromium',
+    ...BROWSER_CHANNEL,
     headless: false,
     args: [`--disable-extensions-except=${variant}`, `--load-extension=${variant}`],
   });
@@ -96,6 +147,7 @@ async function testWebMode(source) {
     const extId = new URL(worker.url()).host;
 
     const popup = await ctx.newPage();
+    captureErrors(popup, 'web popup');
     await popup.setViewportSize({ width: 440, height: 640 });
     await popup.goto(`chrome-extension://${extId}/src/popup.html`);
     await popup.waitForSelector('.empty h3', { timeout: 10000 });
@@ -120,6 +172,10 @@ async function testWebMode(source) {
     await popup.reload();
     // Scraping walks one page per 30 repos, so allow generous time.
     await popup.waitForSelector('.row', { timeout: 120000 });
+    await popup.waitForFunction(
+      () => !document.querySelector('#refresh').classList.contains('spinning'),
+      { timeout: 120000 },
+    );
 
     const webRows = await popup.$$eval('.row', (nodes) =>
       nodes.map((n) => ({
@@ -153,13 +209,13 @@ async function testWebMode(source) {
     );
 
     const onlyWeb = webRows.filter((r) => !apiByName.has(r.name)).map((r) => r.name);
-    const onlyApi = apiRows.filter((r) => !webRows.some((w) => w.name === r.name)).map((r) => r.name);
+    const onlyApi = apiRows.filter((r) => !webRows.some((w) => w.name === r.name));
     check(
-      'web and API see the same repo set',
-      onlyWeb.length === 0 && onlyApi.length === 0,
+      'web and API agree on the public repo set',
+      onlyWeb.length === 0 && onlyApi.every((repo) => repo.private),
       onlyWeb.length || onlyApi.length
-        ? `web-only: [${onlyWeb.join(', ')}] api-only: [${onlyApi.join(', ')}]`
-        : `${webRows.length} repos`,
+        ? `web-only: [${onlyWeb.join(', ')}] API-only private: ${onlyApi.length}`
+        : `${webRows.length} public repos`,
     );
 
     const footer = await popup.textContent('#rate');
@@ -176,7 +232,7 @@ async function testWebMode(source) {
     check('token field hidden in web mode', tokenHidden);
     await options.screenshot({ path: `${SHOTS}/07-options-web.png`, fullPage: true });
   } finally {
-    await ctx.close();
+    await closeContext(ctx);
   }
 }
 
@@ -187,7 +243,7 @@ async function main() {
   const source = FROM_ZIP ? unpackBuiltZip() : ROOT;
 
   const ctx = await chromium.launchPersistentContext(PROFILE, {
-    channel: 'chromium',
+    ...BROWSER_CHANNEL,
     headless: false, // MV3 service workers do not start in headless Chromium
     args: [`--disable-extensions-except=${source}`, `--load-extension=${source}`],
   });
@@ -198,8 +254,10 @@ async function main() {
     if (!worker) worker = await ctx.waitForEvent('serviceworker', { timeout: 15000 });
     const extId = new URL(worker.url()).host;
     check('extension loaded', /^[a-p]{32}$/.test(extId), extId);
+    check('browser launched', !!ctx.browser()?.version(), ctx.browser()?.version() || 'unknown');
 
     const popup = await ctx.newPage();
+    captureErrors(popup, 'popup');
     await popup.setViewportSize({ width: 440, height: 640 });
     await popup.goto(`chrome-extension://${extId}/src/popup.html`);
 
@@ -209,7 +267,48 @@ async function main() {
       'unconfigured popup shows setup prompt',
       (await popup.textContent('.empty h3')) === 'Set up StarBoard',
     );
+    check(
+      'setup-only popup controls start disabled',
+      await popup.evaluate(() =>
+        ['refresh', 'search', 'sort', 'incForks', 'incArchived', 'rebase'].every(
+          (id) => document.getElementById(id).disabled,
+        ),
+      ),
+    );
+    check(
+      'repository list is not a broad live region',
+      (await popup.getAttribute('#list', 'aria-live')) === null,
+    );
+    check(
+      'footer is neutral before the first successful fetch',
+      !(await popup.$eval('#footer', (node) => node.classList.contains('is-healthy'))),
+    );
+    await popup.emulateMedia({ reducedMotion: 'reduce' });
+    const reducedMotion = await popup.$eval('#refresh', (button) => {
+      button.classList.add('spinning');
+      const animation = getComputedStyle(button.querySelector('svg')).animationName;
+      button.classList.remove('spinning');
+      return animation;
+    });
+    check('reduced-motion preference disables refresh animation', reducedMotion === 'none');
+    await popup.emulateMedia({ reducedMotion: 'no-preference' });
     await popup.screenshot({ path: `${SHOTS}/01-setup.png` });
+
+    // First-run settings should lead with the no-token website source. Merely
+    // opening the page must not request permission; Save supplies the required
+    // user gesture in production.
+    const firstRunOptions = await ctx.newPage();
+    await firstRunOptions.goto(`chrome-extension://${extId}/src/options.html`);
+    await firstRunOptions.waitForSelector('#dataSource');
+    check(
+      'website source is the first-run default',
+      (await firstRunOptions.inputValue('#dataSource')) === 'web',
+    );
+    check(
+      'token field is hidden for the default source',
+      await firstRunOptions.$eval('#tokenField', (node) => node.style.display === 'none'),
+    );
+    await firstRunOptions.close();
 
     // Seed settings the way the options page would, then reopen the popup.
     await popup.evaluate(
@@ -232,11 +331,27 @@ async function main() {
     );
 
     await popup.reload();
-    await popup.waitForSelector('.row', { timeout: 45000 });
+    try {
+      await popup.waitForSelector('.row', { timeout: 45000 });
+    } catch (error) {
+      const diagnostic = await popup.evaluate(async () => ({
+        body: document.body.innerText,
+        storage: await chrome.storage.local.get(null),
+        lastError: chrome.runtime.lastError?.message || null,
+      }));
+      console.error('popup diagnostic:', JSON.stringify(diagnostic, null, 2));
+      throw error;
+    }
+    await popup.waitForFunction(
+      () => !document.querySelector('#refresh').classList.contains('spinning'),
+      { timeout: 45000 },
+    );
 
     // Dark is the default regardless of the host OS colour scheme.
     const bg = await popup.evaluate(() => getComputedStyle(document.body).backgroundColor);
     check('dark theme by default', bg === 'rgb(13, 17, 23)', bg);
+    const darkContrast = await minimumTextContrast(popup, 'dark');
+    check('dark-theme normal text contrast reaches 4.5:1', darkContrast >= 4.5, darkContrast.toFixed(2));
 
     await popup.waitForFunction(
       () => {
@@ -251,10 +366,30 @@ async function main() {
       nodes.map((n) => ({
         name: n.querySelector('.name').textContent,
         stars: Number(n.querySelector('.stat.stars b').textContent.replace(/,/g, '')),
+        private: [...n.querySelectorAll('.tag')].some((tag) => tag.textContent === 'private'),
       })),
     );
     check('repos rendered', rows.length > 0, `${rows.length} rows`);
     apiRows = rows;
+    const undersizedTargets = await popup.evaluate(() => {
+      const targets = [
+        ...['refresh', 'settings', 'search', 'sort', 'rebase'].map((id) =>
+          document.getElementById(id),
+        ),
+        ...document.querySelectorAll('.chip'),
+      ];
+      return targets
+        .filter((node) => {
+          const rect = node.getBoundingClientRect();
+          return rect.width < 24 || rect.height < 24;
+        })
+        .map((node) => node.id || node.textContent.trim());
+    });
+    check(
+      'popup controls meet the 24px target-size floor',
+      undersizedTargets.length === 0,
+      undersizedTargets.join(', '),
+    );
 
     const sorted = rows.every((r, i) => i === 0 || rows[i - 1].stars >= r.stars);
     check(
@@ -302,7 +437,108 @@ async function main() {
       'options page loads with saved settings',
       (await options.inputValue('#username')) === USERNAME,
     );
+    const switchNames = await options.$$eval('[role="switch"]', (nodes) =>
+      nodes.map((node) => node.labels?.[0]?.innerText.trim() || ''),
+    );
+    check(
+      'detail switches expose accessible names and states',
+      switchNames.length === 5 && switchNames.every(Boolean),
+      switchNames.join(' | '),
+    );
     await options.screenshot({ path: `${SHOTS}/03-options.png`, fullPage: true });
+
+    // Denying the optional website permission must preserve the working API
+    // source instead of leaving a source choice that cannot refresh.
+    const permissionMocked = await options.evaluate(() => {
+      try {
+        Object.defineProperty(chrome.permissions, 'request', {
+          configurable: true,
+          value: async () => false,
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    if (permissionMocked) {
+      await options.selectOption('#dataSource', 'web');
+      await options.waitForFunction(() => /denied/i.test(document.querySelector('#status').textContent));
+      check(
+        'website permission denial keeps API mode active',
+        (await options.inputValue('#dataSource')) === 'api',
+      );
+    } else {
+      check('website permission denial keeps API mode active', false, 'permission API not mockable');
+    }
+
+    // Popup-detail switches are independent and persist immediately.
+    for (const selector of [
+      '#showFollowers',
+      '#showDescriptions',
+      '#showMetadata',
+      '#showForkStats',
+      '#showSourceStatus',
+    ]) {
+      await options.uncheck(selector);
+    }
+    await options.waitForFunction(async () => {
+      const { settings } = await chrome.storage.local.get('settings');
+      return (
+        settings.showFollowers === false &&
+        settings.showDescriptions === false &&
+        settings.showMetadata === false &&
+        settings.showForkStats === false &&
+        settings.showSourceStatus === false
+      );
+    });
+    await popup.reload();
+    await popup.waitForSelector('.row');
+    const sublineWithoutFollowers = await popup.textContent('#subline');
+    check(
+      'follower-count switch updates the profile header',
+      !sublineWithoutFollowers.includes('followers') &&
+        sublineWithoutFollowers.includes('repos synced'),
+      sublineWithoutFollowers,
+    );
+    const detailVisibility = await popup.evaluate(() => ({
+      descriptions: document.querySelectorAll('.row .desc').length,
+      metadata: document.querySelectorAll('.row .meta').length,
+      forks: document.querySelectorAll('.row .stat.forks').length,
+      totalForksHidden: document.querySelector('#total-forks-wrap').hidden,
+    }));
+    check(
+      'repository-detail switches update every ranked card',
+      detailVisibility.descriptions === 0 &&
+        detailVisibility.metadata === 0 &&
+        detailVisibility.forks === 0 &&
+        detailVisibility.totalForksHidden,
+      JSON.stringify(detailVisibility),
+    );
+    check(
+      'source-status switch hides quota details',
+      await popup.$eval('#rate', (node) => node.hidden),
+    );
+    for (const selector of [
+      '#showFollowers',
+      '#showDescriptions',
+      '#showMetadata',
+      '#showForkStats',
+      '#showSourceStatus',
+    ]) {
+      await options.check(selector);
+    }
+    await options.waitForFunction(async () => {
+      const { settings } = await chrome.storage.local.get('settings');
+      return (
+        settings.showFollowers &&
+        settings.showDescriptions &&
+        settings.showMetadata &&
+        settings.showForkStats &&
+        settings.showSourceStatus
+      );
+    });
+    await popup.reload();
+    await popup.waitForSelector('.row .stat.forks');
 
     // Baseline reset must move the baseline forward without wiping the list.
     await popup.bringToFront();
@@ -358,9 +594,15 @@ async function main() {
     await popup.waitForSelector('.row', { timeout: 30000 });
     const lightBg = await popup.evaluate(() => getComputedStyle(document.body).backgroundColor);
     check('light theme applies', lightBg === 'rgb(255, 255, 255)', lightBg);
+    const lightContrast = await minimumTextContrast(popup, 'light');
+    check(
+      'light-theme normal text contrast reaches 4.5:1',
+      lightContrast >= 4.5,
+      lightContrast.toFixed(2),
+    );
     await popup.screenshot({ path: `${SHOTS}/04-popup-light.png` });
   } finally {
-    await ctx.close();
+    await closeContext(ctx);
   }
 
   if (!SKIP_WEB) {
