@@ -3,10 +3,12 @@
 import {
   getSettings,
   getCache,
+  getBaseline,
   getHistory,
   applyTheme,
 } from './lib/storage.js';
 import { historyStats } from './lib/history.js';
+import { createBackup, createCsv, validateBackupText } from './lib/transfer.js';
 import { fetchAccount } from './lib/github.js';
 import { scrapeAccount } from './lib/scrape.js';
 
@@ -145,6 +147,26 @@ function collect() {
     showForkStats: fields.showForkStats.checked,
     showSourceStatus: fields.showSourceStatus.checked,
   };
+}
+
+function exportSelection() {
+  return {
+    includePrivate: $('includePrivateExport').checked,
+    includeHistory: $('includeHistoryExport').checked,
+  };
+}
+
+function downloadText(text, filename, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportDate() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 /**
@@ -335,11 +357,94 @@ $('pruneHistory').addEventListener('click', async () => {
   }).catch((error) => say(error.message || 'Could not prune history.', 'err'));
 });
 
+async function readPortableState() {
+  const [settings, cache, baseline, history] = await Promise.all([
+    getSettings(),
+    getCache(),
+    getBaseline(),
+    getHistory(),
+  ]);
+  return { settings, cache, baseline, history };
+}
+
+$('backupJson').addEventListener('click', async () => {
+  await withBusy($('backupJson'), 'Preparing…', async () => {
+    const document = await createBackup({
+      ...(await readPortableState()),
+      ...exportSelection(),
+    });
+    downloadText(
+      `${JSON.stringify(document, null, 2)}\n`,
+      `StarBoard-backup-${exportDate()}.json`,
+      'application/json',
+    );
+    say('Checksummed JSON backup downloaded. No personal access token was included.', 'ok');
+  }).catch((error) => say(error.message || 'Could not create the backup.', 'err'));
+});
+
+$('exportCsv').addEventListener('click', async () => {
+  await withBusy($('exportCsv'), 'Preparing…', async () => {
+    const csv = createCsv({
+      ...(await readPortableState()),
+      ...exportSelection(),
+    });
+    downloadText(csv, `StarBoard-repositories-${exportDate()}.csv`, 'text/csv;charset=utf-8');
+    say('Timestamped repository CSV downloaded.', 'ok');
+  }).catch((error) => say(error.message || 'Could not create the CSV.', 'err'));
+});
+
+let pendingImportRecords = null;
+
+function resetImportPreview() {
+  pendingImportRecords = null;
+  $('importPreview').hidden = true;
+  $('importSummary').textContent = '';
+  $('importFile').value = '';
+}
+
+$('chooseImport').addEventListener('click', () => $('importFile').click());
+$('cancelImport').addEventListener('click', resetImportPreview);
+
+$('importFile').addEventListener('change', async () => {
+  const file = $('importFile').files?.[0];
+  if (!file) return;
+  try {
+    const preview = await validateBackupText(await file.text());
+    pendingImportRecords = preview.records;
+    const summary = preview.summary;
+    $('importSummary').textContent =
+      `${summary.repositories} repositories, ${summary.baselineRepositories} baseline entries, ` +
+      `${summary.historyPoints} history points across ${summary.historyDays} days, ` +
+      `${summary.privateRepositories} private repositories. ` +
+      `${summary.migratedRecords} record${summary.migratedRecords === 1 ? '' : 's'} will migrate.`;
+    $('importPreview').hidden = false;
+    say('Backup validated. Review the dry-run summary before applying it.', 'ok');
+  } catch (error) {
+    resetImportPreview();
+    say(error.message || 'Could not validate that backup.', 'err');
+  }
+});
+
+$('applyImport').addEventListener('click', async () => {
+  if (!pendingImportRecords) return;
+  await withBusy($('applyImport'), 'Restoring…', async () => {
+    const response = await chrome.runtime.sendMessage({
+      type: 'import-backup',
+      records: pendingImportRecords,
+    });
+    if (!response?.ok) throw new Error(response?.error?.message || 'Could not restore backup.');
+    resetImportPreview();
+    await load();
+    $('undoClear').hidden = !response.undo?.available;
+    say('Backup restored. The prior local state is undoable for 10 minutes.', 'ok');
+  }).catch((error) => say(error.message || 'Could not restore backup.', 'err'));
+});
+
 $('undoClear').addEventListener('click', async () => {
   await withBusy($('undoClear'), 'Restoring…', async () => {
     const response = await chrome.runtime.sendMessage({ type: 'undo' });
     if (!response?.ok) throw new Error(response?.error?.message || 'Undo is no longer available.');
-    await showStorageInfo();
+    await load();
     $('undoClear').hidden = true;
     say('Last data action undone.', 'ok');
   }).catch((error) => {

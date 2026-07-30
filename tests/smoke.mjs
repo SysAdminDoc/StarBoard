@@ -1074,6 +1074,129 @@ async function main() {
     }, historyBeforePrune);
     check('pruned history can be restored during the undo window', true);
 
+    await options.evaluate(async () => {
+      const { getCache, getBaseline, getHistory, setCache, setBaseline, setHistory } =
+        await import('./lib/storage.js');
+      const { recordDailyHistory } = await import('./lib/history.js');
+      const cache = await getCache();
+      const baseline = await getBaseline();
+      const privateRepo = {
+        ...cache.repos[0],
+        id: 9_999_999,
+        name: 'private-smoke-fixture',
+        full_name: 'octocat/private-smoke-fixture',
+        html_url: 'https://github.com/octocat/private-smoke-fixture',
+        private: true,
+        stargazers_count: 17,
+        forks_count: 3,
+      };
+      const nextCache = { ...cache, repos: [...cache.repos, privateRepo] };
+      await setCache(nextCache);
+      await setBaseline({
+        ...baseline,
+        counts: { ...baseline.counts, [privateRepo.full_name]: [15, 2] },
+      });
+      await setHistory(
+        recordDailyHistory(await getHistory(), nextCache, { now: cache.fetchedAt }),
+      );
+      await chrome.runtime.sendMessage({
+        type: 'patch-settings',
+        changes: {
+          dataSource: 'api',
+          tokenMode: 'session',
+          token: 'smoke-export-secret',
+        },
+      });
+    });
+    await options.reload();
+    await options.waitForSelector('#backupJson');
+    check(
+      'private names and trend history start as explicit opt-in export choices',
+      !(await options.isChecked('#includePrivateExport')) &&
+        !(await options.isChecked('#includeHistoryExport')),
+    );
+
+    const [publicBackupDownload] = await Promise.all([
+      options.waitForEvent('download'),
+      options.click('#backupJson'),
+    ]);
+    const publicBackupText = readFileSync(await publicBackupDownload.path(), 'utf8');
+    const publicBackup = JSON.parse(publicBackupText);
+    check(
+      'default JSON backup is checksummed and excludes credentials, private names, and history',
+      publicBackup.checksum?.algorithm === 'SHA-256' &&
+        !publicBackupText.includes('smoke-export-secret') &&
+        !publicBackupText.includes('private-smoke-fixture') &&
+        !Object.hasOwn(publicBackup.records, 'history'),
+    );
+
+    const [publicCsvDownload] = await Promise.all([
+      options.waitForEvent('download'),
+      options.click('#exportCsv'),
+    ]);
+    const publicCsv = readFileSync(await publicCsvDownload.path(), 'utf8');
+    check(
+      'default CSV is timestamped and omits private repository rows',
+      publicCsv.includes('captured_at') &&
+        publicCsv.includes('stars_delta') &&
+        !publicCsv.includes('private-smoke-fixture'),
+    );
+
+    await options.check('#includePrivateExport');
+    await options.check('#includeHistoryExport');
+    const [completeBackupDownload] = await Promise.all([
+      options.waitForEvent('download'),
+      options.click('#backupJson'),
+    ]);
+    const completeBackupText = readFileSync(await completeBackupDownload.path(), 'utf8');
+    const completeBackup = JSON.parse(completeBackupText);
+    check(
+      'opted-in backup carries private names and validated history but never a PAT',
+      completeBackupText.includes('private-smoke-fixture') &&
+        Object.hasOwn(completeBackup.records, 'history') &&
+        !completeBackupText.includes('smoke-export-secret'),
+    );
+
+    const [historyCsvDownload] = await Promise.all([
+      options.waitForEvent('download'),
+      options.click('#exportCsv'),
+    ]);
+    const historyCsv = readFileSync(await historyCsvDownload.path(), 'utf8');
+    check(
+      'opted-in CSV exports timestamped history and private repository rows',
+      historyCsv.includes('private-smoke-fixture') &&
+        historyCsv.split(/\r?\n/).length > completeBackup.records.cache.data.repos.length + 2,
+    );
+
+    await options.selectOption('#theme', 'dark');
+    await options.waitForFunction(() => document.body.dataset.settingsState === 'saved');
+    await options.setInputFiles('#importFile', {
+      name: 'StarBoard-smoke-backup.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(completeBackupText),
+    });
+    await options.waitForSelector('#importPreview:not([hidden])');
+    check(
+      'restore performs a dry run before applying records',
+      /repositories/.test(await options.textContent('#importSummary')) &&
+        /history points/.test(await options.textContent('#importSummary')),
+    );
+    await options.screenshot({ path: `${SHOTS}/08-import-preview.png`, fullPage: true });
+    await options.click('#applyImport');
+    await options.waitForFunction(async () => {
+      const { getSettings } = await import('./lib/storage.js');
+      const settings = await getSettings();
+      return settings.theme === 'light' && settings.token === 'smoke-export-secret';
+    });
+    await options.waitForSelector('#undoClear:not([hidden])');
+    check('restore applies portable state without replacing the local credential', true);
+    await options.click('#undoClear');
+    await options.waitForFunction(async () => {
+      const { getSettings } = await import('./lib/storage.js');
+      return (await getSettings()).theme === 'dark';
+    });
+    check('restored backup can be rolled back during the undo window', true);
+
     const beforeClear = await options.evaluate(async () => {
       const { getCache, getHistory } = await import('./lib/storage.js');
       return {

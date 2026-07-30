@@ -286,6 +286,45 @@
             </div>
             <p id="pruneScope" class="note destructive-scope" hidden></p>
           </div>
+          <div class="data-tool transfer-tool">
+            <div>
+              <h3>Backup &amp; export</h3>
+              <p>
+                Download a checksummed JSON backup or a timestamped CSV. Personal access tokens
+                are never included.
+              </p>
+            </div>
+            <div class="privacy-choices">
+              <label>
+                <input id="includePrivateExport" type="checkbox" />
+                Include private repository names
+              </label>
+              <label>
+                <input id="includeHistoryExport" type="checkbox" />
+                Include trend history
+              </label>
+            </div>
+            <div class="data-tool-actions transfer-actions">
+              <button id="backupJson" class="secondary-btn" type="button">Download JSON</button>
+              <button id="exportCsv" class="secondary-btn" type="button">Export CSV</button>
+              <button id="chooseImport" class="secondary-btn" type="button">Restore JSON…</button>
+              <input id="importFile" type="file" accept="application/json,.json" hidden />
+            </div>
+            <div id="importPreview" class="import-preview" role="status" hidden>
+              <div>
+                <b>Dry run complete</b>
+                <p id="importSummary"></p>
+                <small>
+                  Applying replaces only records present in the file. Your local PAT stays on this
+                  device. The prior state remains undoable for 10 minutes.
+                </small>
+              </div>
+              <div class="data-tool-actions">
+                <button id="applyImport" class="primary-btn" type="button">Apply restore</button>
+                <button id="cancelImport" class="secondary-btn" type="button">Cancel</button>
+              </div>
+            </div>
+          </div>
           <div class="actions">
             <button id="clear" class="danger-btn" type="button">
               Clear snapshot, baseline &amp; history

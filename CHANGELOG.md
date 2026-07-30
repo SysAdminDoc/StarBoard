@@ -67,6 +67,16 @@
   renamed repositories connected.
 - Added exact-scope history pruning and included trend data in clear/undo
   recovery. The complete browser lane now contains 68 checks.
+- Added format-versioned JSON backup with a canonical SHA-256 checksum,
+  migration-aware dry-run restore and a 10-minute full-state rollback.
+- Added timestamped repository CSV export with counts, deltas, source and
+  confidence. Private repository names and history are independent,
+  unchecked-by-default inclusion choices; PATs are always excluded.
+- Reduced MV3 refresh responses by keeping bounded history in local storage
+  instead of echoing up to 2 MiB through the message channel, restoring the
+  Chrome 110 recovery path.
+- Fixed the Windows CI pip cache to key from `requirements-icons.txt`. The
+  complete browser lane now contains 76 checks.
 
 No permission scopes changed.
 

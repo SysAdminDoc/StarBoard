@@ -8,13 +8,14 @@
     "soldOrShared": false,
     "websiteSession": "The browser attaches github.com cookies to website-source requests. StarBoard never reads or stores cookie values.",
     "tokenHandling": "PATs are session-only by default, sent only to api.github.com, never exported, and can be explicitly persisted or forgotten.",
-    "retention": "Settings, repository snapshots, and comparison baselines stay in the browser profile until the user clears them or uninstalls the extension."
+    "retention": "Settings, repository snapshots, comparison baselines, and bounded daily history stay in the browser profile until the user clears them or uninstalls the extension.",
+    "portableFiles": "Backup and CSV export are user-initiated. Private repository names and history require separate opt-ins; PATs are never included."
   },
   "permissions": [
     {
       "name": "storage",
       "required": true,
-      "justification": "Persist local settings, last-known-good repository snapshots, and comparison baselines."
+      "justification": "Persist local settings, last-known-good repository snapshots, comparison baselines, bounded daily history, and short-lived undo state."
     },
     {
       "name": "alarms",

@@ -488,6 +488,50 @@ export async function pruneStoredHistory(keepDays) {
   });
 }
 
+export async function applyImportedState(input) {
+  return serialized(async () => {
+    assert(isObject(input), 'import records must be an object');
+    const allowed = new Set([
+      STORAGE_KEYS.settings,
+      STORAGE_KEYS.cache,
+      STORAGE_KEYS.baseline,
+      STORAGE_KEYS.history,
+    ]);
+    const unknown = Object.keys(input).filter((key) => !allowed.has(key));
+    assert(!unknown.length, `unsupported import records: ${unknown.join(', ')}`);
+    assert(Object.hasOwn(input, STORAGE_KEYS.settings), 'import settings are required');
+
+    const records = {};
+    for (const [key, value] of Object.entries(input)) {
+      const raw = makeEnvelope(value);
+      records[key] = migrateRecord(key, raw).envelope.data;
+    }
+    assert(!records[STORAGE_KEYS.settings].token, 'imported settings may not contain a token');
+
+    // A portable file never carries credentials. Preserve the current local
+    // credential choice without copying it through the import message.
+    const currentSettings = await getSettings();
+    records[STORAGE_KEYS.settings] = normalizeSettings({
+      ...records[STORAGE_KEYS.settings],
+      tokenMode: currentSettings.tokenMode,
+      token: currentSettings.tokenMode === 'persistent' ? currentSettings.token : '',
+    });
+
+    const keys = Object.keys(records);
+    await saveUndoSnapshotInternal('backup-import', keys);
+    const generation = `import-${Date.now().toString(36)}-${crypto.randomUUID()}`;
+    if (records[STORAGE_KEYS.cache]) records[STORAGE_KEYS.cache].generation = generation;
+    if (records[STORAGE_KEYS.baseline]) records[STORAGE_KEYS.baseline].generation = generation;
+    await writeRecords(records, generation);
+    return {
+      settings: records[STORAGE_KEYS.settings],
+      cache: records[STORAGE_KEYS.cache] || (await readRecord(STORAGE_KEYS.cache)),
+      baseline: records[STORAGE_KEYS.baseline] || (await readRecord(STORAGE_KEYS.baseline)),
+      history: records[STORAGE_KEYS.history] || (await readRecord(STORAGE_KEYS.history)),
+    };
+  });
+}
+
 /** Reduce a repo list to the minimum needed to diff against later. */
 export function snapshotOf(repos, { now = Date.now(), generation = null } = {}) {
   const counts = {};

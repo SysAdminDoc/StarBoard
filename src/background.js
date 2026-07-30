@@ -22,6 +22,7 @@ import {
   getUndoStatus,
   restoreUndoSnapshot,
   pruneStoredHistory,
+  applyImportedState,
 } from './lib/storage.js';
 import { createRefreshCoordinator } from './lib/refresh-coordinator.js';
 import { deriveLifecycleEvents, mergeLifecycleEvents } from './lib/lifecycle.js';
@@ -214,7 +215,15 @@ async function runRefresh(intent) {
     const committed = await commitRefresh(cache, baseline, generation);
     await updateBadge({ settings, ...committed });
     await scheduleRetry(result.retryAt);
-    return { ok: true, ...committed, generation };
+    // History can approach 2 MiB. Keep it in storage rather than echoing it
+    // through the MV3 response channel; the popup reads it locally after the
+    // refresh response arrives.
+    return {
+      ok: true,
+      cache: committed.cache,
+      baseline: committed.baseline,
+      generation,
+    };
   } catch (err) {
     const detail = {
       message: err.message,
@@ -319,6 +328,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       case 'undo': {
         const restored = await restoreUndoSnapshot();
+        await syncAlarm();
         await updateBadge();
         sendResponse({
           ok: !!restored,
@@ -328,8 +338,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
       case 'prune-history': {
-        const history = await pruneStoredHistory(Number(msg.keepDays));
-        sendResponse({ ok: true, history, undo: await getUndoStatus() });
+        await pruneStoredHistory(Number(msg.keepDays));
+        sendResponse({ ok: true, undo: await getUndoStatus() });
+        break;
+      }
+      case 'import-backup': {
+        await applyImportedState(msg.records);
+        await syncAlarm();
+        await updateBadge();
+        sendResponse({ ok: true, undo: await getUndoStatus() });
         break;
       }
       case 'refresh':
@@ -364,6 +381,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       default:
         sendResponse({ ok: false, error: { message: `Unknown message: ${msg?.type}` } });
     }
-  })();
+  })().catch((error) => {
+    sendResponse({
+      ok: false,
+      error: {
+        message: error?.message || 'StarBoard could not complete that request.',
+        code: error?.code || 'MESSAGE_FAILED',
+      },
+    });
+  });
   return true; // keep the response channel open for the async work above
 });

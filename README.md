@@ -25,6 +25,9 @@ projects are doing best**, and **what moved since yesterday**.
 - **Change tracking** — green `+3` / `+1` badges next to each repo's stars and forks, measured against a baseline snapshot you control.
 - **Offline trends** — compare portfolio and per-repository movement over 7,
   30 or 90 days from bounded daily history stored only in your profile.
+- **Portable by choice** — download a checksummed JSON backup or timestamped
+  CSV, dry-run restores before applying them, and roll back an import for 10
+  minutes.
 - **Sort by momentum** — order by *stars gained* or *forks gained* to see what is actually moving, not just what is already big.
 - **Live totals** — aggregate stars, forks and repo count, each with its own delta.
 - **Honest confidence** — exact, approximate, partial and stale snapshots are
@@ -139,10 +142,14 @@ hosts described above.
   with the browser session. Persistent storage is an explicit, warned choice.
   Tokens are sent only to `api.github.com`, omitted from diagnostics and
   exports, and removable from both stores with **Forget token**.
-- **Clearing and recovery:** clearing names the repository snapshot and
-  comparison baseline it will remove, requires a second activation, and keeps
-  one local undo snapshot for 10 minutes. Settings and credentials remain
-  untouched.
+- **Clearing and recovery:** clearing names the repository snapshot,
+  comparison baseline and daily history it will remove, requires a second
+  activation, and keeps one local undo snapshot for 10 minutes. Settings and
+  credentials remain untouched.
+- **Portable files:** JSON backup and CSV export are user-initiated only.
+  Private repository names and trend history each require an unchecked-by-
+  default opt-in. PATs are always omitted, and restore preserves the credential
+  already held by this browser profile.
 - **Required permissions:** `storage` keeps local state, `alarms` runs the
   selected refresh/retry schedule, `offscreen` provides `DOMParser`, and
   `https://api.github.com/*` supports the secondary API source.
@@ -152,6 +159,25 @@ hosts described above.
 The checked-in [store listing contract](store-listing.json) is the source of
 truth for permission justifications, privacy disclosures and release
 screenshots.
+
+## Backup, restore and CSV
+
+Open **Settings → Local data** to download a portable file:
+
+- **Download JSON** creates a format-versioned backup of settings, the current
+  snapshot and baseline. Its SHA-256 checksum covers the full non-secret
+  payload. History and private repository names remain excluded unless you
+  explicitly select their separate inclusion boxes.
+- **Export CSV** writes timestamped repository star/fork counts, deltas, source
+  and confidence. With history selected it exports the retained daily series;
+  otherwise it exports the current snapshot against the comparison baseline.
+- **Restore JSON…** verifies the checksum, rejects credentials and unsupported
+  records, runs storage migrations and shows a dry-run record summary. Nothing
+  changes until **Apply restore** is clicked; the prior state can then be
+  restored with **Undo last data action** for 10 minutes.
+
+Files never contain a PAT. A restore keeps the credential already stored in
+the current profile and replaces only records present in the backup.
 
 ## How the deltas work
 
@@ -197,7 +223,8 @@ extension into a throwaway Chromium profile, seeds
 settings, performs a real fetch, and asserts on ordering, deltas, filtering,
 sorting, source defaults, popup-detail switches, the toolbar badge, the options
 page, credential handling, lifecycle/confidence labels, offline history ranges,
-destructive-action recovery, worker termination and both themes — 68 checks. It
+portable-file privacy, import rollback, destructive-action recovery, worker
+termination and both themes — 76 checks. It
 hits the live GitHub API unauthenticated (3–4 of your 60 hourly requests); set
 `GITHUB_TOKEN` to use the authenticated limit.
 
@@ -227,6 +254,7 @@ src/lib/request.js   timeout, Retry-After and bounded retry policy
 src/lib/refresh-coordinator.js  refresh intent serialization/coalescing
 src/lib/lifecycle.js repository add/remove/rename event derivation
 src/lib/history.js   bounded daily history and offline trend comparisons
+src/lib/transfer.js  checksummed backup/restore and privacy-aware CSV export
 src/lib/storage.js   versioned settings/cache/baseline persistence and recovery
 scripts/build.py     reproducible unsigned ZIP, hashes and SPDX packaging
 scripts/make_icons.py  icon generation

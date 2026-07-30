@@ -57,6 +57,11 @@ const {
   historyPointForRepo,
   recordDailyHistory,
 } = await import('../src/lib/history.js');
+const {
+  createBackup,
+  createCsv,
+  validateBackupText,
+} = await import('../src/lib/transfer.js');
 
 async function fixture(name) {
   return JSON.parse(await readFile(resolve(FIXTURES, name), 'utf8'));
@@ -526,27 +531,43 @@ await test('daily history replaces same-day points and follows API IDs across re
 
 await test('history enforces 365 UTC days and the two-megabyte hard cap', async () => {
   const start = Date.UTC(2025, 0, 1, 12);
-  let history = null;
-  for (let day = 0; day < 370; day += 1) {
-    history = recordDailyHistory(
-      history,
-      {
-        source: 'web',
-        confidence: 'approximate',
-        repos: [
-          {
-            id: 'octocat/demo',
-            full_name: 'octocat/demo',
-            stargazers_count: day,
-            forks_count: 0,
-            private: false,
-            approx: true,
-          },
-        ],
-      },
-      { now: start + day * 86_400_000 },
-    );
-  }
+  const historySeed = {
+    formatVersion: 1,
+    snapshots: Array.from({ length: 369 }, (_, day) => ({
+      day: new Date(start + day * 86_400_000).toISOString().slice(0, 10),
+      at: start + day * 86_400_000,
+      source: 'web',
+      confidence: 'approximate',
+      repos: [
+        {
+          key: 'name:octocat/demo',
+          fullName: 'octocat/demo',
+          stars: day,
+          forks: 0,
+          private: false,
+          approximate: true,
+        },
+      ],
+    })),
+  };
+  const history = recordDailyHistory(
+    historySeed,
+    {
+      source: 'web',
+      confidence: 'approximate',
+      repos: [
+        {
+          id: 'octocat/demo',
+          full_name: 'octocat/demo',
+          stargazers_count: 369,
+          forks_count: 0,
+          private: false,
+          approx: true,
+        },
+      ],
+    },
+    { now: start + 369 * 86_400_000 },
+  );
   assert.equal(history.snapshots.length, 365);
   assert.ok(historyByteSize(history) <= HISTORY_MAX_BYTES);
 
@@ -567,6 +588,189 @@ await test('history enforces 365 UTC days and the two-megabyte hard cap', async 
   );
   assert.ok(historyByteSize(oversized) <= 800);
   assert.equal(oversized.snapshots[0].truncated, true);
+});
+
+await test('portable backups are checksummed, credential-free, and privacy-filtered', async () => {
+  const exportedAt = Date.UTC(2026, 6, 29, 12);
+  const settings = {
+    ...storage.DEFAULTS,
+    username: 'octocat',
+    dataSource: 'api',
+    refreshMinutes: 60,
+    tokenMode: 'persistent',
+    token: 'must-never-export',
+  };
+  const repos = [
+    {
+      id: 1,
+      name: 'public-demo',
+      full_name: 'octocat/public-demo',
+      stargazers_count: 10,
+      forks_count: 2,
+      private: false,
+      fork: false,
+      archived: false,
+      description: '',
+    },
+    {
+      id: 2,
+      name: 'private-demo',
+      full_name: 'octocat/private-demo',
+      stargazers_count: 7,
+      forks_count: 1,
+      private: true,
+      fork: false,
+      archived: false,
+      description: '',
+    },
+  ];
+  const cache = {
+    profile: { login: 'octocat' },
+    repos,
+    fetchedAt: exportedAt,
+    source: 'api',
+    confidence: 'exact',
+    lifecycleEvents: [
+      {
+        id: 'private-removed',
+        type: 'removed',
+        repoId: 3,
+        from: null,
+        to: 'octocat/private-removed',
+        at: exportedAt,
+        source: 'api',
+      },
+    ],
+  };
+  const baseline = storage.snapshotOf(repos, { now: exportedAt - 1000 });
+  let history = recordDailyHistory(null, cache, { now: exportedAt });
+  history = recordDailyHistory(
+    history,
+    {
+      ...cache,
+      repos: repos.map((repo) =>
+        repo.full_name === 'octocat/private-demo' ? { ...repo, private: false } : repo,
+      ),
+    },
+    { now: exportedAt - 86_400_000 },
+  );
+
+  const publicBackup = await createBackup({
+    settings,
+    cache,
+    baseline,
+    history,
+    now: exportedAt,
+  });
+  const publicText = JSON.stringify(publicBackup);
+  assert.doesNotMatch(publicText, /must-never-export|private-demo|private-removed/);
+  const publicPreview = await validateBackupText(publicText);
+  assert.equal(publicPreview.summary.repositories, 1);
+  assert.equal(publicPreview.summary.historyDays, 0);
+  assert.equal(publicPreview.records.settings.token, '');
+
+  const privateBackup = await createBackup({
+    settings,
+    cache,
+    baseline,
+    history,
+    includePrivate: true,
+    includeHistory: true,
+    now: exportedAt,
+  });
+  const privateText = JSON.stringify(privateBackup);
+  assert.match(privateText, /private-demo/);
+  assert.doesNotMatch(privateText, /must-never-export/);
+  const privatePreview = await validateBackupText(privateText);
+  assert.equal(privatePreview.summary.privateRepositories, 1);
+  assert.equal(privatePreview.summary.historyPoints, 4);
+
+  const tampered = JSON.stringify({
+    ...privateBackup,
+    exportedAt: new Date(exportedAt + 1000).toISOString(),
+  });
+  await assert.rejects(validateBackupText(tampered), /checksum does not match/);
+
+  const currentCsv = createCsv({ cache, baseline, history });
+  assert.match(currentCsv, /octocat\/public-demo/);
+  assert.doesNotMatch(currentCsv, /octocat\/private-demo/);
+  assert.match(currentCsv, /stars_delta/);
+  const historyCsv = createCsv({
+    cache,
+    baseline,
+    history,
+    includePrivate: true,
+    includeHistory: true,
+  });
+  assert.match(historyCsv, /octocat\/private-demo/);
+});
+
+await test('validated imports preserve local credentials and support full rollback', async () => {
+  Object.keys(area.values).forEach((key) => delete area.values[key]);
+  Object.keys(sessionArea.values).forEach((key) => delete sessionArea.values[key]);
+  await storage.setSettings({
+    username: 'before',
+    dataSource: 'api',
+    refreshMinutes: 60,
+    token: 'session-stays-local',
+  });
+  const beforeCache = {
+    profile: { login: 'before' },
+    repos: [
+      {
+        id: 1,
+        name: 'before',
+        full_name: 'before/repo',
+        stargazers_count: 1,
+        forks_count: 0,
+      },
+    ],
+    fetchedAt: 100,
+    source: 'api',
+    confidence: 'exact',
+  };
+  await storage.commitRefresh(
+    beforeCache,
+    storage.snapshotOf(beforeCache.repos, { now: 100 }),
+    'before-generation',
+  );
+
+  const importedCache = {
+    ...beforeCache,
+    profile: { login: 'after' },
+    repos: [
+      {
+        ...beforeCache.repos[0],
+        id: 2,
+        name: 'after',
+        full_name: 'after/repo',
+        stargazers_count: 9,
+      },
+    ],
+  };
+  const document = await createBackup({
+    settings: {
+      ...storage.DEFAULTS,
+      username: 'after',
+      dataSource: 'api',
+      refreshMinutes: 120,
+    },
+    cache: importedCache,
+    baseline: storage.snapshotOf(importedCache.repos, { now: 90 }),
+    history: recordDailyHistory(null, importedCache, { now: 100 }),
+    includeHistory: true,
+    now: 100,
+  });
+  const preview = await validateBackupText(JSON.stringify(document));
+  const applied = await storage.applyImportedState(preview.records);
+  assert.equal(applied.settings.username, 'after');
+  assert.equal((await storage.getSettings()).token, 'session-stays-local');
+  assert.equal(applied.cache.generation, applied.baseline.generation);
+
+  const restored = await storage.restoreUndoSnapshot();
+  assert.equal(restored.settings.username, 'before');
+  assert.equal(restored.cache.profile.login, 'before');
+  assert.equal((await storage.getSettings()).token, 'session-stays-local');
 });
 
 const failed = checks.filter((check) => !check.passed);

@@ -22,6 +22,7 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+          cache-dependency-path: requirements-icons.txt
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: py -3.12 -m pip install --disable-pip-version-check -r requirements-icons.txt
