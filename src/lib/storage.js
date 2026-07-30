@@ -13,8 +13,10 @@ export const STORAGE_KEYS = Object.freeze({
   baseline: 'baseline',
   lastKnownGood: 'starboardLastKnownGood',
   quarantine: 'starboardQuarantine',
+  undo: 'starboardUndo',
 });
 export const SESSION_TOKEN_KEY = 'starboardSessionToken';
+export const UNDO_WINDOW_MS = 10 * 60_000;
 
 export const DEFAULTS = Object.freeze({
   username: '',
@@ -166,6 +168,17 @@ function validateCache(value) {
       ['exact', 'approximate', 'partial', 'stale'].includes(value.confidence),
       'invalid cache confidence',
     );
+  }
+  if (value.lifecycleEvents != null) {
+    assert(Array.isArray(value.lifecycleEvents), 'cache lifecycle events must be an array');
+    for (const event of value.lifecycleEvents) {
+      assert(isObject(event) && typeof event.id === 'string', 'invalid lifecycle event');
+      assert(
+        ['added', 'removed', 'renamed'].includes(event.type),
+        'invalid lifecycle event type',
+      );
+      assertFinite(event.at, 'lifecycle event timestamp');
+    }
   }
 }
 
@@ -424,6 +437,20 @@ export async function setCache(cache) {
   await serialized(() => writeRecords({ [STORAGE_KEYS.cache]: cache }, cache.generation));
 }
 
+export async function acknowledgeLifecycle(ids) {
+  return serialized(async () => {
+    const cache = await getCache();
+    if (!cache) return null;
+    const selected = new Set(ids || []);
+    const lifecycleEvents = selected.size
+      ? (cache.lifecycleEvents || []).filter((event) => !selected.has(event.id))
+      : [];
+    const next = { ...cache, lifecycleEvents };
+    await writeRecords({ [STORAGE_KEYS.cache]: next }, next.generation);
+    return next;
+  });
+}
+
 export async function getBaseline() {
   return readRecord(STORAGE_KEYS.baseline);
 }
@@ -486,6 +513,10 @@ export async function commitRefresh(cache, baseline, generation) {
 
 export async function clearPortfolioData() {
   await serialized(async () => {
+    await saveUndoSnapshotInternal('clear-portfolio', [
+      STORAGE_KEYS.cache,
+      STORAGE_KEYS.baseline,
+    ]);
     const backup = await readLastKnownGood();
     delete backup[STORAGE_KEYS.cache];
     delete backup[STORAGE_KEYS.baseline];
@@ -493,6 +524,93 @@ export async function clearPortfolioData() {
       [STORAGE_KEYS.lastKnownGood]: makeEnvelope(backup),
     });
     await AREA.remove([STORAGE_KEYS.cache, STORAGE_KEYS.baseline]);
+  });
+}
+
+async function saveUndoSnapshotInternal(scope, keys) {
+  const snapshot = {};
+  for (const key of keys) snapshot[key] = await readRecord(key);
+  const createdAt = Date.now();
+  await AREA.set({
+    [STORAGE_KEYS.undo]: makeEnvelope({
+      scope,
+      createdAt,
+      expiresAt: createdAt + UNDO_WINDOW_MS,
+      snapshot,
+    }),
+  });
+}
+
+export async function createUndoSnapshot(scope, keys) {
+  await serialized(() => saveUndoSnapshotInternal(scope, keys));
+  return getUndoStatus();
+}
+
+async function readUndo() {
+  const raw = (await AREA.get(STORAGE_KEYS.undo))[STORAGE_KEYS.undo];
+  if (
+    !isObject(raw) ||
+    raw.schemaVersion !== SCHEMA_VERSION ||
+    !isObject(raw.data?.snapshot) ||
+    !Number.isFinite(raw.data?.expiresAt)
+  ) {
+    if (raw != null) await AREA.remove(STORAGE_KEYS.undo);
+    return null;
+  }
+  if (raw.data.expiresAt <= Date.now()) {
+    await AREA.remove(STORAGE_KEYS.undo);
+    return null;
+  }
+  return raw.data;
+}
+
+export async function getUndoStatus() {
+  const undo = await readUndo();
+  return undo
+    ? {
+        available: true,
+        scope: undo.scope,
+        createdAt: undo.createdAt,
+        expiresAt: undo.expiresAt,
+      }
+    : { available: false };
+}
+
+export async function restoreUndoSnapshot() {
+  return serialized(async () => {
+    const undo = await readUndo();
+    if (!undo) return null;
+    const records = {};
+    for (const key of [STORAGE_KEYS.cache, STORAGE_KEYS.baseline]) {
+      if (undo.snapshot[key]) records[key] = undo.snapshot[key];
+    }
+    if (Object.keys(records).length) {
+      const generation =
+        records[STORAGE_KEYS.cache]?.generation ||
+        records[STORAGE_KEYS.baseline]?.generation ||
+        null;
+      await writeRecords(records, generation);
+    }
+    const removed = [];
+    for (const key of [STORAGE_KEYS.cache, STORAGE_KEYS.baseline]) {
+      if (Object.hasOwn(undo.snapshot, key) && undo.snapshot[key] == null) {
+        await AREA.remove(key);
+        removed.push(key);
+      }
+    }
+    if (removed.length) {
+      const backup = await readLastKnownGood();
+      removed.forEach((key) => delete backup[key]);
+      await AREA.set({
+        [STORAGE_KEYS.lastKnownGood]: makeEnvelope(backup),
+      });
+    }
+    await AREA.remove(STORAGE_KEYS.undo);
+    return {
+      scope: undo.scope,
+      cache: await readRecord(STORAGE_KEYS.cache),
+      baseline: await readRecord(STORAGE_KEYS.baseline),
+    };
   });
 }
 

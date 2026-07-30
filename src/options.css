@@ -719,6 +719,13 @@ input[type='checkbox'][role='switch']:focus-visible {
   margin-top: 18px;
 }
 
+.destructive-scope {
+  padding: 9px 10px;
+  border: 1px solid var(--red);
+  border-radius: 8px;
+  color: var(--text);
+}
+
 .data-card {
   grid-column: 1 / -1;
 }

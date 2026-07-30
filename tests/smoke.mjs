@@ -550,6 +550,64 @@ async function main() {
 
     const totals = await popup.textContent('#total-stars');
     check('totals populated', totals !== '0', `${totals} stars across ${rows.length} repos`);
+    check(
+      'portfolio confidence and filtered-total scope are explicit',
+      (await popup.textContent('#confidence')) === 'Exact snapshot' &&
+        (await popup.textContent('#total-stars-label')) === 'Visible stars',
+      `${await popup.textContent('#confidence')} / ${await popup.textContent('#total-stars-label')}`,
+    );
+
+    await popup.evaluate(async () => {
+      const { getCache, setCache } = await import('./lib/storage.js');
+      const cache = await getCache();
+      const visible = cache.repos.filter((repo) => !repo.fork && !repo.archived);
+      cache.lifecycleEvents = [
+        {
+          id: 'fixture:renamed',
+          type: 'renamed',
+          repoId: visible[0].id,
+          from: 'octocat/previous-name',
+          to: visible[0].full_name,
+          at: Date.now(),
+          source: 'api',
+        },
+        {
+          id: 'fixture:added',
+          type: 'added',
+          repoId: visible[1].id,
+          from: null,
+          to: visible[1].full_name,
+          at: Date.now(),
+          source: 'api',
+        },
+        {
+          id: 'fixture:removed',
+          type: 'removed',
+          repoId: 999999,
+          from: null,
+          to: 'octocat/removed-fixture',
+          at: Date.now(),
+          source: 'api',
+        },
+      ];
+      await setCache(cache);
+    });
+    await popup.reload();
+    await popup.waitForSelector('#lifecycle:not([hidden])');
+    check(
+      'repository lifecycle changes remain visible until acknowledged',
+      (await popup.locator('#lifecycle-list li').count()) === 3 &&
+        (await popup.locator('.lifecycle-tag').count()) >= 2,
+    );
+    await popup.click('#ack-lifecycle');
+    await popup.waitForSelector('#lifecycle', { state: 'hidden' });
+    check(
+      'repository lifecycle changes can be acknowledged',
+      await popup.evaluate(async () => {
+        const { getCache } = await import('./lib/storage.js');
+        return (await getCache()).lifecycleEvents.length === 0;
+      }),
+    );
     await popup.screenshot({ path: `${SHOTS}/02-popup.png` });
 
     // Filtering narrows the list.
@@ -780,10 +838,29 @@ async function main() {
 
     // Baseline reset must move the baseline forward without wiping the list.
     await popup.bringToFront();
+    const baselineBeforeReset = await popup.evaluate(async () => {
+      const { getBaseline } = await import('./lib/storage.js');
+      return (await getBaseline()).at;
+    });
     await popup.click('#rebase');
-    await popup.waitForTimeout(2500);
+    check(
+      'baseline reset requires explicit confirmation',
+      (await popup.textContent('#since')) === 'Confirm reset baseline',
+    );
+    await popup.click('#rebase');
+    await popup.waitForFunction(async (previous) => {
+      const { getBaseline } = await import('./lib/storage.js');
+      return (await getBaseline()).at !== previous;
+    }, baselineBeforeReset);
     const stillRendered = await popup.$$eval('.row', (n) => n.length);
     check('baseline reset keeps the list', stillRendered > 0, `${stillRendered} rows`);
+    await popup.waitForSelector('#undo:not([hidden])');
+    await popup.click('#undo');
+    await popup.waitForFunction(async (previous) => {
+      const { getBaseline } = await import('./lib/storage.js');
+      return (await getBaseline()).at === previous;
+    }, baselineBeforeReset);
+    check('baseline reset can be undone within the recovery window', true);
 
     // Deltas: plant a baseline that is deliberately behind the live counts and
     // confirm the popup reports the gain rather than just the total.
@@ -912,6 +989,36 @@ async function main() {
       JSON.stringify(lifecycleState),
     );
     await cdp.detach();
+
+    const cacheBeforeClear = await options.evaluate(async () => {
+      const { getCache } = await import('./lib/storage.js');
+      return (await getCache()).generation;
+    });
+    await options.click('#clear');
+    check(
+      'clear data requires a second, scope-labeled confirmation',
+      /Confirm clear/.test(await options.textContent('#clear')) &&
+        !(await options.isHidden('#clearScope')),
+    );
+    check(
+      'first clear activation leaves portfolio data intact',
+      await options.evaluate(async () => {
+        const { getCache } = await import('./lib/storage.js');
+        return !!(await getCache());
+      }),
+    );
+    await options.click('#clear');
+    await options.waitForFunction(async () => {
+      const { getCache, getBaseline } = await import('./lib/storage.js');
+      return !(await getCache()) && !(await getBaseline());
+    });
+    await options.waitForSelector('#undoClear:not([hidden])');
+    await options.click('#undoClear');
+    await options.waitForFunction(async (generation) => {
+      const { getCache } = await import('./lib/storage.js');
+      return (await getCache())?.generation === generation;
+    }, cacheBeforeClear);
+    check('cleared snapshot and baseline can be restored together', true);
   } finally {
     await closeContext(ctx);
   }

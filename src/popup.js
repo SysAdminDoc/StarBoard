@@ -47,11 +47,14 @@ const el = {
   settings: $('settings'),
   totals: $('totals'),
   totalStars: $('total-stars'),
+  totalStarsLabel: $('total-stars-label'),
   totalStarsDelta: $('total-stars-delta'),
   totalForks: $('total-forks'),
   totalForksDelta: $('total-forks-delta'),
   totalForksWrap: $('total-forks-wrap'),
   totalRepos: $('total-repos'),
+  totalReposLabel: $('total-repos-label'),
+  confidence: $('confidence'),
   rebase: $('rebase'),
   since: $('since'),
   search: $('search'),
@@ -60,8 +63,12 @@ const el = {
   incArchived: $('incArchived'),
   count: $('count'),
   banner: $('banner'),
+  lifecycle: $('lifecycle'),
+  lifecycleList: $('lifecycle-list'),
+  acknowledgeLifecycle: $('ack-lifecycle'),
   list: $('list'),
   footer: $('footer'),
+  undo: $('undo'),
   updated: $('updated'),
   rate: $('rate'),
   liveStatus: $('live-status'),
@@ -93,6 +100,11 @@ function announce(message) {
   requestAnimationFrame(() => {
     el.liveStatus.textContent = message;
   });
+}
+
+async function updateUndoAvailability() {
+  const response = await chrome.runtime.sendMessage({ type: 'undo-status' });
+  el.undo.hidden = !response?.undo?.available;
 }
 
 /* ---------- formatting ---------- */
@@ -220,7 +232,21 @@ function rowNode(repo, rank) {
 
   const name = document.createElement('div');
   name.className = 'name';
-  name.textContent = repo.name;
+  const nameText = document.createElement('span');
+  nameText.className = 'name-text';
+  nameText.textContent = repo.name;
+  name.appendChild(nameText);
+  const lifecycle = (state.cache?.lifecycleEvents || []).find(
+    (event) =>
+      (event.type === 'added' || event.type === 'renamed') &&
+      event.to === repo.full_name,
+  );
+  if (lifecycle) {
+    const change = document.createElement('span');
+    change.className = `lifecycle-tag ${lifecycle.type}`;
+    change.textContent = lifecycle.type === 'renamed' ? 'renamed' : 'new';
+    name.appendChild(change);
+  }
   main.appendChild(name);
 
   if (state.settings.showDescriptions && repo.description) {
@@ -317,8 +343,9 @@ function renderTotals(rows) {
   const dStars = rows.reduce((s, r) => s + r.starsDelta, 0);
   const dForks = rows.reduce((s, r) => s + r.forksDelta, 0);
 
-  el.totalStars.textContent = nf.format(stars);
-  el.totalForks.textContent = nf.format(forks);
+  const approximate = rows.some((repo) => repo.approx);
+  el.totalStars.textContent = `${approximate ? '~' : ''}${nf.format(stars)}`;
+  el.totalForks.textContent = `${approximate ? '~' : ''}${nf.format(forks)}`;
   el.totalRepos.textContent = nf.format(rows.length);
   el.totalStarsDelta.replaceWith(withId(deltaNode(dStars), 'total-stars-delta'));
   el.totalForksDelta.replaceWith(withId(deltaNode(dForks), 'total-forks-delta'));
@@ -326,6 +353,23 @@ function renderTotals(rows) {
   el.totalForksDelta = $('total-forks-delta');
   el.totalForksWrap.hidden = !state.settings.showForkStats;
   el.totals.classList.toggle('fork-stats-hidden', !state.settings.showForkStats);
+  const unfilteredCount = withDeltas(state.cache).length;
+  const filtered = !!state.query.trim() || rows.length !== unfilteredCount;
+  el.totalStarsLabel.textContent = filtered ? 'Visible stars' : 'Total stars';
+  el.totalReposLabel.textContent = filtered ? 'Visible repos' : 'Repos';
+  el.totalStars.title = approximate
+    ? 'Approximate total — one or more website counts are abbreviated'
+    : '';
+
+  const confidence = state.cache?.confidence || 'exact';
+  const confidenceLabel = {
+    exact: 'Exact snapshot',
+    approximate: 'Approximate counts',
+    partial: 'Partial snapshot',
+    stale: 'Last-known-good',
+  }[confidence] || 'Snapshot';
+  el.confidence.textContent = confidenceLabel;
+  el.confidence.className = `confidence-badge ${confidence}`;
 
   const at = state.baseline?.at;
   el.since.textContent = at ? `Δ since ${relative(at)}` : 'Δ since —';
@@ -333,6 +377,34 @@ function renderTotals(rows) {
     ? `Baseline set ${relative(at)}. Click to reset it to now.`
     : 'Click to set the comparison baseline to now.';
   el.totals.hidden = false;
+}
+
+function renderLifecycle() {
+  const events = state.cache?.lifecycleEvents || [];
+  if (!events.length) {
+    el.lifecycle.hidden = true;
+    el.lifecycleList.replaceChildren();
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  for (const event of events.slice(0, 6)) {
+    const item = document.createElement('li');
+    const label =
+      event.type === 'renamed'
+        ? `${event.from} renamed to ${event.to}`
+        : event.type === 'added'
+          ? `${event.to} added`
+          : `${event.to} removed`;
+    item.textContent = `${label} · ${relative(event.at)}`;
+    fragment.appendChild(item);
+  }
+  if (events.length > 6) {
+    const more = document.createElement('li');
+    more.textContent = `+${events.length - 6} more changes`;
+    fragment.appendChild(more);
+  }
+  el.lifecycleList.replaceChildren(fragment);
+  el.lifecycle.hidden = false;
 }
 
 function withId(node, id) {
@@ -390,6 +462,7 @@ function render() {
   }
 
   renderBanner();
+  renderLifecycle();
 
   if (!settings.username && !settings.token) {
     el.totals.hidden = true;
@@ -409,7 +482,11 @@ function render() {
   const rows = visibleRepos();
   renderTotals(rows);
 
-  el.count.textContent = `${nf.format(rows.length)} shown`;
+  const allCount = withDeltas(cache).length;
+  el.count.textContent =
+    rows.length === allCount
+      ? `${nf.format(rows.length)} shown`
+      : `${nf.format(rows.length)} of ${nf.format(allCount)} shown`;
   el.updated.textContent = `${cache.stale ? 'Last successful update' : 'Updated'} ${relative(cache.fetchedAt)}`;
   el.rate.hidden = !settings.showSourceStatus;
   if (cache.source === 'web') {
@@ -464,6 +541,7 @@ async function doRefresh(rebase = false) {
           ? `Comparison baseline reset for ${res.cache.repos.length} repositories.`
           : `Refresh complete. ${res.cache.repos.length} repositories loaded.`,
       );
+      if (rebase) await updateUndoAvailability();
     } else {
       announce(`Refresh failed. ${res?.error?.message || 'The cached snapshot is still shown.'}`);
     }
@@ -499,7 +577,30 @@ function debounce(fn, ms) {
 
 el.refresh.addEventListener('click', () => doRefresh(false));
 el.settings.addEventListener('click', () => chrome.runtime.openOptionsPage());
-el.rebase.addEventListener('click', () => doRefresh(true));
+let rebaseArmedUntil = 0;
+let rebaseResetTimer;
+
+function resetRebaseConfirmation() {
+  rebaseArmedUntil = 0;
+  el.rebase.classList.remove('confirming');
+  const at = state.baseline?.at;
+  el.since.textContent = at ? `Δ since ${relative(at)}` : 'Δ since —';
+}
+
+el.rebase.addEventListener('click', () => {
+  if (Date.now() > rebaseArmedUntil) {
+    rebaseArmedUntil = Date.now() + 8000;
+    el.rebase.classList.add('confirming');
+    el.since.textContent = 'Confirm reset baseline';
+    announce('Resetting the baseline changes every displayed delta. Activate again to confirm.');
+    clearTimeout(rebaseResetTimer);
+    rebaseResetTimer = setTimeout(resetRebaseConfirmation, 8000);
+    return;
+  }
+  clearTimeout(rebaseResetTimer);
+  resetRebaseConfirmation();
+  doRefresh(true);
+});
 el.search.addEventListener(
   'input',
   debounce(() => {
@@ -510,6 +611,31 @@ el.search.addEventListener(
 el.sort.addEventListener('change', () => patch({ sortKey: el.sort.value }));
 el.incForks.addEventListener('change', () => patch({ includeForks: el.incForks.checked }));
 el.incArchived.addEventListener('change', () => patch({ includeArchived: el.incArchived.checked }));
+el.acknowledgeLifecycle.addEventListener('click', async () => {
+  const ids = (state.cache?.lifecycleEvents || []).map((event) => event.id);
+  const response = await chrome.runtime.sendMessage({
+    type: 'acknowledge-lifecycle',
+    ids,
+  });
+  if (response?.ok) {
+    state.cache = response.cache;
+    render();
+    announce('Repository changes acknowledged.');
+  }
+});
+el.undo.addEventListener('click', async () => {
+  const response = await chrome.runtime.sendMessage({ type: 'undo' });
+  if (!response?.ok) {
+    el.undo.hidden = true;
+    announce(response?.error?.message || 'Undo is no longer available.');
+    return;
+  }
+  state.cache = response.restored.cache;
+  state.baseline = response.restored.baseline;
+  render();
+  el.undo.hidden = true;
+  announce('Last data action undone.');
+});
 
 /* ---------- boot ---------- */
 
@@ -526,6 +652,7 @@ el.incArchived.addEventListener('change', () => patch({ includeArchived: el.incA
   el.incArchived.checked = state.settings.includeArchived;
 
   render();
+  await updateUndoAvailability();
   if (!el.search.disabled) el.search.focus();
 
   // Website reads are intentionally conservative: opening the popup never

@@ -53,6 +53,7 @@
 
     <section id="totals" class="totals" hidden>
       <div class="orbit" aria-hidden="true"></div>
+      <span id="confidence" class="confidence-badge"></span>
       <div class="total total-hero">
         <span class="metric-icon star-icon" aria-hidden="true">
           <svg viewBox="0 0 16 16">
@@ -63,7 +64,7 @@
           <b id="total-stars">0</b>
           <span id="total-stars-delta" class="delta"></span>
         </span>
-        <span class="total-label">Total stars</span>
+        <span id="total-stars-label" class="total-label">Total stars</span>
       </div>
       <div class="secondary-totals">
         <div id="total-forks-wrap" class="total">
@@ -74,7 +75,7 @@
           </span>
         </div>
         <div class="total">
-          <span class="total-label">Repos</span>
+          <span id="total-repos-label" class="total-label">Repos</span>
           <span class="total-row"><b id="total-repos">0</b></span>
         </div>
       </div>
@@ -124,10 +125,19 @@
 
     <div id="banner" class="banner" hidden></div>
 
+    <section id="lifecycle" class="lifecycle" aria-labelledby="lifecycle-title" hidden>
+      <div class="lifecycle-heading">
+        <b id="lifecycle-title">Repository changes</b>
+        <button id="ack-lifecycle" type="button">Acknowledge</button>
+      </div>
+      <ul id="lifecycle-list"></ul>
+    </section>
+
     <main id="list" class="list" aria-busy="true"></main>
 
     <footer id="footer" class="footer">
       <span id="updated">—</span>
+      <button id="undo" class="footer-action" type="button" hidden>Undo last action</button>
       <span class="spacer"></span>
       <span id="rate" class="rate"></span>
     </footer>

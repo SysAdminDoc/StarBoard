@@ -46,6 +46,11 @@ const {
   parseLinkHeader,
   GitHubError,
 } = await import('../src/lib/github.js');
+const {
+  deriveLifecycleEvents,
+  mergeLifecycleEvents,
+  acknowledgeLifecycleEvents,
+} = await import('../src/lib/lifecycle.js');
 
 async function fixture(name) {
   return JSON.parse(await readFile(resolve(FIXTURES, name), 'utf8'));
@@ -376,6 +381,96 @@ await test('shared request policy retries 5xx responses serially', async () => {
   assert.equal(result.value, 'ok');
   assert.equal(calls, 2);
   assert.deepEqual(sleeps, [100]);
+});
+
+await test('stable API IDs distinguish rename, addition, and removal', async () => {
+  const previous = {
+    source: 'api',
+    complete: true,
+    repos: [
+      { id: 1, full_name: 'octocat/old-name' },
+      { id: 2, full_name: 'octocat/removed' },
+    ],
+  };
+  const current = {
+    source: 'api',
+    complete: true,
+    repos: [
+      { id: 1, full_name: 'octocat/new-name' },
+      { id: 3, full_name: 'octocat/added' },
+    ],
+  };
+  const events = deriveLifecycleEvents(previous, current, {
+    generation: 'g1',
+    now: 100,
+    source: 'api',
+  });
+  assert.deepEqual(
+    events.map((event) => [event.type, event.from, event.to]),
+    [
+      ['renamed', 'octocat/old-name', 'octocat/new-name'],
+      ['added', null, 'octocat/added'],
+      ['removed', null, 'octocat/removed'],
+    ],
+  );
+  assert.equal(mergeLifecycleEvents(events, events).length, 3);
+  assert.equal(acknowledgeLifecycleEvents(events, [events[0].id]).length, 2);
+});
+
+await test('website-only unmatched names remain explicit add/remove events', async () => {
+  const events = deriveLifecycleEvents(
+    {
+      source: 'web',
+      complete: true,
+      repos: [{ id: 'octocat/old', full_name: 'octocat/old' }],
+    },
+    {
+      source: 'web',
+      complete: true,
+      repos: [{ id: 'octocat/new', full_name: 'octocat/new' }],
+    },
+    { generation: 'g2', now: 200, source: 'web' },
+  );
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ['added', 'removed'],
+  );
+});
+
+await test('destructive portfolio changes keep one expiring recovery snapshot', async () => {
+  Object.keys(area.values).forEach((key) => delete area.values[key]);
+  const cache = {
+    profile: { login: 'octocat' },
+    repos: [
+      {
+        id: 1,
+        name: 'demo',
+        full_name: 'octocat/demo',
+        stargazers_count: 4,
+        forks_count: 2,
+      },
+    ],
+    fetchedAt: 100,
+    source: 'api',
+    confidence: 'exact',
+  };
+  const baseline = storage.snapshotOf(cache.repos, { now: 100, generation: 'undo-g1' });
+  await storage.commitRefresh(cache, baseline, 'undo-g1');
+
+  await storage.clearPortfolioData();
+  assert.equal(await storage.getCache(), null);
+  assert.equal(await storage.getBaseline(), null);
+  assert.equal((await storage.getUndoStatus()).scope, 'clear-portfolio');
+
+  const restored = await storage.restoreUndoSnapshot();
+  assert.equal(restored.cache.generation, 'undo-g1');
+  assert.equal(restored.baseline.generation, 'undo-g1');
+  assert.equal((await storage.getUndoStatus()).available, false);
+
+  await storage.createUndoSnapshot('baseline-reset', ['baseline']);
+  area.values[storage.STORAGE_KEYS.undo].data.expiresAt = Date.now() - 1;
+  assert.equal((await storage.getUndoStatus()).available, false);
+  assert.equal(area.values[storage.STORAGE_KEYS.undo], undefined);
 });
 
 const failed = checks.filter((check) => !check.passed);

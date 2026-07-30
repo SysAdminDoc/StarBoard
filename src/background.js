@@ -16,8 +16,14 @@ import {
   setCache,
   chooseBaseline,
   commitRefresh,
+  acknowledgeLifecycle,
+  createUndoSnapshot,
+  clearPortfolioData,
+  getUndoStatus,
+  restoreUndoSnapshot,
 } from './lib/storage.js';
 import { createRefreshCoordinator } from './lib/refresh-coordinator.js';
+import { deriveLifecycleEvents, mergeLifecycleEvents } from './lib/lifecycle.js';
 
 const ALARM = 'starboard-refresh';
 const RETRY_ALARM = 'starboard-retry';
@@ -175,6 +181,9 @@ async function runRefresh(intent) {
         ? await fetchAccountViaWeb(settings.username)
         : await fetchAccount(settings, { previous });
     const existingBaseline = await getBaseline();
+    if (intent.rebase) {
+      await createUndoSnapshot('baseline-reset', ['baseline']);
+    }
     const baseline = chooseBaseline(existingBaseline, result.repos, settings.baselineHours, {
       rebase: intent.rebase,
       generation,
@@ -194,6 +203,13 @@ async function runRefresh(intent) {
       pendingSource: null,
       error: null,
     };
+    cache.lifecycleEvents = mergeLifecycleEvents(
+      previous?.lifecycleEvents || [],
+      deriveLifecycleEvents(previous, cache, {
+        generation,
+        source,
+      }),
+    );
     const committed = await commitRefresh(cache, baseline, generation);
     await updateBadge({ settings, ...committed });
     await scheduleRetry(result.retryAt);
@@ -284,6 +300,30 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'forget-token': {
         const settings = await forgetToken();
         sendResponse({ ok: true, settings });
+        break;
+      }
+      case 'acknowledge-lifecycle': {
+        const cache = await acknowledgeLifecycle(msg.ids || null);
+        sendResponse({ ok: true, cache });
+        break;
+      }
+      case 'clear-portfolio': {
+        await clearPortfolioData();
+        await updateBadge();
+        sendResponse({ ok: true, undo: await getUndoStatus() });
+        break;
+      }
+      case 'undo-status':
+        sendResponse({ ok: true, undo: await getUndoStatus() });
+        break;
+      case 'undo': {
+        const restored = await restoreUndoSnapshot();
+        await updateBadge();
+        sendResponse({
+          ok: !!restored,
+          restored,
+          error: restored ? null : { message: 'The undo window has expired.' },
+        });
         break;
       }
       case 'refresh':

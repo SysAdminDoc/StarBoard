@@ -53,6 +53,13 @@
 - Added immutable npm installs, pinned optional Pillow tooling, dependency
   audits, syntax/version checks, Dependabot, reproducible release tests and an
   offline packaged-extension CI smoke lane.
+- Labeled portfolio confidence and filtered-total scope, and retained
+  repository additions, removals and API-detected renames until acknowledged.
+- Added two-step confirmation and a 10-minute single-action undo window for
+  baseline resets and clearing the cached snapshot/baseline.
+- Expanded deterministic coverage through rename/removal fixtures, recovery
+  expiry, permission rollback and explicit MV3 worker termination; the complete
+  browser lane now contains 64 checks.
 
 No permission scopes changed.
 

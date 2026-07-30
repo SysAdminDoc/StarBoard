@@ -3,7 +3,6 @@
 import {
   getSettings,
   getCache,
-  clearPortfolioData,
   applyTheme,
 } from './lib/storage.js';
 import { fetchAccount } from './lib/github.js';
@@ -152,10 +151,17 @@ async function ensureWebPermission() {
 fields.dataSource.addEventListener('change', async () => {
   fields.dataSource.disabled = true;
   try {
+    const prior = await getSettings();
     if (fields.dataSource.value === 'web' && !(await ensureWebPermission())) {
-      fields.dataSource.value = 'api';
+      fields.dataSource.value = prior.dataSource;
+      fields.refreshMinutes.value = String(prior.refreshMinutes);
       syncSourceUI();
-      say('Permission for github.com denied — staying on API mode.', 'err');
+      say(
+        `Permission for github.com denied — staying on ${
+          prior.dataSource === 'web' ? 'website' : 'API'
+        } mode.`,
+        'err',
+      );
       return;
     }
     syncSourceUI();
@@ -251,11 +257,52 @@ $('test').addEventListener('click', async () => {
   });
 });
 
+let clearArmedUntil = 0;
+let clearResetTimer;
+
+function resetClearConfirmation() {
+  clearArmedUntil = 0;
+  $('clear').textContent = 'Clear snapshot & baseline';
+  $('clearScope').hidden = true;
+}
+
+async function syncUndoControl() {
+  const response = await chrome.runtime.sendMessage({ type: 'undo-status' });
+  $('undoClear').hidden = !response?.undo?.available;
+}
+
 $('clear').addEventListener('click', async () => {
-  await clearPortfolioData();
-  await chrome.runtime.sendMessage({ type: 'update-badge' });
-  await showStorageInfo();
-  say('Cached repos and baseline cleared. Settings kept.', 'ok');
+  if (Date.now() > clearArmedUntil) {
+    clearArmedUntil = Date.now() + 8000;
+    $('clear').textContent = 'Confirm clear snapshot & baseline';
+    $('clearScope').hidden = false;
+    say('Confirm the exact data scope below.', 'err');
+    clearTimeout(clearResetTimer);
+    clearResetTimer = setTimeout(resetClearConfirmation, 8000);
+    return;
+  }
+  clearTimeout(clearResetTimer);
+  resetClearConfirmation();
+  await withBusy($('clear'), 'Clearing…', async () => {
+    const response = await chrome.runtime.sendMessage({ type: 'clear-portfolio' });
+    if (!response?.ok) throw new Error(response?.error?.message || 'Could not clear local data.');
+    await showStorageInfo();
+    $('undoClear').hidden = !response.undo?.available;
+    say('Snapshot and baseline cleared. Undo is available for 10 minutes.', 'ok');
+  }).catch((error) => say(error.message || 'Could not clear local data.', 'err'));
+});
+
+$('undoClear').addEventListener('click', async () => {
+  await withBusy($('undoClear'), 'Restoring…', async () => {
+    const response = await chrome.runtime.sendMessage({ type: 'undo' });
+    if (!response?.ok) throw new Error(response?.error?.message || 'Undo is no longer available.');
+    await showStorageInfo();
+    $('undoClear').hidden = true;
+    say('Last data action undone.', 'ok');
+  }).catch((error) => {
+    $('undoClear').hidden = true;
+    say(error.message || 'Undo is no longer available.', 'err');
+  });
 });
 
 fields.token.addEventListener('input', syncSourceUI);
@@ -333,4 +380,4 @@ for (const key of INSTANT_SETTING_KEYS) {
   });
 }
 
-load();
+load().then(syncUndoControl);

@@ -372,6 +372,33 @@ select:disabled {
   border-radius: 50%;
 }
 
+.confidence-badge {
+  position: absolute;
+  z-index: 3;
+  top: 8px;
+  right: 12px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.confidence-badge.approximate {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.confidence-badge.partial,
+.confidence-badge.stale {
+  border-color: var(--red);
+  color: var(--red);
+}
+
 .total {
   position: relative;
   z-index: 1;
@@ -510,6 +537,11 @@ select:disabled {
 
 .ghost-btn:hover {
   color: var(--text);
+}
+
+.ghost-btn.confirming {
+  color: var(--red);
+  font-weight: 750;
 }
 
 /* ---------- controls ---------- */
@@ -653,6 +685,54 @@ select:disabled {
   color: var(--accent);
 }
 
+/* ---------- repository lifecycle ---------- */
+
+.lifecycle {
+  margin: 7px 11px 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 9.5px;
+}
+
+.lifecycle-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lifecycle-heading b {
+  color: var(--text);
+  font-size: 10.5px;
+}
+
+.lifecycle-heading button {
+  min-height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 9px;
+}
+
+.lifecycle ul {
+  margin: 5px 0 0;
+  padding-left: 17px;
+}
+
+.lifecycle li + li {
+  margin-top: 2px;
+}
+
+body:has(.lifecycle:not([hidden])) .list {
+  height: 282px;
+}
+
 /* ---------- ranked repositories ---------- */
 
 .list {
@@ -770,6 +850,9 @@ select:disabled {
 }
 
 .name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
   color: var(--text);
   font-size: 12px;
@@ -777,6 +860,29 @@ select:disabled {
   letter-spacing: -0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lifecycle-tag {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 7.5px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.lifecycle-tag.renamed {
+  border-color: var(--gold);
+  color: var(--gold);
 }
 
 .row:hover .name {
@@ -967,6 +1073,17 @@ select:disabled {
   border-radius: 50%;
   background: var(--faint);
   content: '';
+}
+
+.footer-action {
+  min-height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 9px;
 }
 
 .footer.is-healthy::before {

@@ -25,6 +25,9 @@ projects are doing best**, and **what moved since yesterday**.
 - **Change tracking** — green `+3` / `+1` badges next to each repo's stars and forks, measured against a baseline snapshot you control.
 - **Sort by momentum** — order by *stars gained* or *forks gained* to see what is actually moving, not just what is already big.
 - **Live totals** — aggregate stars, forks and repo count, each with its own delta.
+- **Honest confidence** — exact, approximate, partial and stale snapshots are
+  labeled, filtered totals state their scope, and repository additions,
+  removals and API-detected renames remain visible until acknowledged.
 - **Toolbar badge** — total stars, or stars gained since the baseline, on the extension icon.
 - **Search and filter** — filter by name, description or language; toggle forks and archived repos in or out.
 - **Two data sources** — your signed-in github.com session with **no token at
@@ -133,9 +136,10 @@ hosts described above.
   with the browser session. Persistent storage is an explicit, warned choice.
   Tokens are sent only to `api.github.com`, omitted from diagnostics and
   exports, and removable from both stores with **Forget token**.
-- **Clearing and export:** **Clear cached data** removes repository snapshots
-  and baselines while preserving settings. StarBoard performs no automatic
-  export; user-initiated backup/export files never include a PAT.
+- **Clearing and recovery:** clearing names the repository snapshot and
+  comparison baseline it will remove, requires a second activation, and keeps
+  one local undo snapshot for 10 minutes. Settings and credentials remain
+  untouched.
 - **Required permissions:** `storage` keeps local state, `alarms` runs the
   selected refresh/retry schedule, `offscreen` provides `DOMParser`, and
   `https://api.github.com/*` supports the secondary API source.
@@ -155,6 +159,11 @@ It is deliberately *not* overwritten on every refresh — if it were, every delt
 would read `+0` forever. It rolls forward on the schedule you pick in settings
 (default: every 24 hours), or immediately when you click the **`Δ since …`**
 button in the popup to start counting from now.
+
+Resetting that baseline requires a second activation and can be undone for 10
+minutes. The same recovery window applies when clearing the cached snapshot and
+baseline from Settings; starting another destructive action replaces the prior
+undo snapshot.
 
 ## Development
 
@@ -176,7 +185,8 @@ and request timeout/backoff without network access. `tests/smoke.mjs` loads the
 extension into a throwaway Chromium profile, seeds
 settings, performs a real fetch, and asserts on ordering, deltas, filtering,
 sorting, source defaults, popup-detail switches, the toolbar badge, the options
-page, credential handling, worker lifecycle and both themes — 56 checks. It
+page, credential handling, lifecycle/confidence labels, destructive-action
+recovery, worker termination and both themes — 64 checks. It
 hits the live GitHub API unauthenticated (3–4 of your 60 hourly requests); set
 `GITHUB_TOKEN` to use the authenticated limit.
 
@@ -204,6 +214,7 @@ src/lib/github.js    REST client: pagination, rate limits, error mapping
 src/lib/scrape.js    github.com HTML -> the same shape github.js returns
 src/lib/request.js   timeout, Retry-After and bounded retry policy
 src/lib/refresh-coordinator.js  refresh intent serialization/coalescing
+src/lib/lifecycle.js repository add/remove/rename event derivation
 src/lib/storage.js   versioned settings/cache/baseline persistence and recovery
 scripts/build.py     reproducible unsigned ZIP, hashes and SPDX packaging
 scripts/make_icons.py  icon generation
