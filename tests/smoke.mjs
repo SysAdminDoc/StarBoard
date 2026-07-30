@@ -428,7 +428,16 @@ async function main() {
     check(
       'setup-only popup controls start disabled',
       await popup.evaluate(() =>
-        ['refresh', 'search', 'sort', 'incForks', 'incArchived', 'rebase'].every(
+        [
+          'refresh',
+          'search',
+          'sort',
+          'viewSelect',
+          'saveView',
+          'toggleFilters',
+          'filterLanguage',
+          'rebase',
+        ].every(
           (id) => document.getElementById(id).disabled,
         ),
       ),
@@ -825,23 +834,62 @@ async function main() {
     await popup.screenshot({ path: `${SHOTS}/02-popup.png` });
 
     // Filtering narrows the list.
-    await popup.fill('#search', rows[0].name.slice(0, 4));
-    await popup.waitForTimeout(300);
+    const searchTerm = rows[0].name.slice(0, 4);
+    await popup.fill('#search', searchTerm);
+    await popup.waitForFunction(async (expected) => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      return (
+        document.body.dataset.portfolioState === 'saved' &&
+        (await getPortfolioViewState()).active.query === expected &&
+        document.querySelectorAll('.row').length < 20
+      );
+    }, searchTerm);
+    await popup.waitForTimeout(200);
+    await popup.waitForFunction(async (expected) => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      return (
+        document.body.dataset.portfolioState === 'saved' &&
+        (await getPortfolioViewState()).active.query === expected &&
+        document.querySelectorAll('.row').length < 20
+      );
+    }, searchTerm);
     const filtered = await popup.$$eval('.row', (n) => n.length);
     check('search filters the list', filtered > 0 && filtered <= rows.length, `${filtered} rows`);
     await popup.fill('#search', '');
-    await popup.waitForTimeout(300);
+    await popup.waitForFunction(async () => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      return (
+        document.body.dataset.portfolioState === 'saved' &&
+        (await getPortfolioViewState()).active.query === ''
+      );
+    });
+    await popup.waitForTimeout(200);
+    await popup.waitForFunction(async () => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      const names = [...document.querySelectorAll('.row .name')].map(
+        (node) => node.textContent,
+      );
+      return (
+        document.body.dataset.portfolioState === 'saved' &&
+        (await getPortfolioViewState()).active.sortKey === 'name' &&
+        names.length > 1 &&
+        names.every(
+          (value, index) => index === 0 || names[index - 1].localeCompare(value) <= 0,
+        )
+      );
+    });
 
     // Re-sorting by name must actually change the order.
     await popup.selectOption('#sort', 'name');
     await popup.waitForFunction(async () => {
-      const { getSettings } = await import('./lib/storage.js');
+      const { getPortfolioViewState } = await import('./lib/storage.js');
       const names = [...document.querySelectorAll('.row .name')].map(
         (node) => node.textContent,
       );
       return (
         names.length > 1 &&
-        (await getSettings()).sortKey === 'name' &&
+        document.body.dataset.portfolioState === 'saved' &&
+        (await getPortfolioViewState()).active.sortKey === 'name' &&
         names.every((value, index) =>
           index === 0 || names[index - 1].localeCompare(value) <= 0
         )
@@ -849,17 +897,19 @@ async function main() {
     });
     const nameSortState = await popup.evaluate(async () => {
       await new Promise((resolveWait) => setTimeout(resolveWait, 100));
-      const { getSettings } = await import('./lib/storage.js');
+      const { getPortfolioViewState } = await import('./lib/storage.js');
       const names = [...document.querySelectorAll('.row .name')].map(
         (node) => node.textContent,
       );
       return {
-        stored: (await getSettings()).sortKey,
+        stored: (await getPortfolioViewState()).active.sortKey,
         selected: document.querySelector('#sort').value,
         sorted: names.every(
           (value, index) => index === 0 || names[index - 1].localeCompare(value) <= 0,
         ),
         first: names[0] || null,
+        status: document.querySelector('#live-status').textContent,
+        error: document.body.dataset.portfolioError || null,
       };
     });
     check(
@@ -871,16 +921,251 @@ async function main() {
     );
     await popup.selectOption('#sort', 'stars');
     await popup.waitForFunction(async () => {
-      const { getSettings } = await import('./lib/storage.js');
+      const { getPortfolioViewState } = await import('./lib/storage.js');
       const stars = [...document.querySelectorAll('.row .stat.stars b')].map(
         (node) => Number(node.textContent.replace(/[~,]/g, '')),
       );
       return (
         stars.length > 1 &&
-        (await getSettings()).sortKey === 'stars' &&
+        document.body.dataset.portfolioState === 'saved' &&
+        (await getPortfolioViewState()).active.sortKey === 'stars' &&
         stars.every((value, index) => index === 0 || stars[index - 1] >= value)
       );
     });
+
+    // Rich filters operate on normalized repository fields, and named views
+    // restore the complete search/sort/filter state with rename/delete undo.
+    const portfolioFixture = await popup.evaluate(async () => {
+      const { getCache, setCache } = await import('./lib/storage.js');
+      const cache = await getCache();
+      const now = Date.now();
+      const fixtureRepos = [
+        {
+          id: 9_900_001,
+          name: 'starboard-filter-active',
+          full_name: 'starboard-smoke/starboard-filter-active',
+          html_url: 'https://github.com/starboard-smoke/starboard-filter-active',
+          description: 'Synthetic active repository for saved-view coverage.',
+          language: 'FixtureScript',
+          private: false,
+          fork: false,
+          archived: false,
+          approx: false,
+          stargazers_count: 7,
+          forks_count: 1,
+          pushed_at: new Date(now - 5 * 86_400_000).toISOString(),
+        },
+        {
+          id: 9_900_002,
+          name: 'starboard-filter-private',
+          full_name: 'starboard-smoke/starboard-filter-private',
+          html_url: 'https://github.com/starboard-smoke/starboard-filter-private',
+          description: 'Synthetic private archived fork for saved-view coverage.',
+          language: 'FixturePython',
+          private: true,
+          fork: true,
+          archived: true,
+          approx: true,
+          stargazers_count: 1200,
+          forks_count: 20,
+          pushed_at: new Date(now - 500 * 86_400_000).toISOString(),
+        },
+      ];
+      await setCache({
+        ...cache,
+        fetchedAt: now,
+        repos: [...cache.repos, ...fixtureRepos],
+        lifecycleEvents: [
+          ...(cache.lifecycleEvents || []),
+          {
+            id: 'smoke-filter-added',
+            type: 'added',
+            from: null,
+            to: fixtureRepos[0].full_name,
+            at: now,
+            source: 'api',
+            generation: cache.generation,
+          },
+          {
+            id: 'smoke-filter-renamed',
+            type: 'renamed',
+            from: 'starboard-smoke/starboard-filter-old',
+            to: fixtureRepos[1].full_name,
+            at: now,
+            source: 'api',
+            generation: cache.generation,
+          },
+        ],
+      });
+      return fixtureRepos.map((repo) => repo.id);
+    });
+    await popup.reload();
+    await popup.click('#toggleFilters');
+    await popup.selectOption('#filterLanguage', 'FixturePython');
+    await popup.selectOption('#filterVisibility', 'private');
+    await popup.selectOption('#filterForks', 'forks');
+    await popup.selectOption('#filterArchived', 'archived');
+    await popup.selectOption('#filterPrecision', 'approximate');
+    await popup.selectOption('#filterLifecycle', 'renamed');
+    await popup.selectOption('#filterActivity', 'stale');
+    await popup.waitForFunction(async () => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      const active = (await getPortfolioViewState()).active;
+      const rows = [...document.querySelectorAll('.row .name-text')].map(
+        (node) => node.textContent,
+      );
+      return (
+        document.body.dataset.portfolioState === 'saved' &&
+        active.language === 'FixturePython' &&
+        active.visibility === 'private' &&
+        active.forkStatus === 'forks' &&
+        active.archivedStatus === 'archived' &&
+        active.precision === 'approximate' &&
+        active.lifecycle === 'renamed' &&
+        active.activity === 'stale' &&
+        rows.length === 1 &&
+        rows[0] === 'starboard-filter-private'
+      );
+    });
+    const composedFilterState = await popup.evaluate(async () => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      return {
+        active: (await getPortfolioViewState()).active,
+        count: document.querySelector('#filterCount').textContent,
+        countHidden: document.querySelector('#filterCount').hidden,
+        rows: [...document.querySelectorAll('.row .name-text')].map(
+          (node) => node.textContent,
+        ),
+        error: document.body.dataset.portfolioError || null,
+      };
+    });
+    check(
+      'language, visibility, fork, archive, precision, lifecycle, and activity filters compose',
+      composedFilterState.count === '7' &&
+        composedFilterState.rows.join() === 'starboard-filter-private',
+      JSON.stringify(composedFilterState),
+    );
+
+    await popup.click('#saveView');
+    await popup.fill('#viewName', 'Private maintenance');
+    await popup.click('#confirmView');
+    await popup.waitForFunction(async () => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      const views = await getPortfolioViewState();
+      return (
+        document.body.dataset.portfolioState === 'saved' &&
+        views.views.length === 1 &&
+        views.activeViewId === views.views[0].id
+      );
+    });
+    const savedViewId = await popup.evaluate(async () => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      return (await getPortfolioViewState()).activeViewId;
+    });
+    const persistedViewState = await popup.evaluate(async () => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      return {
+        state: await getPortfolioViewState(),
+        selected: document.querySelector('#viewSelect').value,
+        language: document.querySelector('#filterLanguage').value,
+        activity: document.querySelector('#filterActivity').value,
+        error: document.body.dataset.portfolioError || null,
+      };
+    });
+    check(
+      'named views persist the complete active filter state',
+      !!savedViewId &&
+        persistedViewState.language === 'FixturePython' &&
+        persistedViewState.activity === 'stale',
+      JSON.stringify(persistedViewState),
+    );
+
+    await popup.selectOption('#filterVisibility', 'public');
+    await popup.waitForFunction(async () => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      const views = await getPortfolioViewState();
+      return (
+        document.body.dataset.portfolioState === 'saved' &&
+        views.activeViewId === null &&
+        views.active.visibility === 'public'
+      );
+    });
+    await popup.selectOption('#viewSelect', savedViewId);
+    await popup.waitForFunction(async (expectedId) => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      return (
+        document.body.dataset.portfolioState === 'saved' &&
+        (await getPortfolioViewState()).activeViewId === expectedId &&
+        document.querySelector('#filterVisibility').value === 'private' &&
+        document.querySelectorAll('.row').length === 1
+      );
+    }, savedViewId);
+    check('selecting a saved view restores its filters', true);
+
+    await popup.click('#renameView');
+    await popup.fill('#viewName', 'Private archive');
+    await popup.click('#confirmView');
+    await popup.waitForFunction(async () => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      return (
+        document.body.dataset.portfolioState === 'saved' &&
+        (await getPortfolioViewState()).views[0]?.name === 'Private archive'
+      );
+    });
+    check('saved views can be renamed with recovery', true);
+
+    await popup.click('#deleteView');
+    await popup.waitForFunction(async () => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      return (
+        document.body.dataset.portfolioState === 'saved' &&
+        (await getPortfolioViewState()).views.length === 0
+      );
+    });
+    await popup.waitForSelector('#undo:not([hidden])');
+    await popup.click('#undo');
+    await popup.waitForFunction(async () => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      const views = await getPortfolioViewState();
+      return (
+        views.views[0]?.name === 'Private archive' &&
+        views.activeViewId === views.views[0].id &&
+        document.querySelector('#viewSelect').value === views.activeViewId
+      );
+    });
+    check('deleted saved views restore through the shared undo action', true);
+    await popup.screenshot({ path: `${SHOTS}/11-saved-filters.png` });
+
+    await popup.click('#resetFilters');
+    await popup.waitForFunction(async () => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      const active = (await getPortfolioViewState()).active;
+      return (
+        document.body.dataset.portfolioState === 'saved' &&
+        document.querySelector('#filterCount').hidden &&
+        active.query === '' &&
+        active.language === 'all' &&
+        active.visibility === 'all' &&
+        active.forkStatus === 'sources' &&
+        active.archivedStatus === 'all' &&
+        active.precision === 'all' &&
+        active.lifecycle === 'all' &&
+        active.activity === 'all'
+      );
+    });
+    await popup.evaluate(async (fixtureIds) => {
+      const { getCache, setCache } = await import('./lib/storage.js');
+      const cache = await getCache();
+      await setCache({
+        ...cache,
+        fetchedAt: Date.now(),
+        repos: cache.repos.filter((repo) => !fixtureIds.includes(repo.id)),
+        lifecycleEvents: (cache.lifecycleEvents || []).filter(
+          (event) => !event.id.startsWith('smoke-filter-'),
+        ),
+      });
+    }, portfolioFixture);
+    await popup.reload();
 
     // Toolbar badge should carry the star total.
     const badge = await worker.evaluate(() => chrome.action.getBadgeText({}));
@@ -1372,11 +1657,12 @@ async function main() {
     const publicBackupText = readFileSync(await publicBackupDownload.path(), 'utf8');
     const publicBackup = JSON.parse(publicBackupText);
     check(
-      'default JSON backup is checksummed and excludes credentials, private names, and history',
+      'default JSON backup is checksummed, portable-view aware, and privacy filtered',
       publicBackup.checksum?.algorithm === 'SHA-256' &&
         !publicBackupText.includes('smoke-export-secret') &&
         !publicBackupText.includes('private-smoke-fixture') &&
-        !Object.hasOwn(publicBackup.records, 'history'),
+        !Object.hasOwn(publicBackup.records, 'history') &&
+        publicBackup.records.portfolioViews?.data?.views?.length === 1,
     );
 
     const [publicCsvDownload] = await Promise.all([
@@ -1403,6 +1689,7 @@ async function main() {
       'opted-in backup carries private names and validated history but never a PAT',
       completeBackupText.includes('private-smoke-fixture') &&
         Object.hasOwn(completeBackup.records, 'history') &&
+        completeBackup.records.portfolioViews?.data?.views?.length === 1 &&
         !completeBackupText.includes('smoke-export-secret'),
     );
 
@@ -1417,6 +1704,12 @@ async function main() {
         historyCsv.split(/\r?\n/).length > completeBackup.records.cache.data.repos.length + 2,
     );
 
+    await options.evaluate(async () => {
+      const { deleteSavedPortfolioView, getPortfolioViewState } =
+        await import('./lib/storage.js');
+      const state = await getPortfolioViewState();
+      if (state.views[0]) await deleteSavedPortfolioView(state.views[0].id);
+    });
     await options.selectOption('#theme', 'dark');
     await options.waitForFunction(() => document.body.dataset.settingsState === 'saved');
     await options.setInputFiles('#importFile', {
@@ -1428,21 +1721,32 @@ async function main() {
     check(
       'restore performs a dry run before applying records',
       /repositories/.test(await options.textContent('#importSummary')) &&
-        /history points/.test(await options.textContent('#importSummary')),
+        /history points/.test(await options.textContent('#importSummary')) &&
+        /1 saved view/.test(await options.textContent('#importSummary')),
     );
     await options.screenshot({ path: `${SHOTS}/08-import-preview.png`, fullPage: true });
     await options.click('#applyImport');
     await options.waitForFunction(async () => {
-      const { getSettings } = await import('./lib/storage.js');
-      const settings = await getSettings();
-      return settings.theme === 'light' && settings.token === 'smoke-export-secret';
+      const { getSettings, getPortfolioViewState } = await import('./lib/storage.js');
+      const [settings, views] = await Promise.all([
+        getSettings(),
+        getPortfolioViewState(),
+      ]);
+      return (
+        settings.theme === 'light' &&
+        settings.token === 'smoke-export-secret' &&
+        views.views[0]?.name === 'Private archive'
+      );
     });
     await options.waitForSelector('#undoClear:not([hidden])');
     check('restore applies portable state without replacing the local credential', true);
     await options.click('#undoClear');
     await options.waitForFunction(async () => {
-      const { getSettings } = await import('./lib/storage.js');
-      return (await getSettings()).theme === 'dark';
+      const { getSettings, getPortfolioViewState } = await import('./lib/storage.js');
+      return (
+        (await getSettings()).theme === 'dark' &&
+        (await getPortfolioViewState()).views.length === 0
+      );
     });
     await options.waitForFunction(() => {
       const button = document.querySelector('#undoClear');

@@ -10,10 +10,23 @@ import {
   getCache,
   getBaseline,
   getHistory,
+  getPortfolioViewState,
+  setActivePortfolioFilters,
+  saveCurrentPortfolioView,
+  renameSavedPortfolioView,
+  deleteSavedPortfolioView,
+  activateSavedPortfolioView,
+  createUndoSnapshot,
   STORAGE_KEYS,
   applyTheme,
 } from './lib/storage.js';
 import { historyPointsForRepos, repositoryHistoryKey } from './lib/history.js';
+import {
+  DEFAULT_PORTFOLIO_FILTERS,
+  NO_LANGUAGE,
+  activeAdvancedFilterCount,
+  filterRepositories,
+} from './lib/portfolio-views.js';
 
 const LANG_COLORS = {
   JavaScript: '#f1e05a',
@@ -67,8 +80,25 @@ const el = {
   since: $('since'),
   search: $('search'),
   sort: $('sort'),
-  incForks: $('incForks'),
-  incArchived: $('incArchived'),
+  viewSelect: $('viewSelect'),
+  saveView: $('saveView'),
+  renameView: $('renameView'),
+  deleteView: $('deleteView'),
+  viewEditor: $('viewEditor'),
+  viewName: $('viewName'),
+  confirmView: $('confirmView'),
+  cancelView: $('cancelView'),
+  toggleFilters: $('toggleFilters'),
+  filterCount: $('filterCount'),
+  filterPanel: $('filterPanel'),
+  filterLanguage: $('filterLanguage'),
+  filterVisibility: $('filterVisibility'),
+  filterForks: $('filterForks'),
+  filterArchived: $('filterArchived'),
+  filterPrecision: $('filterPrecision'),
+  filterLifecycle: $('filterLifecycle'),
+  filterActivity: $('filterActivity'),
+  resetFilters: $('resetFilters'),
   trendRange: $('trendRange'),
   count: $('count'),
   banner: $('banner'),
@@ -88,10 +118,11 @@ let state = {
   cache: null,
   baseline: null,
   history: null,
+  portfolioViews: null,
   trendRange: 'baseline',
-  query: '',
 };
 let refreshing = false;
+let viewEditorMode = null;
 
 function hasSetup() {
   return !!(state.settings?.username || state.settings?.token);
@@ -99,13 +130,30 @@ function hasSetup() {
 
 function syncControls() {
   const hasRows = !!state.cache?.repos;
+  const viewBusy = pendingPortfolioUpdates > 0;
   el.refresh.disabled = !hasSetup() || refreshing;
   el.rebase.disabled = !hasRows || refreshing;
-  el.search.disabled = !hasRows;
-  el.sort.disabled = !hasRows;
-  el.incForks.disabled = !hasRows;
-  el.incArchived.disabled = !hasRows;
+  el.search.disabled = !hasRows || viewBusy;
+  el.sort.disabled = !hasRows || viewBusy;
   el.trendRange.disabled = !hasRows;
+  el.viewSelect.disabled = !hasRows || viewBusy;
+  el.saveView.disabled = !hasRows || viewBusy;
+  el.toggleFilters.disabled = !hasRows || viewBusy;
+  const selected = !!state.portfolioViews?.activeViewId;
+  el.renameView.disabled = !hasRows || viewBusy || !selected;
+  el.deleteView.disabled = !hasRows || viewBusy || !selected;
+  for (const control of [
+    el.filterLanguage,
+    el.filterVisibility,
+    el.filterForks,
+    el.filterArchived,
+    el.filterPrecision,
+    el.filterLifecycle,
+    el.filterActivity,
+    el.resetFilters,
+  ]) {
+    control.disabled = !hasRows || viewBusy;
+  }
   el.list.setAttribute(
     'aria-busy',
     String(refreshing || (hasSetup() && !state.cache?.repos && !state.cache?.error)),
@@ -224,19 +272,13 @@ const SORTERS = {
 };
 
 function visibleRepos() {
-  const { settings, query } = state;
-  const q = query.trim().toLowerCase();
-  const rows = withDeltas(state.cache).filter((r) => {
-    if (!settings.includeForks && r.fork) return false;
-    if (!settings.includeArchived && r.archived) return false;
-    if (!q) return true;
-    return (
-      r.name.toLowerCase().includes(q) ||
-      r.description.toLowerCase().includes(q) ||
-      (r.language || '').toLowerCase().includes(q)
-    );
-  });
-  return rows.sort(SORTERS[settings.sortKey] || SORTERS.stars);
+  const filters = state.portfolioViews?.active || DEFAULT_PORTFOLIO_FILTERS;
+  const rows = filterRepositories(
+    withDeltas(state.cache),
+    filters,
+    state.cache?.lifecycleEvents || [],
+  );
+  return rows.sort(SORTERS[filters.sortKey] || SORTERS.stars);
 }
 
 /* ---------- rendering ---------- */
@@ -417,7 +459,8 @@ function renderTotals(rows) {
   el.totalForksWrap.hidden = !state.settings.showForkStats;
   el.totals.classList.toggle('fork-stats-hidden', !state.settings.showForkStats);
   const unfilteredCount = withDeltas(state.cache).length;
-  const filtered = !!state.query.trim() || rows.length !== unfilteredCount;
+  const filtered =
+    !!state.portfolioViews?.active.query.trim() || rows.length !== unfilteredCount;
   el.totalStarsLabel.textContent = filtered ? 'Visible stars' : 'Total stars';
   el.totalReposLabel.textContent = filtered ? 'Visible repos' : 'Repos';
   el.totalStars.title = approximate
@@ -508,11 +551,79 @@ function renderBanner() {
   el.banner.hidden = true;
 }
 
+function setSelectOptions(select, options, selected) {
+  const fragment = document.createDocumentFragment();
+  for (const option of options) {
+    const node = document.createElement('option');
+    node.value = option.value;
+    node.textContent = option.label;
+    fragment.appendChild(node);
+  }
+  select.replaceChildren(fragment);
+  select.value = selected;
+}
+
+function syncPortfolioViewControls() {
+  if (!state.portfolioViews) return;
+  const { active, activeViewId, views } = state.portfolioViews;
+  el.search.value = active.query;
+  el.sort.value = active.sortKey;
+
+  setSelectOptions(
+    el.viewSelect,
+    [
+      { value: '', label: 'Custom view' },
+      ...views.map((view) => ({ value: view.id, label: view.name })),
+    ],
+    activeViewId || '',
+  );
+
+  const languages = [
+    ...new Set((state.cache?.repos || []).map((repo) => repo.language).filter(Boolean)),
+  ].sort((a, b) => a.localeCompare(b));
+  const languageOptions = [
+    { value: 'all', label: 'All languages' },
+    { value: NO_LANGUAGE, label: 'No language' },
+    ...languages.map((language) => ({ value: language, label: language })),
+  ];
+  if (
+    active.language !== 'all' &&
+    active.language !== NO_LANGUAGE &&
+    !languages.includes(active.language)
+  ) {
+    languageOptions.push({
+      value: active.language,
+      label: `${active.language} (not present)`,
+    });
+  }
+  setSelectOptions(el.filterLanguage, languageOptions, active.language);
+  el.filterVisibility.value = active.visibility;
+  el.filterForks.value = active.forkStatus;
+  el.filterArchived.value = active.archivedStatus;
+  el.filterPrecision.value = active.precision;
+  el.filterLifecycle.value = active.lifecycle;
+  el.filterActivity.value = active.activity;
+
+  const filterCount = activeAdvancedFilterCount(active);
+  el.filterCount.textContent = String(filterCount);
+  el.filterCount.hidden = filterCount === 0;
+  el.toggleFilters.title =
+    filterCount === 0
+      ? 'Open repository filters'
+      : `${filterCount} non-default repository filter${filterCount === 1 ? '' : 's'}`;
+  const viewBusy = pendingPortfolioUpdates > 0;
+  el.renameView.disabled = !state.cache?.repos || viewBusy || !activeViewId;
+  el.deleteView.disabled = !state.cache?.repos || viewBusy || !activeViewId;
+  el.resetFilters.disabled =
+    !state.cache?.repos || viewBusy || (!active.query && filterCount === 0);
+}
+
 function render() {
   const { settings, cache } = state;
   const healthy = !!cache?.fetchedAt && !cache.error;
   el.footer.classList.toggle('is-healthy', healthy);
   syncControls();
+  syncPortfolioViewControls();
 
   if (cache?.profile) {
     el.avatar.src = cache.profile.avatar_url;
@@ -576,7 +687,7 @@ function render() {
   }
 
   if (!rows.length) {
-    renderEmpty('Nothing matches', 'Try clearing the filter or enabling forks and archived repos.');
+    renderEmpty('Nothing matches', 'Reset the search or open Filters to broaden this view.');
     return;
   }
 
@@ -627,12 +738,52 @@ async function doRefresh(rebase = false) {
   }
 }
 
-async function patch(changes) {
+async function patchSettings(changes) {
   const response = await chrome.runtime.sendMessage({ type: 'patch-settings', changes });
   if (!response?.ok) throw new Error(response?.error?.message || 'Could not save settings.');
   state.settings = response.settings;
   chrome.runtime.sendMessage({ type: 'update-badge' }).catch(() => {});
+  return response.settings;
+}
+
+async function syncLegacyFilterSettings(filters) {
+  await patchSettings({
+    sortKey: filters.sortKey,
+    includeForks: filters.forkStatus !== 'sources',
+    includeArchived: filters.archivedStatus !== 'active',
+  });
+}
+
+async function applyFilterPatch(changes, message = 'Filters updated.') {
+  state.portfolioViews = await setActivePortfolioFilters(changes);
   render();
+  if (
+    Object.hasOwn(changes, 'sortKey') ||
+    Object.hasOwn(changes, 'forkStatus') ||
+    Object.hasOwn(changes, 'archivedStatus')
+  ) {
+    await syncLegacyFilterSettings(state.portfolioViews.active);
+  }
+  announce(message);
+}
+
+function closeViewEditor() {
+  viewEditorMode = null;
+  el.viewEditor.hidden = true;
+  el.viewName.value = '';
+  el.viewName.setCustomValidity('');
+}
+
+function openViewEditor(mode) {
+  viewEditorMode = mode;
+  const selected = state.portfolioViews.views.find(
+    (view) => view.id === state.portfolioViews.activeViewId,
+  );
+  el.viewName.value = mode === 'rename' ? selected?.name || '' : '';
+  el.confirmView.textContent = mode === 'rename' ? 'Rename view' : 'Save view';
+  el.viewEditor.hidden = false;
+  el.viewName.focus();
+  el.viewName.select();
 }
 
 function debounce(fn, ms) {
@@ -641,6 +792,27 @@ function debounce(fn, ms) {
     clearTimeout(t);
     t = setTimeout(() => fn(...args), ms);
   };
+}
+
+let portfolioUpdateQueue = Promise.resolve();
+let pendingPortfolioUpdates = 0;
+document.body.dataset.portfolioState = 'saved';
+
+function queuePortfolioUpdate(work) {
+  pendingPortfolioUpdates += 1;
+  document.body.dataset.portfolioState = 'saving';
+  delete document.body.dataset.portfolioError;
+  syncControls();
+  const result = portfolioUpdateQueue.then(work, work);
+  portfolioUpdateQueue = result.catch((error) => {
+    document.body.dataset.portfolioError =
+      error?.message || 'Portfolio update failed.';
+  });
+  return result.finally(() => {
+    pendingPortfolioUpdates -= 1;
+    if (pendingPortfolioUpdates === 0) document.body.dataset.portfolioState = 'saved';
+    syncControls();
+  });
 }
 
 el.refresh.addEventListener('click', () => doRefresh(false));
@@ -669,16 +841,120 @@ el.rebase.addEventListener('click', () => {
   resetRebaseConfirmation();
   doRefresh(true);
 });
-el.search.addEventListener(
-  'input',
-  debounce(() => {
-    state.query = el.search.value;
+const persistSearch = debounce((value) => {
+    queuePortfolioUpdate(() =>
+      applyFilterPatch({ query: value }, 'Repository search updated.'),
+    ).catch((error) => announce(error.message || 'Could not save the repository search.'));
+  }, 120);
+el.search.addEventListener('input', () => persistSearch(el.search.value));
+el.sort.addEventListener('change', () => {
+  const value = el.sort.value;
+  queuePortfolioUpdate(() =>
+    applyFilterPatch({ sortKey: value }, 'Repository sort updated.'),
+  ).catch((error) => announce(error.message || 'Could not save the repository sort.'));
+});
+
+for (const [control, key] of [
+  [el.filterLanguage, 'language'],
+  [el.filterVisibility, 'visibility'],
+  [el.filterForks, 'forkStatus'],
+  [el.filterArchived, 'archivedStatus'],
+  [el.filterPrecision, 'precision'],
+  [el.filterLifecycle, 'lifecycle'],
+  [el.filterActivity, 'activity'],
+]) {
+  control.addEventListener('change', () => {
+    const value = control.value;
+    queuePortfolioUpdate(() => applyFilterPatch({ [key]: value })).catch((error) =>
+      announce(error.message || 'Could not save that filter.'),
+    );
+  });
+}
+
+el.toggleFilters.addEventListener('click', () => {
+  const opening = el.filterPanel.hidden;
+  el.filterPanel.hidden = !opening;
+  el.toggleFilters.setAttribute('aria-expanded', String(opening));
+});
+
+el.resetFilters.addEventListener('click', () => {
+  queuePortfolioUpdate(() =>
+    applyFilterPatch({
+      query: '',
+      language: DEFAULT_PORTFOLIO_FILTERS.language,
+      visibility: DEFAULT_PORTFOLIO_FILTERS.visibility,
+      forkStatus: DEFAULT_PORTFOLIO_FILTERS.forkStatus,
+      archivedStatus: DEFAULT_PORTFOLIO_FILTERS.archivedStatus,
+      precision: DEFAULT_PORTFOLIO_FILTERS.precision,
+      lifecycle: DEFAULT_PORTFOLIO_FILTERS.lifecycle,
+      activity: DEFAULT_PORTFOLIO_FILTERS.activity,
+    }, 'Repository filters reset.'),
+  ).catch((error) => announce(error.message || 'Could not reset the filters.'));
+});
+
+el.viewSelect.addEventListener('change', () => {
+  const id = el.viewSelect.value || null;
+  queuePortfolioUpdate(async () => {
+    state.portfolioViews = await activateSavedPortfolioView(id);
+    closeViewEditor();
     render();
-  }, 120),
-);
-el.sort.addEventListener('change', () => patch({ sortKey: el.sort.value }));
-el.incForks.addEventListener('change', () => patch({ includeForks: el.incForks.checked }));
-el.incArchived.addEventListener('change', () => patch({ includeArchived: el.incArchived.checked }));
+    await syncLegacyFilterSettings(state.portfolioViews.active);
+    announce(
+      state.portfolioViews.activeViewId
+        ? `Loaded ${el.viewSelect.selectedOptions[0]?.textContent || 'saved view'}.`
+        : 'Using a custom portfolio view.',
+    );
+  }).catch(async (error) => {
+    state.portfolioViews = await getPortfolioViewState();
+    render();
+    announce(error.message || 'Could not load that saved view.');
+  });
+});
+
+el.saveView.addEventListener('click', () => openViewEditor('save'));
+el.renameView.addEventListener('click', () => openViewEditor('rename'));
+el.cancelView.addEventListener('click', closeViewEditor);
+
+el.viewName.addEventListener('input', () => el.viewName.setCustomValidity(''));
+el.viewEditor.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const name = el.viewName.value;
+  const mode = viewEditorMode;
+  queuePortfolioUpdate(async () => {
+    if (mode === 'rename') {
+      await createUndoSnapshot('portfolio-view-change', [STORAGE_KEYS.portfolioViews]);
+      state.portfolioViews = await renameSavedPortfolioView(
+        state.portfolioViews.activeViewId,
+        name,
+      );
+      await updateUndoAvailability();
+      announce('Saved view renamed. Undo is available for 10 minutes.');
+    } else {
+      state.portfolioViews = await saveCurrentPortfolioView(name);
+      announce('Portfolio view saved.');
+    }
+    closeViewEditor();
+    render();
+  }).catch((error) => {
+    el.viewName.setCustomValidity(error.message || 'Could not save that view.');
+    el.viewName.reportValidity();
+  });
+});
+
+el.deleteView.addEventListener('click', () => {
+  const id = state.portfolioViews.activeViewId;
+  const name = state.portfolioViews.views.find((view) => view.id === id)?.name;
+  if (!id) return;
+  queuePortfolioUpdate(async () => {
+    await createUndoSnapshot('portfolio-view-change', [STORAGE_KEYS.portfolioViews]);
+    state.portfolioViews = await deleteSavedPortfolioView(id);
+    closeViewEditor();
+    render();
+    await updateUndoAvailability();
+    announce(`${name || 'Saved view'} deleted. Undo is available for 10 minutes.`);
+  }).catch((error) => announce(error.message || 'Could not delete that saved view.'));
+});
+
 el.trendRange.addEventListener('change', () => {
   state.trendRange = el.trendRange.value;
   render();
@@ -708,6 +984,9 @@ el.undo.addEventListener('click', async () => {
   state.cache = response.restored.cache;
   state.baseline = response.restored.baseline;
   state.history = response.restored.history || state.history;
+  state.settings = response.restored.settings || state.settings;
+  state.portfolioViews =
+    response.restored.portfolioViews || (await getPortfolioViewState());
   render();
   el.undo.hidden = true;
   announce('Last data action undone.');
@@ -716,17 +995,21 @@ el.undo.addEventListener('click', async () => {
 /* ---------- boot ---------- */
 
 (async function init() {
-  [state.settings, state.cache, state.baseline, state.history] = await Promise.all([
+  [
+    state.settings,
+    state.cache,
+    state.baseline,
+    state.history,
+    state.portfolioViews,
+  ] = await Promise.all([
     getSettings(),
     getCache(),
     getBaseline(),
     getHistory(),
+    getPortfolioViewState(),
   ]);
 
   applyTheme(state.settings.theme);
-  el.sort.value = state.settings.sortKey;
-  el.incForks.checked = state.settings.includeForks;
-  el.incArchived.checked = state.settings.includeArchived;
   el.trendRange.value = state.trendRange;
 
   render();

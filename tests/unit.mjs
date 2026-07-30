@@ -70,6 +70,15 @@ const {
   markNotificationsDelivered,
   notificationAvailability,
 } = await import('../src/lib/notifications.js');
+const {
+  activatePortfolioView,
+  deletePortfolioView,
+  emptyPortfolioViewState,
+  filterRepositories,
+  patchActivePortfolioFilters,
+  renamePortfolioView,
+  savePortfolioView,
+} = await import('../src/lib/portfolio-views.js');
 
 async function fixture(name) {
   return JSON.parse(await readFile(resolve(FIXTURES, name), 'utf8'));
@@ -456,6 +465,99 @@ await test('website-only unmatched names remain explicit add/remove events', asy
   );
 });
 
+await test('portfolio filters cover language, visibility, state, lifecycle, and activity', async () => {
+  const now = Date.UTC(2026, 6, 29);
+  const repos = [
+    {
+      id: 1,
+      name: 'active-js',
+      full_name: 'octocat/active-js',
+      description: 'Current public source',
+      language: 'JavaScript',
+      private: false,
+      fork: false,
+      archived: false,
+      approx: false,
+      pushed_at: new Date(now - 10 * 86_400_000).toISOString(),
+    },
+    {
+      id: 2,
+      name: 'old-python-fork',
+      full_name: 'octocat/old-python-fork',
+      description: 'Archived private fork',
+      language: 'Python',
+      private: true,
+      fork: true,
+      archived: true,
+      approx: true,
+      pushed_at: new Date(now - 500 * 86_400_000).toISOString(),
+    },
+    {
+      id: 3,
+      name: 'no-language',
+      full_name: 'octocat/no-language',
+      description: '',
+      language: null,
+      private: false,
+      fork: false,
+      archived: false,
+      approx: false,
+      pushed_at: null,
+    },
+  ];
+  const events = [
+    { type: 'added', to: repos[0].full_name },
+    { type: 'renamed', to: repos[1].full_name },
+  ];
+  const names = (patch) =>
+    filterRepositories(repos, { ...emptyPortfolioViewState().active, ...patch }, events, {
+      now,
+    }).map((repo) => repo.name);
+
+  assert.deepEqual(names({ language: 'JavaScript' }), ['active-js']);
+  assert.deepEqual(names({ language: '__none__' }), ['no-language']);
+  assert.deepEqual(names({ visibility: 'private', forkStatus: 'all' }), ['old-python-fork']);
+  assert.deepEqual(names({ forkStatus: 'forks' }), ['old-python-fork']);
+  assert.deepEqual(names({ archivedStatus: 'archived', forkStatus: 'all' }), ['old-python-fork']);
+  assert.deepEqual(names({ precision: 'approximate', forkStatus: 'all' }), ['old-python-fork']);
+  assert.deepEqual(names({ lifecycle: 'changed', forkStatus: 'all' }), [
+    'active-js',
+    'old-python-fork',
+  ]);
+  assert.deepEqual(names({ lifecycle: 'renamed', forkStatus: 'all' }), ['old-python-fork']);
+  assert.deepEqual(names({ activity: '30' }), ['active-js']);
+  assert.deepEqual(names({ activity: 'stale', forkStatus: 'all' }), ['old-python-fork']);
+  assert.deepEqual(names({ activity: 'unknown' }), ['no-language']);
+});
+
+await test('saved portfolio views activate, rename, delete, and reject duplicates', async () => {
+  let state = emptyPortfolioViewState();
+  state = patchActivePortfolioFilters(state, {
+    query: 'demo',
+    language: 'TypeScript',
+    sortKey: 'updated',
+  });
+  state = savePortfolioView(state, 'Maintained', 'view-1');
+  assert.equal(state.activeViewId, 'view-1');
+  assert.equal(state.views[0].filters.query, 'demo');
+
+  state = patchActivePortfolioFilters(state, { query: 'changed' });
+  assert.equal(state.activeViewId, null);
+  state = activatePortfolioView(state, 'view-1');
+  assert.equal(state.active.query, 'demo');
+  assert.equal(state.active.sortKey, 'updated');
+
+  state = renamePortfolioView(state, 'view-1', 'Active work');
+  assert.equal(state.views[0].name, 'Active work');
+  assert.throws(
+    () => savePortfolioView(state, 'active work', 'view-2'),
+    /already exists/,
+  );
+  state = deletePortfolioView(state, 'view-1');
+  assert.equal(state.activeViewId, null);
+  assert.equal(state.views.length, 0);
+});
+
 await test('destructive portfolio changes keep one expiring recovery snapshot', async () => {
   Object.keys(area.values).forEach((key) => delete area.values[key]);
   const cache = {
@@ -504,6 +606,35 @@ await test('destructive portfolio changes keep one expiring recovery snapshot', 
   area.values[storage.STORAGE_KEYS.undo].data.expiresAt = Date.now() - 1;
   assert.equal((await storage.getUndoStatus()).available, false);
   assert.equal(area.values[storage.STORAGE_KEYS.undo], undefined);
+});
+
+await test('saved portfolio view deletion is recoverable through the shared undo record', async () => {
+  Object.keys(area.values).forEach((key) => delete area.values[key]);
+  await storage.setSettings({
+    sortKey: 'name',
+    includeForks: true,
+    includeArchived: false,
+  });
+  let views = await storage.getPortfolioViewState();
+  assert.equal(views.active.sortKey, 'name');
+  assert.equal(views.active.forkStatus, 'all');
+  assert.equal(views.active.archivedStatus, 'active');
+
+  views = await storage.setActivePortfolioFilters({
+    language: 'JavaScript',
+    visibility: 'public',
+  });
+  views = await storage.saveCurrentPortfolioView('JavaScript sources');
+  const savedId = views.activeViewId;
+  await storage.createUndoSnapshot('portfolio-view-change', [
+    storage.STORAGE_KEYS.portfolioViews,
+  ]);
+  views = await storage.deleteSavedPortfolioView(savedId);
+  assert.equal(views.views.length, 0);
+
+  const restored = await storage.restoreUndoSnapshot();
+  assert.equal(restored.portfolioViews.views[0].name, 'JavaScript sources');
+  assert.equal(restored.portfolioViews.active.language, 'JavaScript');
 });
 
 await test('daily history replaces same-day points and follows API IDs across renames', async () => {
@@ -675,6 +806,16 @@ await test('portable backups are checksummed, credential-free, and privacy-filte
     },
     { now: exportedAt - 86_400_000 },
   );
+  let portfolioViews = patchActivePortfolioFilters(emptyPortfolioViewState(), {
+    query: 'private-demo',
+    visibility: 'private',
+    forkStatus: 'all',
+  });
+  portfolioViews = savePortfolioView(
+    portfolioViews,
+    'private-demo focus',
+    'portable-view-1',
+  );
 
   const publicBackup = await createBackup({
     settings,
@@ -685,6 +826,7 @@ await test('portable backups are checksummed, credential-free, and privacy-filte
       ...DEFAULT_NOTIFICATION_CONFIG,
       portfolioMilestone: 250,
     },
+    portfolioViews,
     now: exportedAt,
   });
   const publicText = JSON.stringify(publicBackup);
@@ -693,8 +835,11 @@ await test('portable backups are checksummed, credential-free, and privacy-filte
   assert.equal(publicPreview.summary.repositories, 1);
   assert.equal(publicPreview.summary.historyDays, 0);
   assert.equal(publicPreview.summary.notificationConfig, true);
+  assert.equal(publicPreview.summary.savedViews, 1);
   assert.equal(publicPreview.records.notificationConfig.portfolioMilestone, 250);
   assert.equal(publicPreview.records.notificationState, undefined);
+  assert.equal(publicPreview.records.portfolioViews.active.query, '');
+  assert.equal(publicPreview.records.portfolioViews.views[0].name, 'Redacted view 1');
   assert.equal(publicPreview.records.settings.token, '');
 
   const privateBackup = await createBackup({
@@ -706,6 +851,7 @@ await test('portable backups are checksummed, credential-free, and privacy-filte
       ...DEFAULT_NOTIFICATION_CONFIG,
       portfolioMilestone: 250,
     },
+    portfolioViews,
     includePrivate: true,
     includeHistory: true,
     now: exportedAt,
@@ -750,6 +896,8 @@ await test('validated imports preserve local credentials and support full rollba
     enabled: false,
     portfolioMilestone: 100,
   });
+  await storage.setActivePortfolioFilters({ query: 'before-view' });
+  await storage.saveCurrentPortfolioView('Before view');
   const beforeCache = {
     profile: { login: 'before' },
     repos: [
@@ -799,6 +947,14 @@ await test('validated imports preserve local credentials and support full rollba
       enabled: false,
       portfolioMilestone: 250,
     },
+    portfolioViews: savePortfolioView(
+      patchActivePortfolioFilters(emptyPortfolioViewState(), {
+        query: 'after-view',
+        language: 'Rust',
+      }),
+      'After view',
+      'imported-view',
+    ),
     includeHistory: true,
     now: 100,
   });
@@ -808,11 +964,13 @@ await test('validated imports preserve local credentials and support full rollba
   assert.equal((await storage.getSettings()).token, 'session-stays-local');
   assert.equal(applied.cache.generation, applied.baseline.generation);
   assert.equal((await storage.getNotificationConfig()).portfolioMilestone, 250);
+  assert.equal((await storage.getPortfolioViewState()).active.query, 'after-view');
 
   const restored = await storage.restoreUndoSnapshot();
   assert.equal(restored.settings.username, 'before');
   assert.equal(restored.cache.profile.login, 'before');
   assert.equal(restored.notificationConfig.portfolioMilestone, 100);
+  assert.equal(restored.portfolioViews.active.query, 'before-view');
   assert.equal((await storage.getSettings()).token, 'session-stays-local');
 });
 

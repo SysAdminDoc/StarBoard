@@ -616,6 +616,96 @@ select:disabled {
   filter: grayscale(1);
 }
 
+.viewbar {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 11px 6px;
+  background: var(--bg);
+}
+
+.view-select-wrap {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  color: var(--faint);
+  font-size: 9.5px;
+}
+
+#viewSelect {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 5px;
+  outline: none;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 10.5px;
+}
+
+.compact-btn,
+.filter-toggle {
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 9.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.compact-btn:hover,
+.filter-toggle:hover,
+#viewSelect:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--text);
+}
+
+.compact-btn:focus-visible,
+.filter-toggle:focus-visible,
+#viewSelect:focus-visible,
+.view-editor input:focus-visible,
+.filter-panel select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.danger-compact {
+  color: var(--red);
+}
+
+.view-editor {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 0 11px 7px;
+  background: var(--bg);
+  color: var(--faint);
+  font-size: 9.5px;
+}
+
+.view-editor input {
+  min-width: 0;
+  height: 29px;
+  padding: 0 8px;
+  outline: none;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--text);
+  font-size: 11px;
+}
+
 .chips {
   display: flex;
   align-items: center;
@@ -623,6 +713,29 @@ select:disabled {
   padding: 0 11px 8px;
   border-bottom: 1px solid var(--border-soft);
   background: var(--bg);
+}
+
+.filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.filter-toggle[aria-expanded='true'] {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 11%, var(--surface-soft));
+  color: var(--text);
+}
+
+#filterCount {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #081127;
+  font-size: 8.5px;
+  line-height: 16px;
+  text-align: center;
 }
 
 .chip {
@@ -706,6 +819,43 @@ select:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+.filter-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  padding: 8px 11px 9px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.filter-panel label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--faint);
+  font-size: 8.5px;
+}
+
+.filter-panel select {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 3px;
+  outline: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 9.5px;
+}
+
+.reset-filters {
+  align-self: end;
+}
+
 /* ---------- banner ---------- */
 
 .banner {
@@ -767,13 +917,37 @@ select:disabled {
 }
 
 body:has(.lifecycle:not([hidden])) .list {
-  height: 282px;
+  height: 248px;
+}
+
+body:has(.filter-panel:not([hidden])) .list {
+  height: 190px;
+}
+
+body:has(.view-editor:not([hidden])) .list {
+  height: 280px;
+}
+
+body:has(.lifecycle:not([hidden])):has(.filter-panel:not([hidden])) .list {
+  height: 114px;
+}
+
+body:has(.lifecycle:not([hidden])):has(.view-editor:not([hidden])) .list {
+  height: 204px;
+}
+
+body:has(.filter-panel:not([hidden])):has(.view-editor:not([hidden])) .list {
+  height: 146px;
+}
+
+body:has(.lifecycle:not([hidden])):has(.filter-panel:not([hidden])):has(.view-editor:not([hidden])) .list {
+  height: 70px;
 }
 
 /* ---------- ranked repositories ---------- */
 
 .list {
-  height: 358px;
+  height: 324px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 5px 7px 7px;

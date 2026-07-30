@@ -23,6 +23,7 @@ const PORTABLE_KEYS = [
   STORAGE_KEYS.baseline,
   STORAGE_KEYS.history,
   STORAGE_KEYS.notificationConfig,
+  STORAGE_KEYS.portfolioViews,
 ];
 
 function assert(condition, message) {
@@ -111,12 +112,47 @@ function sanitizeHistory(history, includePrivate, names) {
   };
 }
 
+function sanitizePortfolioViews(state, includePrivate, names) {
+  if (!state) return null;
+  const clean = copy(state);
+  if (includePrivate || !names.privateNames.size) return clean;
+  const privateTerms = [...names.privateNames]
+    .flatMap((name) => [name, name.split('/').at(-1)])
+    .filter(Boolean)
+    .map((name) => name.toLocaleLowerCase());
+  const containsPrivateName = (value) => {
+    const text = String(value || '').toLocaleLowerCase();
+    return privateTerms.some((term) => text.includes(term));
+  };
+  if (containsPrivateName(clean.active?.query)) clean.active.query = '';
+  const retainedNames = new Set(
+    clean.views
+      .filter((view) => !containsPrivateName(view.name))
+      .map((view) => view.name.toLocaleLowerCase()),
+  );
+  clean.views.forEach((view) => {
+    if (containsPrivateName(view.name)) {
+      let suffix = 1;
+      let candidate = `Redacted view ${suffix}`;
+      while (retainedNames.has(candidate.toLocaleLowerCase())) {
+        suffix += 1;
+        candidate = `Redacted view ${suffix}`;
+      }
+      view.name = candidate;
+      retainedNames.add(candidate.toLocaleLowerCase());
+    }
+    if (containsPrivateName(view.filters?.query)) view.filters.query = '';
+  });
+  return clean;
+}
+
 export async function createBackup({
   settings,
   cache,
   baseline,
   history,
   notificationConfig,
+  portfolioViews,
   includePrivate = false,
   includeHistory = false,
   now = Date.now(),
@@ -139,6 +175,10 @@ export async function createBackup({
   }
   if (notificationConfig) {
     records[STORAGE_KEYS.notificationConfig] = portableRecord(notificationConfig);
+  }
+  const cleanViews = sanitizePortfolioViews(portfolioViews, includePrivate, names);
+  if (cleanViews) {
+    records[STORAGE_KEYS.portfolioViews] = portableRecord(cleanViews);
   }
 
   const core = {
@@ -182,6 +222,7 @@ function summarize(records, versions) {
     historyDays: trends.days,
     historyPoints: trends.points,
     notificationConfig: !!records[STORAGE_KEYS.notificationConfig],
+    savedViews: records[STORAGE_KEYS.portfolioViews]?.views?.length || 0,
     migratedRecords: versions.filter((version) => version < SCHEMA_VERSION).length,
   };
 }

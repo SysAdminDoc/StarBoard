@@ -51,8 +51,9 @@
 - Published the privacy/permission contract in Settings, README and the
   checked-in Chrome Web Store listing metadata.
 - Added immutable npm installs, pinned optional Pillow tooling, dependency
-  audits, syntax/version checks, Dependabot, reproducible release tests and an
-  offline packaged-extension CI smoke lane.
+  audits, syntax/version checks, reproducible release tests and an offline
+  packaged-extension CI smoke lane. Dependency updates stay manual — no
+  Dependabot or Renovate configuration.
 - Labeled portfolio confidence and filtered-total scope, and retained
   repository additions, removals and API-detected renames until acknowledged.
 - Added two-step confirmation and a 10-minute single-action undo window for
@@ -97,6 +98,16 @@
   excluding queued/delivered event state. Clear/undo now also covers queued
   portfolio alerts. The complete browser lane now contains 85 checks and passes
   on the declared Chrome 110 floor.
+- Added composable language, visibility, original/fork, active/archive,
+  exact/approximate, lifecycle and last-push filters behind a compact popup
+  panel.
+- Added up to 12 named portfolio views that retain search, sort and every
+  repository filter. Manual changes return to a custom view; saved views can be
+  renamed or deleted through the existing 10-minute undo path.
+- Included bounded saved-view state in checksummed backup/restore. Default
+  exports redact known private repository names from saved names/searches unless
+  private-name export is explicitly enabled. The complete browser lane now
+  contains 90 checks.
 
 Permission change: added the optional `notifications` permission. It is not
 requested until the user turns on local alerts.

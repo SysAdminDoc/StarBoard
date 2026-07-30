@@ -39,7 +39,9 @@ projects are doing best**, and **what moved since yesterday**.
   labeled, filtered totals state their scope, and repository additions,
   removals and API-detected renames remain visible until acknowledged.
 - **Toolbar badge** — total stars, or stars gained since the baseline, on the extension icon.
-- **Search and filter** — filter by name, description or language; toggle forks and archived repos in or out.
+- **Saved portfolio views** — combine search and sort with language, visibility,
+  fork/archive, count-precision, lifecycle and last-push filters; save up to 12
+  named views, then rename or delete them with undo.
 - **Two data sources** — your signed-in github.com session with **no token at
   all** by default, or the GitHub API when you need exact high-count metrics.
 - **Private repos** — supported when you add a token.
@@ -138,8 +140,9 @@ hosts described above.
 
 - **Data kept locally:** your username, display preferences, repository/profile
   snapshot, comparison baseline, daily trend points, refresh metadata and
-  recovery metadata, alert preferences and bounded alert-delivery state stay in
-  this Chromium profile until you clear them or uninstall StarBoard.
+  recovery metadata, saved portfolio views, alert preferences and bounded
+  alert-delivery state stay in this Chromium profile until you clear them or
+  uninstall StarBoard.
 - **Website session:** Chromium attaches applicable `github.com` cookies to the
   website-source requests. StarBoard never reads or stores cookie values; it
   parses only the returned repository/profile HTML.
@@ -153,8 +156,10 @@ hosts described above.
   10 minutes. Settings, alert preferences and credentials remain untouched.
 - **Portable files:** JSON backup and CSV export are user-initiated only.
   Private repository names and trend history each require an unchecked-by-
-  default opt-in. PATs are always omitted, and restore preserves the credential
-  already held by this browser profile.
+  default opt-in. Saved views are included; without the private-name opt-in,
+  known private repository names are redacted from view names and searches.
+  PATs are always omitted, and restore preserves the credential already held by
+  this browser profile.
 - **Diagnostics:** the local support snapshot allow-lists only version, browser
   floor, source, permission, schema, storage-size, refresh, retry, confidence,
   normalized error-code and alarm metadata. It excludes tokens, cookies,
@@ -175,9 +180,10 @@ screenshots.
 Open **Settings → Local data** to download a portable file:
 
 - **Download JSON** creates a format-versioned backup of settings, the current
-  snapshot, baseline and local alert preferences. Its SHA-256 checksum covers
-  the full non-secret payload. History and private repository names remain
-  excluded unless you explicitly select their separate inclusion boxes.
+  snapshot, baseline, saved portfolio views and local alert preferences. Its
+  SHA-256 checksum covers the full non-secret payload. History and private
+  repository names remain excluded unless you explicitly select their separate
+  inclusion boxes.
 - **Export CSV** writes timestamped repository star/fork counts, deltas, source
   and confidence. With history selected it exports the retained daily series;
   otherwise it exports the current snapshot against the comparison baseline.
@@ -260,7 +266,7 @@ sorting, source defaults, popup-detail switches, the toolbar badge, the options
 page, credential handling, lifecycle/confidence labels, offline history ranges,
 portable-file privacy, import rollback, destructive-action recovery, worker
 termination, diagnostics redaction, notification opt-in/deduplication and both
-themes — 85 checks. It
+themes, plus saved-view filtering and recovery — 90 checks. It
 hits the live GitHub API unauthenticated (3–4 of your 60 hourly requests); set
 `GITHUB_TOKEN` to use the authenticated limit.
 
@@ -276,9 +282,9 @@ real OS-notification creation without clicking a native permission bubble.
 
 CI uses the immutable npm lock, audits high-severity advisories, validates the
 release twice for byte identity, and boots the packaged ZIP without network
-access. Dependabot checks npm and GitHub Actions weekly. Live API/web parity
-remains a local release check because CI must not depend on GitHub quota or
-credentials.
+access. Dependencies are reviewed manually — there is no Dependabot or Renovate
+configuration. Live API/web parity remains a local release check because CI must
+not depend on GitHub quota or credentials.
 
 ### Layout
 
@@ -295,6 +301,7 @@ src/lib/refresh-coordinator.js  refresh intent serialization/coalescing
 src/lib/lifecycle.js repository add/remove/rename event derivation
 src/lib/history.js   bounded daily history and offline trend comparisons
 src/lib/notifications.js local milestone evaluation and delivery deduplication
+src/lib/portfolio-views.js bounded saved views and repository filter predicates
 src/lib/transfer.js  checksummed backup/restore and privacy-aware CSV export
 src/lib/diagnostics.js allow-listed local support metadata
 src/lib/storage.js   versioned settings/cache/baseline persistence and recovery

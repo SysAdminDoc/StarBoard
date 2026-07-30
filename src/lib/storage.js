@@ -19,6 +19,15 @@ import {
   validateNotificationConfig,
   validateNotificationState,
 } from './notifications.js';
+import {
+  activatePortfolioView as activatePortfolioViewState,
+  deletePortfolioView as deletePortfolioViewState,
+  emptyPortfolioViewState,
+  patchActivePortfolioFilters,
+  renamePortfolioView as renamePortfolioViewState,
+  savePortfolioView as savePortfolioViewState,
+  validatePortfolioViewState,
+} from './portfolio-views.js';
 
 export const SCHEMA_VERSION = 4;
 export const STORAGE_KEYS = Object.freeze({
@@ -28,6 +37,7 @@ export const STORAGE_KEYS = Object.freeze({
   history: 'history',
   notificationConfig: 'notificationConfig',
   notificationState: 'notificationState',
+  portfolioViews: 'portfolioViews',
   lastKnownGood: 'starboardLastKnownGood',
   quarantine: 'starboardQuarantine',
   undo: 'starboardUndo',
@@ -218,6 +228,7 @@ function validateRecord(key, value) {
   else if (key === STORAGE_KEYS.history) validateHistory(value);
   else if (key === STORAGE_KEYS.notificationConfig) validateNotificationConfig(value);
   else if (key === STORAGE_KEYS.notificationState) validateNotificationState(value);
+  else if (key === STORAGE_KEYS.portfolioViews) validatePortfolioViewState(value);
   else throw new Error(`unknown storage record: ${key}`);
 }
 
@@ -526,6 +537,61 @@ export async function setNotificationState(state) {
   await serialized(() => writeRecords({ [STORAGE_KEYS.notificationState]: state }));
 }
 
+function portfolioViewDefaults(settings) {
+  return emptyPortfolioViewState({
+    sortKey: settings.sortKey,
+    forkStatus: settings.includeForks ? 'all' : 'sources',
+    archivedStatus: settings.includeArchived ? 'all' : 'active',
+  });
+}
+
+async function readPortfolioViewsOrDefault() {
+  const stored = await readRecord(STORAGE_KEYS.portfolioViews);
+  if (stored) return stored;
+  const settings = (await readRecord(STORAGE_KEYS.settings)) || { ...DEFAULTS };
+  return portfolioViewDefaults(settings);
+}
+
+export async function getPortfolioViewState() {
+  const stored = await readRecord(STORAGE_KEYS.portfolioViews);
+  if (stored) return stored;
+  const state = portfolioViewDefaults(await getSettings());
+  await writeRecords({ [STORAGE_KEYS.portfolioViews]: state });
+  return state;
+}
+
+function updatePortfolioViews(update) {
+  return serialized(async () => {
+    const current = await readPortfolioViewsOrDefault();
+    const next = update(current);
+    validatePortfolioViewState(next);
+    await writeRecords({ [STORAGE_KEYS.portfolioViews]: next });
+    return copy(next);
+  });
+}
+
+export async function setActivePortfolioFilters(patch) {
+  return updatePortfolioViews((state) => patchActivePortfolioFilters(state, patch));
+}
+
+export async function saveCurrentPortfolioView(name) {
+  return updatePortfolioViews((state) =>
+    savePortfolioViewState(state, name, crypto.randomUUID()),
+  );
+}
+
+export async function renameSavedPortfolioView(id, name) {
+  return updatePortfolioViews((state) => renamePortfolioViewState(state, id, name));
+}
+
+export async function deleteSavedPortfolioView(id) {
+  return updatePortfolioViews((state) => deletePortfolioViewState(state, id));
+}
+
+export async function activateSavedPortfolioView(id) {
+  return updatePortfolioViews((state) => activatePortfolioViewState(state, id));
+}
+
 export async function applyImportedState(input) {
   return serialized(async () => {
     assert(isObject(input), 'import records must be an object');
@@ -535,6 +601,7 @@ export async function applyImportedState(input) {
       STORAGE_KEYS.baseline,
       STORAGE_KEYS.history,
       STORAGE_KEYS.notificationConfig,
+      STORAGE_KEYS.portfolioViews,
     ]);
     const unknown = Object.keys(input).filter((key) => !allowed.has(key));
     assert(!unknown.length, `unsupported import records: ${unknown.join(', ')}`);
@@ -567,6 +634,9 @@ export async function applyImportedState(input) {
       cache: records[STORAGE_KEYS.cache] || (await readRecord(STORAGE_KEYS.cache)),
       baseline: records[STORAGE_KEYS.baseline] || (await readRecord(STORAGE_KEYS.baseline)),
       history: records[STORAGE_KEYS.history] || (await readRecord(STORAGE_KEYS.history)),
+      portfolioViews:
+        records[STORAGE_KEYS.portfolioViews] ||
+        (await readRecord(STORAGE_KEYS.portfolioViews)),
     };
   });
 }
@@ -713,6 +783,7 @@ export async function restoreUndoSnapshot() {
       STORAGE_KEYS.history,
       STORAGE_KEYS.notificationConfig,
       STORAGE_KEYS.notificationState,
+      STORAGE_KEYS.portfolioViews,
     ];
     for (const key of restorableKeys) {
       if (undo.snapshot[key]) records[key] = undo.snapshot[key];
@@ -747,6 +818,7 @@ export async function restoreUndoSnapshot() {
       history: await readRecord(STORAGE_KEYS.history),
       notificationConfig: await readRecord(STORAGE_KEYS.notificationConfig),
       notificationState: await readRecord(STORAGE_KEYS.notificationState),
+      portfolioViews: await readRecord(STORAGE_KEYS.portfolioViews),
     };
   });
 }
@@ -757,6 +829,7 @@ export async function getStorageDiagnostics() {
     STORAGE_KEYS.cache,
     STORAGE_KEYS.baseline,
     STORAGE_KEYS.history,
+    STORAGE_KEYS.portfolioViews,
     STORAGE_KEYS.quarantine,
   ]);
   return {
@@ -765,6 +838,7 @@ export async function getStorageDiagnostics() {
     cacheStored: !!stored[STORAGE_KEYS.cache],
     baselineStored: !!stored[STORAGE_KEYS.baseline],
     historyStored: !!stored[STORAGE_KEYS.history],
+    portfolioViewsStored: !!stored[STORAGE_KEYS.portfolioViews],
     quarantined: stored[STORAGE_KEYS.quarantine]?.data?.records?.length || 0,
   };
 }

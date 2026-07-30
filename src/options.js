@@ -6,6 +6,7 @@ import {
   getBaseline,
   getHistory,
   getNotificationConfig,
+  getPortfolioViewState,
   applyTheme,
 } from './lib/storage.js';
 import { historyStats } from './lib/history.js';
@@ -403,14 +404,15 @@ $('pruneHistory').addEventListener('click', async () => {
 });
 
 async function readPortableState() {
-  const [settings, cache, baseline, history, notificationConfig] = await Promise.all([
+  const [settings, cache, baseline, history, notificationConfig, portfolioViews] = await Promise.all([
     getSettings(),
     getCache(),
     getBaseline(),
     getHistory(),
     getNotificationConfig(),
+    getPortfolioViewState(),
   ]);
-  return { settings, cache, baseline, history, notificationConfig };
+  return { settings, cache, baseline, history, notificationConfig, portfolioViews };
 }
 
 $('backupJson').addEventListener('click', async () => {
@@ -463,7 +465,8 @@ $('importFile').addEventListener('change', async () => {
       `${summary.historyPoints} history points across ${summary.historyDays} days, ` +
       `${summary.privateRepositories} private repositories. ` +
       `${summary.migratedRecords} record${summary.migratedRecords === 1 ? '' : 's'} will migrate. ` +
-      `${summary.notificationConfig ? 'Notification settings are included.' : 'No notification settings.'}`;
+      `${summary.notificationConfig ? 'Notification settings are included.' : 'No notification settings.'} ` +
+      `${summary.savedViews} saved view${summary.savedViews === 1 ? '' : 's'}.`;
     $('importPreview').hidden = false;
     say('Backup validated. Review the dry-run summary before applying it.', 'ok');
   } catch (error) {

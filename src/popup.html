@@ -116,9 +116,38 @@
       </select>
     </div>
 
+    <div class="viewbar">
+      <label class="view-select-wrap">
+        <span>View</span>
+        <select id="viewSelect" aria-label="Saved portfolio view" disabled>
+          <option value="">Custom view</option>
+        </select>
+      </label>
+      <button id="saveView" class="compact-btn" type="button" disabled>Save</button>
+      <button id="renameView" class="compact-btn" type="button" disabled>Rename</button>
+      <button id="deleteView" class="compact-btn danger-compact" type="button" disabled>
+        Delete
+      </button>
+    </div>
+
+    <form id="viewEditor" class="view-editor" hidden>
+      <label for="viewName">View name</label>
+      <input id="viewName" maxlength="40" autocomplete="off" required />
+      <button id="confirmView" class="compact-btn" type="submit">Save view</button>
+      <button id="cancelView" class="compact-btn" type="button">Cancel</button>
+    </form>
+
     <div class="chips">
-      <label class="chip"><input type="checkbox" id="incForks" disabled /> Include forks</label>
-      <label class="chip"><input type="checkbox" id="incArchived" disabled /> Archived</label>
+      <button
+        id="toggleFilters"
+        class="filter-toggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="filterPanel"
+        disabled
+      >
+        Filters <span id="filterCount" hidden>0</span>
+      </button>
       <label class="trend-control">
         <span>Trend</span>
         <select id="trendRange" aria-label="Comparison range" disabled>
@@ -131,6 +160,71 @@
       <span class="spacer"></span>
       <span id="count" class="count"></span>
     </div>
+
+    <section id="filterPanel" class="filter-panel" aria-label="Repository filters" hidden>
+      <label>
+        <span>Language</span>
+        <select id="filterLanguage" disabled>
+          <option value="all">All languages</option>
+        </select>
+      </label>
+      <label>
+        <span>Visibility</span>
+        <select id="filterVisibility" disabled>
+          <option value="all">Public + private</option>
+          <option value="public">Public only</option>
+          <option value="private">Private only</option>
+        </select>
+      </label>
+      <label>
+        <span>Repository type</span>
+        <select id="filterForks" disabled>
+          <option value="sources">Originals only</option>
+          <option value="all">Originals + forks</option>
+          <option value="forks">Forks only</option>
+        </select>
+      </label>
+      <label>
+        <span>Archive state</span>
+        <select id="filterArchived" disabled>
+          <option value="all">Active + archived</option>
+          <option value="active">Active only</option>
+          <option value="archived">Archived only</option>
+        </select>
+      </label>
+      <label>
+        <span>Count precision</span>
+        <select id="filterPrecision" disabled>
+          <option value="all">Exact + approximate</option>
+          <option value="exact">Exact only</option>
+          <option value="approximate">Approximate only</option>
+        </select>
+      </label>
+      <label>
+        <span>Lifecycle</span>
+        <select id="filterLifecycle" disabled>
+          <option value="all">Any lifecycle</option>
+          <option value="changed">New or renamed</option>
+          <option value="added">New only</option>
+          <option value="renamed">Renamed only</option>
+          <option value="unchanged">No current change</option>
+        </select>
+      </label>
+      <label>
+        <span>Last push</span>
+        <select id="filterActivity" disabled>
+          <option value="all">Any time</option>
+          <option value="30">Within 30 days</option>
+          <option value="90">Within 90 days</option>
+          <option value="365">Within one year</option>
+          <option value="stale">More than one year</option>
+          <option value="unknown">Unknown</option>
+        </select>
+      </label>
+      <button id="resetFilters" class="compact-btn reset-filters" type="button" disabled>
+        Reset filters
+      </button>
+    </section>
 
     <div id="banner" class="banner" hidden></div>
 
