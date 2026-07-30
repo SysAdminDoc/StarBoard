@@ -1,7 +1,7 @@
 # Build output
 dist/
 
-# Self-host packing key — regenerating this changes the extension ID
+# Local secrets (the release build never creates or reads these)
 .keys/
 *.pem
 

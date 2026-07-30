@@ -1,15 +1,15 @@
-"""Build StarBoard's distributables: an unpacked-loadable ZIP and a CRX3.
+"""Build StarBoard's unsigned, reproducible release bundle.
 
     py -3.12 scripts/build.py
 
 Outputs to dist/:
-    StarBoard-vX.Y.Z.zip   <- primary install asset (Load unpacked / CWS upload)
-    StarBoard-vX.Y.Z.crx   <- CRX3, self-host key, stable extension ID
+    StarBoard-vX.Y.Z.zip
+    StarBoard-vX.Y.Z.zip.sha256
+    StarBoard-vX.Y.Z.files.sha256
+    StarBoard-vX.Y.Z.spdx.json
 
-The .pem is a self-host packing key, not a code-signing certificate. Chromium
-rejects self-signed CRX files installed by drag-and-drop
-(CRX_REQUIRED_PROOF_MISSING), so the ZIP is the asset users actually install.
-The CRX exists so the extension ID stays stable across builds.
+The ZIP is suitable for Chrome Web Store upload or Load unpacked after
+extraction. StarBoard does not generate a packing key or CRX.
 """
 
 from __future__ import annotations
@@ -17,19 +17,15 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-import struct
 import zipfile
 from pathlib import Path
-
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
-KEY = ROOT / ".keys" / "starboard.pem"
-
 INCLUDE = ("manifest.json", "src", "icons", "LICENSE")
 EXCLUDE_SUFFIXES = {".map", ".pem"}
+ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 
 
 def version() -> str:
@@ -37,7 +33,7 @@ def version() -> str:
 
 
 def collect() -> list[tuple[Path, str]]:
-    """(absolute path, archive name) for every file that ships."""
+    """Return (absolute path, archive name) for every shipping file."""
     files: list[tuple[Path, str]] = []
     for entry in INCLUDE:
         path = ROOT / entry
@@ -45,117 +41,172 @@ def collect() -> list[tuple[Path, str]]:
             files.append((path, entry))
         elif path.is_dir():
             for child in sorted(path.rglob("*")):
-                if child.is_file() and child.suffix not in EXCLUDE_SUFFIXES:
+                if child.is_file() and child.suffix.lower() not in EXCLUDE_SUFFIXES:
                     files.append((child, child.relative_to(ROOT).as_posix()))
         else:
             raise SystemExit(f"missing required path: {entry}")
-    return files
+    return sorted(files, key=lambda item: item[1])
 
 
-def build_zip(dest: Path) -> Path:
-    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-        for path, name in collect():
-            # Fixed timestamp keeps the archive byte-identical between builds.
-            info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
+def digest(path: Path, algorithm: str = "sha256") -> str:
+    hasher = hashlib.new(algorithm)
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            hasher.update(block)
+    return hasher.hexdigest()
+
+
+def build_zip(dest: Path, files: list[tuple[Path, str]] | None = None) -> Path:
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+        for path, name in files or collect():
+            info = zipfile.ZipInfo(name, date_time=ZIP_TIMESTAMP)
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16
-            zf.writestr(info, path.read_bytes())
+            archive.writestr(info, path.read_bytes())
     return dest
 
 
-def load_key() -> rsa.RSAPrivateKey:
-    if KEY.exists():
-        return serialization.load_pem_private_key(KEY.read_bytes(), password=None)
-    KEY.parent.mkdir(parents=True, exist_ok=True)
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    KEY.write_bytes(
-        key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
+def build_file_manifest(
+    dest: Path,
+    files: list[tuple[Path, str]],
+) -> Path:
+    lines = [f"{digest(path)}  {name}" for path, name in files]
+    dest.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return dest
+
+
+def _spdx_file(path: Path, name: str) -> dict[str, Any]:
+    identifier = hashlib.sha256(name.encode("utf-8")).hexdigest()[:16]
+    return {
+        "SPDXID": f"SPDXRef-File-{identifier}",
+        "fileName": f"./{name}",
+        "checksums": [
+            {"algorithm": "SHA1", "checksumValue": digest(path, "sha1")},
+            {"algorithm": "SHA256", "checksumValue": digest(path)},
+        ],
+        "licenseConcluded": "MIT",
+        "licenseInfoInFiles": ["MIT"],
+        "copyrightText": "Copyright (c) SysAdminDoc",
+    }
+
+
+def build_spdx(
+    dest: Path,
+    files: list[tuple[Path, str]],
+    release_version: str,
+) -> Path:
+    spdx_files = [_spdx_file(path, name) for path, name in files]
+    content_identity = hashlib.sha256(
+        "".join(
+            item["checksums"][1]["checksumValue"]
+            for item in spdx_files
+        ).encode("ascii")
+    ).hexdigest()
+    verification_code = hashlib.sha1(
+        "".join(
+            sorted(item["checksums"][0]["checksumValue"] for item in spdx_files)
+        ).encode("ascii")
+    ).hexdigest()
+    package_id = "SPDXRef-Package-StarBoard"
+    document_id = "SPDXRef-DOCUMENT"
+    document = {
+        "spdxVersion": "SPDX-2.3",
+        "dataLicense": "CC0-1.0",
+        "SPDXID": document_id,
+        "name": f"StarBoard-{release_version}",
+        "documentNamespace": (
+            "https://github.com/SysAdminDoc/StarBoard/spdx/"
+            f"{release_version}-{content_identity[:20]}"
+        ),
+        "creationInfo": {
+            "created": "1980-01-01T00:00:00Z",
+            "creators": ["Tool: StarBoard scripts/build.py"],
+        },
+        "documentDescribes": [package_id],
+        "packages": [
+            {
+                "SPDXID": package_id,
+                "name": "StarBoard",
+                "versionInfo": release_version,
+                "downloadLocation": "NOASSERTION",
+                "filesAnalyzed": True,
+                "packageVerificationCode": {
+                    "packageVerificationCodeValue": verification_code,
+                },
+                "licenseConcluded": "MIT",
+                "licenseDeclared": "MIT",
+                "copyrightText": "Copyright (c) SysAdminDoc",
+                "supplier": "Person: SysAdminDoc",
+            }
+        ],
+        "files": spdx_files,
+        "relationships": [
+            {
+                "spdxElementId": document_id,
+                "relationshipType": "DESCRIBES",
+                "relatedSpdxElement": package_id,
+            },
+            *[
+                {
+                    "spdxElementId": package_id,
+                    "relationshipType": "CONTAINS",
+                    "relatedSpdxElement": item["SPDXID"],
+                }
+                for item in spdx_files
+            ],
+        ],
+    }
+    dest.write_text(
+        json.dumps(document, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
     )
-    print(f"generated new self-host key at {KEY.relative_to(ROOT)} (gitignored — back it up)")
-    return key
+    return dest
 
 
-def _tag(field: int, wire: int) -> bytes:
-    """Protobuf tag byte(s) — varint of (field << 3 | wire_type)."""
-    value = field << 3 | wire
-    out = bytearray()
-    while True:
-        byte = value & 0x7F
-        value >>= 7
-        out.append(byte | (0x80 if value else 0))
-        if not value:
-            return bytes(out)
+def verify_zip(zip_path: Path, files: list[tuple[Path, str]]) -> None:
+    expected = [name for _, name in files]
+    with zipfile.ZipFile(zip_path) as archive:
+        actual = archive.namelist()
+        if actual != expected:
+            raise SystemExit(f"ZIP contents differ: expected {expected}, got {actual}")
+        if any(name.endswith((".pem", ".crx")) or name.startswith(("tests/", "scripts/")) for name in actual):
+            raise SystemExit("ZIP contains a prohibited development or signing file")
+        manifest = json.loads(archive.read("manifest.json"))
+        if manifest.get("version") != version():
+            raise SystemExit("ZIP manifest version does not match the source manifest")
 
 
-def _varint(value: int) -> bytes:
-    out = bytearray()
-    while True:
-        byte = value & 0x7F
-        value >>= 7
-        out.append(byte | (0x80 if value else 0))
-        if not value:
-            return bytes(out)
-
-
-def _field(number: int, payload: bytes) -> bytes:
-    """A length-delimited (wire type 2) protobuf field."""
-    return _tag(number, 2) + _varint(len(payload)) + payload
-
-
-def build_crx(zip_path: Path, dest: Path) -> tuple[Path, str]:
-    key = load_key()
-    pubkey_der = key.public_key().public_bytes(
-        encoding=serialization.Encoding.DER,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    )
-    crx_id = hashlib.sha256(pubkey_der).digest()[:16]
-
-    # CrxFileHeader.signed_header_data = SignedData{ crx_id = field 1 }
-    signed_header_data = _field(1, crx_id)
-
-    payload = zip_path.read_bytes()
-    to_sign = (
-        b"CRX3 SignedData\x00"
-        + struct.pack("<I", len(signed_header_data))
-        + signed_header_data
-        + payload
-    )
-    signature = key.sign(to_sign, padding.PKCS1v15(), hashes.SHA256())
-
-    # AsymmetricKeyProof{ public_key = 1, signature = 2 }
-    proof = _field(1, pubkey_der) + _field(2, signature)
-    header = (
-        _field(2, proof)  # sha256_with_rsa
-        + _field(10000, signed_header_data)
-    )
-
-    dest.write_bytes(
-        b"Cr24" + struct.pack("<II", 3, len(header)) + header + payload
-    )
-
-    # Extension ID: crx_id hex mapped from 0-9a-f onto a-p.
-    ext_id = "".join(chr(ord("a") + int(c, 16)) for c in crx_id.hex())
-    return dest, ext_id
+def clean_dist() -> None:
+    resolved_dist = DIST.resolve()
+    if resolved_dist.parent != ROOT.resolve() or resolved_dist.name != "dist":
+        raise SystemExit(f"refusing to clean unexpected output path: {resolved_dist}")
+    if resolved_dist.exists():
+        shutil.rmtree(resolved_dist)
+    resolved_dist.mkdir(parents=True)
 
 
 def main() -> None:
-    ver = version()
-    if DIST.exists():
-        shutil.rmtree(DIST)  # never leave stale artifacts beside current ones
-    DIST.mkdir(parents=True)
-
+    release_version = version()
+    clean_dist()
     files = collect()
-    zip_path = build_zip(DIST / f"StarBoard-v{ver}.zip")
-    crx_path, ext_id = build_crx(zip_path, DIST / f"StarBoard-v{ver}.crx")
+    stem = f"StarBoard-v{release_version}"
+    zip_path = build_zip(DIST / f"{stem}.zip", files)
+    verify_zip(zip_path, files)
 
-    print(f"StarBoard v{ver} — {len(files)} files")
-    print(f"  {zip_path.relative_to(ROOT)}  ({zip_path.stat().st_size / 1024:.1f} KB)")
-    print(f"  {crx_path.relative_to(ROOT)}  ({crx_path.stat().st_size / 1024:.1f} KB)")
-    print(f"  extension id: {ext_id}")
+    zip_hash = digest(zip_path)
+    hash_path = DIST / f"{stem}.zip.sha256"
+    hash_path.write_text(
+        f"{zip_hash}  {zip_path.name}\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    files_path = build_file_manifest(DIST / f"{stem}.files.sha256", files)
+    spdx_path = build_spdx(DIST / f"{stem}.spdx.json", files, release_version)
+
+    print(f"StarBoard v{release_version} - {len(files)} files")
+    for artifact in (zip_path, hash_path, files_path, spdx_path):
+        print(f"  {artifact.relative_to(ROOT)}  ({artifact.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":

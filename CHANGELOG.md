@@ -39,6 +39,9 @@
   exact/approximate/partial/stale states.
 - Set website polling to 12 hours by default with a six-hour automatic minimum;
   manual refresh remains available at any time.
+- Replaced self-signed CRX/RSA generation with a reproducible, standard-library
+  release build that emits only the unsigned ZIP, its SHA-256, an SPDX 2.3 JSON
+  SBOM and a per-file hash manifest.
 
 No permission scopes changed.
 

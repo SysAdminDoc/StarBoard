@@ -8,8 +8,9 @@
   "scripts": {
     "icons": "py -3.12 scripts/make_icons.py",
     "build": "py -3.12 scripts/build.py",
-    "test": "npm run test:unit && npm run test:smoke",
+    "test": "npm run test:unit && npm run test:release && npm run test:smoke",
     "test:unit": "node tests/unit.mjs",
+    "test:release": "py -3.12 tests/release_test.py",
     "test:smoke": "node tests/smoke.mjs"
   },
   "devDependencies": {

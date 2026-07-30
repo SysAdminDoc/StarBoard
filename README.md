@@ -51,7 +51,8 @@ cadence and toolbar-badge behavior remain independently configurable.
 
 ## Install
 
-No signed build is published — install unpacked:
+StarBoard publishes an unsigned ZIP for Chrome Web Store upload or unpacked
+installation:
 
 1. Download `StarBoard-vX.Y.Z.zip` from [Releases](https://github.com/SysAdminDoc/StarBoard/releases) and unzip it (or clone this repo).
 2. Open `chrome://extensions` and turn on **Developer mode**.
@@ -60,10 +61,8 @@ No signed build is published — install unpacked:
    **Save & refresh**, then accept the one-time permission to read github.com.
 
 Works in Chrome, Edge, Brave and other Chromium browsers (Manifest V3, Chrome 110+).
-
-> A `.crx` is attached to each release so the extension ID stays stable, but
-> Chromium refuses self-signed CRX installs (`CRX_REQUIRED_PROOF_MISSING`).
-> **The ZIP is the asset to install.**
+Each release also includes a SHA-256 checksum, a per-file hash manifest and an
+SPDX 2.3 JSON SBOM. StarBoard never generates a packing key or self-signed CRX.
 
 ## Data sources
 
@@ -131,8 +130,10 @@ button in the popup to start counting from now.
 
 ```bash
 py -3.12 scripts/make_icons.py   # regenerate toolbar icons
-py -3.12 scripts/build.py        # build dist/*.zip and dist/*.crx
+py -3.12 scripts/build.py        # build ZIP, checksums and SPDX SBOM
 npm install                      # playwright, for the smoke test
+node tests/unit.mjs              # deterministic storage/refresh/request checks
+py -3.12 tests/release_test.py   # isolated, reproducible release validation
 node tests/smoke.mjs             # drive the real popup against the live API
 node tests/smoke.mjs --zip       # same, against the built artifact
 node tests/smoke.mjs --no-web    # skip the (slower) scraping checks
@@ -166,7 +167,7 @@ src/lib/scrape.js    github.com HTML -> the same shape github.js returns
 src/lib/request.js   timeout, Retry-After and bounded retry policy
 src/lib/refresh-coordinator.js  refresh intent serialization/coalescing
 src/lib/storage.js   versioned settings/cache/baseline persistence and recovery
-scripts/build.py     ZIP + CRX3 packaging
+scripts/build.py     reproducible unsigned ZIP, hashes and SPDX packaging
 scripts/make_icons.py  icon generation
 tests/unit.mjs       deterministic state, refresh and request checks
 tests/smoke.mjs      end-to-end browser test
