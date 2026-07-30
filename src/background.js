@@ -21,6 +21,7 @@ import {
   clearPortfolioData,
   getUndoStatus,
   restoreUndoSnapshot,
+  pruneStoredHistory,
 } from './lib/storage.js';
 import { createRefreshCoordinator } from './lib/refresh-coordinator.js';
 import { deriveLifecycleEvents, mergeLifecycleEvents } from './lib/lifecycle.js';
@@ -324,6 +325,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           restored,
           error: restored ? null : { message: 'The undo window has expired.' },
         });
+        break;
+      }
+      case 'prune-history': {
+        const history = await pruneStoredHistory(Number(msg.keepDays));
+        sendResponse({ ok: true, history, undo: await getUndoStatus() });
         break;
       }
       case 'refresh':

@@ -51,6 +51,12 @@ const {
   mergeLifecycleEvents,
   acknowledgeLifecycleEvents,
 } = await import('../src/lib/lifecycle.js');
+const {
+  HISTORY_MAX_BYTES,
+  historyByteSize,
+  historyPointForRepo,
+  recordDailyHistory,
+} = await import('../src/lib/history.js');
 
 async function fixture(name) {
   return JSON.parse(await readFile(resolve(FIXTURES, name), 'utf8'));
@@ -465,12 +471,102 @@ await test('destructive portfolio changes keep one expiring recovery snapshot', 
   const restored = await storage.restoreUndoSnapshot();
   assert.equal(restored.cache.generation, 'undo-g1');
   assert.equal(restored.baseline.generation, 'undo-g1');
+  assert.equal(restored.history.snapshots.length, 1);
   assert.equal((await storage.getUndoStatus()).available, false);
 
   await storage.createUndoSnapshot('baseline-reset', ['baseline']);
   area.values[storage.STORAGE_KEYS.undo].data.expiresAt = Date.now() - 1;
   assert.equal((await storage.getUndoStatus()).available, false);
   assert.equal(area.values[storage.STORAGE_KEYS.undo], undefined);
+});
+
+await test('daily history replaces same-day points and follows API IDs across renames', async () => {
+  const firstAt = Date.UTC(2026, 0, 1, 8);
+  const first = {
+    source: 'api',
+    confidence: 'exact',
+    repos: [
+      {
+        id: 7,
+        full_name: 'octocat/old-name',
+        stargazers_count: 10,
+        forks_count: 2,
+        private: false,
+      },
+    ],
+  };
+  let history = recordDailyHistory(null, first, { now: firstAt });
+  history = recordDailyHistory(
+    history,
+    {
+      ...first,
+      repos: [{ ...first.repos[0], stargazers_count: 11 }],
+    },
+    { now: firstAt + 3_600_000 },
+  );
+  assert.equal(history.snapshots.length, 1);
+  assert.equal(history.snapshots[0].repos[0].stars, 11);
+
+  const renamed = {
+    ...first.repos[0],
+    full_name: 'octocat/new-name',
+    stargazers_count: 18,
+  };
+  history = recordDailyHistory(
+    history,
+    { source: 'api', confidence: 'exact', repos: [renamed] },
+    { now: firstAt + 7 * 86_400_000 },
+  );
+  const comparison = historyPointForRepo(history, renamed, 7, {
+    now: firstAt + 7 * 86_400_000,
+  });
+  assert.equal(comparison.fullName, 'octocat/old-name');
+  assert.equal(renamed.stargazers_count - comparison.stars, 7);
+});
+
+await test('history enforces 365 UTC days and the two-megabyte hard cap', async () => {
+  const start = Date.UTC(2025, 0, 1, 12);
+  let history = null;
+  for (let day = 0; day < 370; day += 1) {
+    history = recordDailyHistory(
+      history,
+      {
+        source: 'web',
+        confidence: 'approximate',
+        repos: [
+          {
+            id: 'octocat/demo',
+            full_name: 'octocat/demo',
+            stargazers_count: day,
+            forks_count: 0,
+            private: false,
+            approx: true,
+          },
+        ],
+      },
+      { now: start + day * 86_400_000 },
+    );
+  }
+  assert.equal(history.snapshots.length, 365);
+  assert.ok(historyByteSize(history) <= HISTORY_MAX_BYTES);
+
+  const oversized = recordDailyHistory(
+    null,
+    {
+      source: 'api',
+      confidence: 'exact',
+      repos: Array.from({ length: 100 }, (_, index) => ({
+        id: index,
+        full_name: `octocat/${'long-name-'.repeat(8)}${index}`,
+        stargazers_count: index,
+        forks_count: 0,
+        private: false,
+      })),
+    },
+    { now: start, maxBytes: 800 },
+  );
+  assert.ok(historyByteSize(oversized) <= 800);
+  assert.equal(oversized.snapshots[0].truncated, true);
 });
 
 const failed = checks.filter((check) => !check.passed);

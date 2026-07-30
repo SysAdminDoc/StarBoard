@@ -60,6 +60,13 @@
 - Expanded deterministic coverage through rename/removal fixtures, recovery
   expiry, permission rollback and explicit MV3 worker termination; the complete
   browser lane now contains 64 checks.
+- Added atomic daily repository history with one point per UTC day, 365-day
+  retention, a strict 2 MiB cap and oldest-first pruning.
+- Added offline baseline/7/30/90-day portfolio and repository comparisons;
+  missing retained points display as discontinuities, while stable API IDs keep
+  renamed repositories connected.
+- Added exact-scope history pruning and included trend data in clear/undo
+  recovery. The complete browser lane now contains 68 checks.
 
 No permission scopes changed.
 

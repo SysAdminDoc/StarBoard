@@ -5,7 +5,14 @@
  * blank), then asks the service worker for a refresh in the background.
  */
 
-import { getSettings, getCache, getBaseline, applyTheme } from './lib/storage.js';
+import {
+  getSettings,
+  getCache,
+  getBaseline,
+  getHistory,
+  applyTheme,
+} from './lib/storage.js';
+import { historyPointsForRepos, repositoryHistoryKey } from './lib/history.js';
 
 const LANG_COLORS = {
   JavaScript: '#f1e05a',
@@ -61,6 +68,7 @@ const el = {
   sort: $('sort'),
   incForks: $('incForks'),
   incArchived: $('incArchived'),
+  trendRange: $('trendRange'),
   count: $('count'),
   banner: $('banner'),
   lifecycle: $('lifecycle'),
@@ -74,7 +82,14 @@ const el = {
   liveStatus: $('live-status'),
 };
 
-let state = { settings: null, cache: null, baseline: null, query: '' };
+let state = {
+  settings: null,
+  cache: null,
+  baseline: null,
+  history: null,
+  trendRange: 'baseline',
+  query: '',
+};
 let refreshing = false;
 
 function hasSetup() {
@@ -89,6 +104,7 @@ function syncControls() {
   el.sort.disabled = !hasRows;
   el.incForks.disabled = !hasRows;
   el.incArchived.disabled = !hasRows;
+  el.trendRange.disabled = !hasRows;
   el.list.setAttribute(
     'aria-busy',
     String(refreshing || (hasSetup() && !state.cache?.repos && !state.cache?.error)),
@@ -145,10 +161,14 @@ const STAR_PATH =
 const FORK_PATH =
   'M5 5.372v.878c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-.878a2.25 2.25 0 1 1 1.5 0v.878a2.25 2.25 0 0 1-2.25 2.25h-1.5v2.128a2.251 2.251 0 1 1-1.5 0V8.5h-1.5A2.25 2.25 0 0 1 3.5 6.25v-.878a2.25 2.25 0 1 1 1.5 0ZM5 3.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Zm6.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm-3 8.75a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Z';
 
-function deltaNode(value, cls = 'delta') {
+function deltaNode(value, cls = 'delta', missing = false) {
   const span = document.createElement('span');
   span.className = cls;
-  if (value > 0) {
+  if (missing) {
+    span.classList.add('missing');
+    span.textContent = '—';
+    span.title = 'No retained point exists for this range';
+  } else if (value > 0) {
     span.classList.add('up');
     span.textContent = `+${nf.format(value)}`;
   } else if (value < 0) {
@@ -162,13 +182,27 @@ function deltaNode(value, cls = 'delta') {
 
 function withDeltas(cache) {
   const base = state.baseline?.counts || {};
+  const trendDays =
+    state.trendRange === 'baseline' ? null : Number.parseInt(state.trendRange, 10);
+  const historyPoints = trendDays
+    ? historyPointsForRepos(state.history, cache?.repos || [], trendDays, {
+        now: cache?.fetchedAt || Date.now(),
+      }) || new Map()
+    : null;
   return (cache?.repos || []).map((r) => {
-    const prev = base[r.full_name];
+    const historyPoint = historyPoints?.get(repositoryHistoryKey(r));
+    const prev = historyPoint
+      ? [historyPoint.stars, historyPoint.forks]
+      : trendDays
+        ? null
+        : base[r.full_name];
     return {
       ...r,
       starsDelta: prev ? r.stargazers_count - prev[0] : 0,
       forksDelta: prev ? r.forks_count - prev[1] : 0,
-      isNew: !prev,
+      isNew: !trendDays && !prev,
+      comparisonMissing: !!trendDays && !prev,
+      comparisonAt: historyPoint?.at || state.baseline?.at || null,
     };
   });
 }
@@ -200,7 +234,7 @@ function visibleRepos() {
 
 /* ---------- rendering ---------- */
 
-function statNode(kind, value, delta, approx = false) {
+function statNode(kind, value, delta, approx = false, comparisonMissing = false) {
   const wrap = document.createElement('span');
   wrap.className = `stat ${kind}`;
   wrap.appendChild(svg(kind === 'stars' ? STAR_PATH : FORK_PATH));
@@ -210,7 +244,7 @@ function statNode(kind, value, delta, approx = false) {
   b.textContent = approx ? `~${nf.format(value)}` : nf.format(value);
   if (approx) b.title = 'Approximate — github.com abbreviates counts above 1,000';
   wrap.appendChild(b);
-  wrap.appendChild(deltaNode(delta));
+  wrap.appendChild(deltaNode(delta, 'delta', comparisonMissing));
   return wrap;
 }
 
@@ -293,9 +327,25 @@ function rowNode(repo, rank) {
 
   const stats = document.createElement('div');
   stats.className = 'stats';
-  stats.appendChild(statNode('stars', repo.stargazers_count, repo.starsDelta, repo.approx));
+  stats.appendChild(
+    statNode(
+      'stars',
+      repo.stargazers_count,
+      repo.starsDelta,
+      repo.approx,
+      repo.comparisonMissing,
+    ),
+  );
   if (state.settings.showForkStats) {
-    stats.appendChild(statNode('forks', repo.forks_count, repo.forksDelta, repo.approx));
+    stats.appendChild(
+      statNode(
+        'forks',
+        repo.forks_count,
+        repo.forksDelta,
+        repo.approx,
+        repo.comparisonMissing,
+      ),
+    );
   }
   a.appendChild(stats);
 
@@ -342,13 +392,19 @@ function renderTotals(rows) {
   const forks = rows.reduce((s, r) => s + r.forks_count, 0);
   const dStars = rows.reduce((s, r) => s + r.starsDelta, 0);
   const dForks = rows.reduce((s, r) => s + r.forksDelta, 0);
+  const comparable = rows.filter((repo) => !repo.comparisonMissing).length;
+  const trendSelected = state.trendRange !== 'baseline';
 
   const approximate = rows.some((repo) => repo.approx);
   el.totalStars.textContent = `${approximate ? '~' : ''}${nf.format(stars)}`;
   el.totalForks.textContent = `${approximate ? '~' : ''}${nf.format(forks)}`;
   el.totalRepos.textContent = nf.format(rows.length);
-  el.totalStarsDelta.replaceWith(withId(deltaNode(dStars), 'total-stars-delta'));
-  el.totalForksDelta.replaceWith(withId(deltaNode(dForks), 'total-forks-delta'));
+  el.totalStarsDelta.replaceWith(
+    withId(deltaNode(dStars, 'delta', trendSelected && comparable === 0), 'total-stars-delta'),
+  );
+  el.totalForksDelta.replaceWith(
+    withId(deltaNode(dForks, 'delta', trendSelected && comparable === 0), 'total-forks-delta'),
+  );
   el.totalStarsDelta = $('total-stars-delta');
   el.totalForksDelta = $('total-forks-delta');
   el.totalForksWrap.hidden = !state.settings.showForkStats;
@@ -360,6 +416,10 @@ function renderTotals(rows) {
   el.totalStars.title = approximate
     ? 'Approximate total — one or more website counts are abbreviated'
     : '';
+  const trendDays = trendSelected ? Number.parseInt(state.trendRange, 10) : null;
+  el.trendRange.title = trendSelected
+    ? `${comparable} of ${rows.length} visible repositories have a retained ${trendDays}-day comparison point`
+    : 'Compare against the resettable baseline';
 
   const confidence = state.cache?.confidence || 'exact';
   const confidenceLabel = {
@@ -531,6 +591,7 @@ async function doRefresh(rebase = false) {
     const res = await chrome.runtime.sendMessage({ type: 'refresh', rebase });
     state.cache = res?.cache ?? (await getCache());
     state.baseline = res?.baseline ?? (await getBaseline());
+    state.history = res?.history ?? (await getHistory());
     if (res && !res.ok && !state.cache) {
       state.cache = { error: res.error };
     }
@@ -611,6 +672,13 @@ el.search.addEventListener(
 el.sort.addEventListener('change', () => patch({ sortKey: el.sort.value }));
 el.incForks.addEventListener('change', () => patch({ includeForks: el.incForks.checked }));
 el.incArchived.addEventListener('change', () => patch({ includeArchived: el.incArchived.checked }));
+el.trendRange.addEventListener('change', () => {
+  state.trendRange = el.trendRange.value;
+  render();
+  const label =
+    state.trendRange === 'baseline' ? 'the comparison baseline' : `${state.trendRange} days`;
+  announce(`Repository changes now compare against ${label}.`);
+});
 el.acknowledgeLifecycle.addEventListener('click', async () => {
   const ids = (state.cache?.lifecycleEvents || []).map((event) => event.id);
   const response = await chrome.runtime.sendMessage({
@@ -632,6 +700,7 @@ el.undo.addEventListener('click', async () => {
   }
   state.cache = response.restored.cache;
   state.baseline = response.restored.baseline;
+  state.history = response.restored.history || state.history;
   render();
   el.undo.hidden = true;
   announce('Last data action undone.');
@@ -640,16 +709,18 @@ el.undo.addEventListener('click', async () => {
 /* ---------- boot ---------- */
 
 (async function init() {
-  [state.settings, state.cache, state.baseline] = await Promise.all([
+  [state.settings, state.cache, state.baseline, state.history] = await Promise.all([
     getSettings(),
     getCache(),
     getBaseline(),
+    getHistory(),
   ]);
 
   applyTheme(state.settings.theme);
   el.sort.value = state.settings.sortKey;
   el.incForks.checked = state.settings.includeForks;
   el.incArchived.checked = state.settings.includeArchived;
+  el.trendRange.value = state.trendRange;
 
   render();
   await updateUndoAvailability();

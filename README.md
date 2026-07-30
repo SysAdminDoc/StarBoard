@@ -23,6 +23,8 @@ projects are doing best**, and **what moved since yesterday**.
 
 - **Ranked instantly** — all repos sorted by stars, descending, the moment the popup opens.
 - **Change tracking** — green `+3` / `+1` badges next to each repo's stars and forks, measured against a baseline snapshot you control.
+- **Offline trends** — compare portfolio and per-repository movement over 7,
+  30 or 90 days from bounded daily history stored only in your profile.
 - **Sort by momentum** — order by *stars gained* or *forks gained* to see what is actually moving, not just what is already big.
 - **Live totals** — aggregate stars, forks and repo count, each with its own delta.
 - **Honest confidence** — exact, approximate, partial and stale snapshots are
@@ -127,8 +129,9 @@ or third-party data sharing. Its only network destinations are the two GitHub
 hosts described above.
 
 - **Data kept locally:** your username, display preferences, repository/profile
-  snapshot, comparison baseline, refresh metadata and recovery metadata stay in
-  this Chromium profile until you clear them or uninstall StarBoard.
+  snapshot, comparison baseline, daily trend points, refresh metadata and
+  recovery metadata stay in this Chromium profile until you clear them or
+  uninstall StarBoard.
 - **Website session:** Chromium attaches applicable `github.com` cookies to the
   website-source requests. StarBoard never reads or stores cookie values; it
   parses only the returned repository/profile HTML.
@@ -165,6 +168,14 @@ minutes. The same recovery window applies when clearing the cached snapshot and
 baseline from Settings; starting another destructive action replaces the prior
 undo snapshot.
 
+The popup's **Trend** selector instead reads retained daily points for 7, 30 or
+90-day comparisons without contacting GitHub. Numeric API repository IDs keep
+renames connected across time; website-only changes remain explicit
+additions/removals. A dash means no retained point exists for that repository
+and range—StarBoard does not interpolate it as exact. History keeps at most one
+point per repository per UTC day for 365 days, prunes oldest days first, and
+never exceeds 2 MiB. Settings can prune it to a shorter window with undo.
+
 ## Development
 
 ```bash
@@ -185,8 +196,8 @@ and request timeout/backoff without network access. `tests/smoke.mjs` loads the
 extension into a throwaway Chromium profile, seeds
 settings, performs a real fetch, and asserts on ordering, deltas, filtering,
 sorting, source defaults, popup-detail switches, the toolbar badge, the options
-page, credential handling, lifecycle/confidence labels, destructive-action
-recovery, worker termination and both themes — 64 checks. It
+page, credential handling, lifecycle/confidence labels, offline history ranges,
+destructive-action recovery, worker termination and both themes — 68 checks. It
 hits the live GitHub API unauthenticated (3–4 of your 60 hourly requests); set
 `GITHUB_TOKEN` to use the authenticated limit.
 
@@ -215,6 +226,7 @@ src/lib/scrape.js    github.com HTML -> the same shape github.js returns
 src/lib/request.js   timeout, Retry-After and bounded retry policy
 src/lib/refresh-coordinator.js  refresh intent serialization/coalescing
 src/lib/lifecycle.js repository add/remove/rename event derivation
+src/lib/history.js   bounded daily history and offline trend comparisons
 src/lib/storage.js   versioned settings/cache/baseline persistence and recovery
 scripts/build.py     reproducible unsigned ZIP, hashes and SPDX packaging
 scripts/make_icons.py  icon generation

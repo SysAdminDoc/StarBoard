@@ -238,7 +238,7 @@
             </span>
             <span>
               <h2>Local data</h2>
-              <p>Inspect or clear the snapshot stored in this browser profile.</p>
+              <p>Inspect, prune or recover the data stored in this browser profile.</p>
             </span>
           </div>
           <p class="note storage-note">
@@ -263,21 +263,45 @@
               Full privacy and permission details →
             </a>
           </div>
+          <div class="data-tool">
+            <div>
+              <h3>Trend history</h3>
+              <p>
+                StarBoard keeps one local point per repository per UTC day, for at most 365 days
+                and 2 MiB.
+              </p>
+            </div>
+            <div class="data-tool-actions">
+              <label>
+                Keep
+                <select id="historyKeep" aria-label="History retention after pruning">
+                  <option value="30">30 days</option>
+                  <option value="90">90 days</option>
+                  <option value="365" selected>365 days</option>
+                </select>
+              </label>
+              <button id="pruneHistory" class="secondary-btn" type="button">
+                Prune history
+              </button>
+            </div>
+            <p id="pruneScope" class="note destructive-scope" hidden></p>
+          </div>
           <div class="actions">
             <button id="clear" class="danger-btn" type="button">
-              Clear snapshot &amp; baseline
+              Clear snapshot, baseline &amp; history
             </button>
             <button id="undoClear" class="secondary-btn" type="button" hidden>
               Undo last data action
             </button>
           </div>
           <p id="clearScope" class="note destructive-scope" hidden>
-            This removes the cached repository snapshot and comparison baseline. Settings and
-            credentials stay unchanged. Click the confirm button within 8 seconds to continue.
+            This removes the cached repository snapshot, comparison baseline and all trend
+            history. Settings and credentials stay unchanged. Click the confirm button within 8
+            seconds to continue.
           </p>
           <p class="note callout data-callout">
-            Clearing removes repository counts and baseline history. Your account and appearance
-            settings are preserved.
+            Clearing removes repository counts, the comparison baseline and trend history. Your
+            account, appearance settings and credentials are preserved.
           </p>
         </section>
       </main>

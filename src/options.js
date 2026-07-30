@@ -3,8 +3,10 @@
 import {
   getSettings,
   getCache,
+  getHistory,
   applyTheme,
 } from './lib/storage.js';
+import { historyStats } from './lib/history.js';
 import { fetchAccount } from './lib/github.js';
 import { scrapeAccount } from './lib/scrape.js';
 
@@ -91,11 +93,18 @@ async function withBusy(button, busyLabel, work) {
 
 async function showStorageInfo() {
   const bytes = await chrome.storage.local.getBytesInUse(null);
-  const [cache, settings] = await Promise.all([getCache(), getSettings()]);
+  const [cache, settings, history] = await Promise.all([
+    getCache(),
+    getSettings(),
+    getHistory(),
+  ]);
   const repos = cache?.repos?.length || 0;
   const badgeRepos = cache?.repos?.filter((repo) => settings.includeForks || !repo.fork);
   const stars = badgeRepos?.reduce((total, repo) => total + repo.stargazers_count, 0);
-  $('storageInfo').textContent = `${repos} repos cached, ${(bytes / 1024).toFixed(1)} KB.`;
+  const trends = historyStats(history);
+  $('storageInfo').textContent =
+    `${repos} repos cached, ${trends.points} daily trend points across ` +
+    `${trends.days} day${trends.days === 1 ? '' : 's'}, ${(bytes / 1024).toFixed(1)} KB total.`;
   $('badgePreview').textContent = stars == null ? '—' : stars.toLocaleString();
 }
 
@@ -262,7 +271,7 @@ let clearResetTimer;
 
 function resetClearConfirmation() {
   clearArmedUntil = 0;
-  $('clear').textContent = 'Clear snapshot & baseline';
+  $('clear').textContent = 'Clear snapshot, baseline & history';
   $('clearScope').hidden = true;
 }
 
@@ -274,7 +283,7 @@ async function syncUndoControl() {
 $('clear').addEventListener('click', async () => {
   if (Date.now() > clearArmedUntil) {
     clearArmedUntil = Date.now() + 8000;
-    $('clear').textContent = 'Confirm clear snapshot & baseline';
+    $('clear').textContent = 'Confirm clear all portfolio data';
     $('clearScope').hidden = false;
     say('Confirm the exact data scope below.', 'err');
     clearTimeout(clearResetTimer);
@@ -288,8 +297,42 @@ $('clear').addEventListener('click', async () => {
     if (!response?.ok) throw new Error(response?.error?.message || 'Could not clear local data.');
     await showStorageInfo();
     $('undoClear').hidden = !response.undo?.available;
-    say('Snapshot and baseline cleared. Undo is available for 10 minutes.', 'ok');
+    say('Snapshot, baseline and history cleared. Undo is available for 10 minutes.', 'ok');
   }).catch((error) => say(error.message || 'Could not clear local data.', 'err'));
+});
+
+let pruneArmedUntil = 0;
+let pruneResetTimer;
+
+function resetPruneConfirmation() {
+  pruneArmedUntil = 0;
+  $('pruneHistory').textContent = 'Prune history';
+  $('pruneScope').hidden = true;
+}
+
+$('pruneHistory').addEventListener('click', async () => {
+  const keepDays = Number($('historyKeep').value);
+  if (Date.now() > pruneArmedUntil) {
+    pruneArmedUntil = Date.now() + 8000;
+    $('pruneHistory').textContent = `Confirm keep ${keepDays} days`;
+    $('pruneScope').textContent =
+      `This permanently removes trend points older than ${keepDays} days. ` +
+      'The current snapshot, baseline, settings and credentials stay unchanged.';
+    $('pruneScope').hidden = false;
+    say('Confirm the history range to prune.', 'err');
+    clearTimeout(pruneResetTimer);
+    pruneResetTimer = setTimeout(resetPruneConfirmation, 8000);
+    return;
+  }
+  clearTimeout(pruneResetTimer);
+  resetPruneConfirmation();
+  await withBusy($('pruneHistory'), 'Pruning…', async () => {
+    const response = await chrome.runtime.sendMessage({ type: 'prune-history', keepDays });
+    if (!response?.ok) throw new Error(response?.error?.message || 'Could not prune history.');
+    await showStorageInfo();
+    $('undoClear').hidden = !response.undo?.available;
+    say(`History now keeps at most ${keepDays} days. Undo is available for 10 minutes.`, 'ok');
+  }).catch((error) => say(error.message || 'Could not prune history.', 'err'));
 });
 
 $('undoClear').addEventListener('click', async () => {

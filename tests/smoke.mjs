@@ -495,22 +495,29 @@ async function main() {
     check('no error banner', !banner, banner ? await banner.textContent() : '');
 
     const committedGeneration = await popup.evaluate(async () => {
-      const stored = await chrome.storage.local.get(['settings', 'cache', 'baseline']);
+      const stored = await chrome.storage.local.get(['settings', 'cache', 'baseline', 'history']);
       return {
-        versions: [stored.settings?.schemaVersion, stored.cache?.schemaVersion, stored.baseline?.schemaVersion],
+        versions: [
+          stored.settings?.schemaVersion,
+          stored.cache?.schemaVersion,
+          stored.baseline?.schemaVersion,
+          stored.history?.schemaVersion,
+        ],
         cacheGeneration: stored.cache?.generation,
         baselineGeneration: stored.baseline?.generation,
+        historyGeneration: stored.history?.generation,
       };
     });
     check(
-      'settings, cache, and baseline use versioned envelopes',
+      'settings, cache, baseline, and history use versioned envelopes',
       committedGeneration.versions.every((version) => version === 4),
       JSON.stringify(committedGeneration),
     );
     check(
-      'cache and baseline publish as one generation',
+      'cache, baseline, and history publish as one generation',
       !!committedGeneration.cacheGeneration &&
-        committedGeneration.cacheGeneration === committedGeneration.baselineGeneration,
+        committedGeneration.cacheGeneration === committedGeneration.baselineGeneration &&
+        committedGeneration.cacheGeneration === committedGeneration.historyGeneration,
       committedGeneration.cacheGeneration,
     );
 
@@ -608,6 +615,59 @@ async function main() {
         return (await getCache()).lifecycleEvents.length === 0;
       }),
     );
+
+    const historyFixture = await popup.evaluate(async () => {
+      const { getCache, getHistory, setHistory } = await import('./lib/storage.js');
+      const { recordDailyHistory } = await import('./lib/history.js');
+      const cache = await getCache();
+      const current = cache.repos.filter((repo) => !repo.fork);
+      const missingAt90 = [...current].sort(
+        (a, b) => b.stargazers_count - a.stargazers_count,
+      )[0].id;
+      let history = await getHistory();
+      for (const [days, delta] of [
+        [90, 3],
+        [30, 2],
+        [7, 1],
+      ]) {
+        history = recordDailyHistory(
+          history,
+          {
+            ...cache,
+            repos: cache.repos
+              .filter((repo) => days !== 90 || repo.id !== missingAt90)
+              .map((repo) => ({
+                ...repo,
+                stargazers_count: Math.max(0, repo.stargazers_count - delta),
+                forks_count: Math.max(0, repo.forks_count - delta),
+              })),
+          },
+          { now: cache.fetchedAt - days * 86_400_000 },
+        );
+      }
+      await setHistory(history);
+      return { days: history.snapshots.length, missingAt90 };
+    });
+    await popup.reload();
+    await popup.selectOption('#trendRange', '30');
+    await popup.waitForFunction(
+      () => document.querySelector('.row .stat.stars .delta')?.textContent === '+2',
+    );
+    check(
+      '30-day portfolio and repository trends render from local history',
+      (await popup.textContent('.row .stat.stars .delta')) === '+2' &&
+        /retained 30-day comparison/.test(await popup.getAttribute('#trendRange', 'title')),
+      JSON.stringify(historyFixture),
+    );
+    await popup.selectOption('#trendRange', '90');
+    await popup.waitForFunction(
+      () => document.querySelector('.row .stat.stars .delta')?.textContent === '—',
+    );
+    check(
+      'missing history points stay visibly discontinuous',
+      (await popup.textContent('.row .stat.stars .delta')) === '—',
+    );
+    await popup.selectOption('#trendRange', 'baseline');
     await popup.screenshot({ path: `${SHOTS}/02-popup.png` });
 
     // Filtering narrows the list.
@@ -990,9 +1050,36 @@ async function main() {
     );
     await cdp.detach();
 
-    const cacheBeforeClear = await options.evaluate(async () => {
-      const { getCache } = await import('./lib/storage.js');
-      return (await getCache()).generation;
+    const historyBeforePrune = await options.evaluate(async () => {
+      const { getHistory } = await import('./lib/storage.js');
+      return (await getHistory()).snapshots.length;
+    });
+    await options.selectOption('#historyKeep', '30');
+    await options.click('#pruneHistory');
+    check(
+      'history pruning names its exact retained range before changing data',
+      /Confirm keep 30 days/.test(await options.textContent('#pruneHistory')) &&
+        /older than 30 days/.test(await options.textContent('#pruneScope')),
+    );
+    await options.click('#pruneHistory');
+    await options.waitForFunction(async (before) => {
+      const { getHistory } = await import('./lib/storage.js');
+      return (await getHistory()).snapshots.length < before;
+    }, historyBeforePrune);
+    await options.waitForSelector('#undoClear:not([hidden])');
+    await options.click('#undoClear');
+    await options.waitForFunction(async (before) => {
+      const { getHistory } = await import('./lib/storage.js');
+      return (await getHistory()).snapshots.length === before;
+    }, historyBeforePrune);
+    check('pruned history can be restored during the undo window', true);
+
+    const beforeClear = await options.evaluate(async () => {
+      const { getCache, getHistory } = await import('./lib/storage.js');
+      return {
+        generation: (await getCache()).generation,
+        historyDays: (await getHistory()).snapshots.length,
+      };
     });
     await options.click('#clear');
     check(
@@ -1009,16 +1096,23 @@ async function main() {
     );
     await options.click('#clear');
     await options.waitForFunction(async () => {
-      const { getCache, getBaseline } = await import('./lib/storage.js');
-      return !(await getCache()) && !(await getBaseline());
+      const { getCache, getBaseline, getHistory } = await import('./lib/storage.js');
+      return (
+        !(await getCache()) &&
+        !(await getBaseline()) &&
+        (await getHistory()).snapshots.length === 0
+      );
     });
     await options.waitForSelector('#undoClear:not([hidden])');
     await options.click('#undoClear');
-    await options.waitForFunction(async (generation) => {
-      const { getCache } = await import('./lib/storage.js');
-      return (await getCache())?.generation === generation;
-    }, cacheBeforeClear);
-    check('cleared snapshot and baseline can be restored together', true);
+    await options.waitForFunction(async (before) => {
+      const { getCache, getHistory } = await import('./lib/storage.js');
+      return (
+        (await getCache())?.generation === before.generation &&
+        (await getHistory()).snapshots.length === before.historyDays
+      );
+    }, beforeClear);
+    check('cleared snapshot, baseline, and history can be restored together', true);
   } finally {
     await closeContext(ctx);
   }

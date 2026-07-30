@@ -6,11 +6,19 @@
  * cache and baseline together so the popup never observes mixed generations.
  */
 
+import {
+  emptyHistory,
+  pruneHistory,
+  recordDailyHistory,
+  validateHistory,
+} from './history.js';
+
 export const SCHEMA_VERSION = 4;
 export const STORAGE_KEYS = Object.freeze({
   settings: 'settings',
   cache: 'cache',
   baseline: 'baseline',
+  history: 'history',
   lastKnownGood: 'starboardLastKnownGood',
   quarantine: 'starboardQuarantine',
   undo: 'starboardUndo',
@@ -198,6 +206,7 @@ function validateRecord(key, value) {
   if (key === STORAGE_KEYS.settings) validateSettings(value);
   else if (key === STORAGE_KEYS.cache) validateCache(value);
   else if (key === STORAGE_KEYS.baseline) validateBaseline(value);
+  else if (key === STORAGE_KEYS.history) validateHistory(value);
   else throw new Error(`unknown storage record: ${key}`);
 }
 
@@ -461,6 +470,24 @@ export async function setBaseline(baseline) {
   );
 }
 
+export async function getHistory() {
+  return (await readRecord(STORAGE_KEYS.history)) || emptyHistory();
+}
+
+export async function setHistory(history) {
+  await serialized(() => writeRecords({ [STORAGE_KEYS.history]: history }));
+}
+
+export async function pruneStoredHistory(keepDays) {
+  return serialized(async () => {
+    const current = (await readRecord(STORAGE_KEYS.history)) || emptyHistory();
+    await saveUndoSnapshotInternal('history-prune', [STORAGE_KEYS.history]);
+    const history = pruneHistory(current, keepDays);
+    await writeRecords({ [STORAGE_KEYS.history]: history });
+    return history;
+  });
+}
+
 /** Reduce a repo list to the minimum needed to diff against later. */
 export function snapshotOf(repos, { now = Date.now(), generation = null } = {}) {
   const counts = {};
@@ -499,16 +526,22 @@ export async function resetBaseline(repos) {
 export async function commitRefresh(cache, baseline, generation) {
   const nextCache = { ...cache, generation };
   const nextBaseline = { ...baseline, generation };
-  await serialized(() =>
-    writeRecords(
+  let nextHistory;
+  await serialized(async () => {
+    const currentHistory = (await readRecord(STORAGE_KEYS.history)) || emptyHistory();
+    nextHistory = recordDailyHistory(currentHistory, nextCache, {
+      now: nextCache.fetchedAt || Date.now(),
+    });
+    await writeRecords(
       {
         [STORAGE_KEYS.cache]: nextCache,
         [STORAGE_KEYS.baseline]: nextBaseline,
+        [STORAGE_KEYS.history]: nextHistory,
       },
       generation,
-    ),
-  );
-  return { cache: nextCache, baseline: nextBaseline };
+    );
+  });
+  return { cache: nextCache, baseline: nextBaseline, history: nextHistory };
 }
 
 export async function clearPortfolioData() {
@@ -516,14 +549,16 @@ export async function clearPortfolioData() {
     await saveUndoSnapshotInternal('clear-portfolio', [
       STORAGE_KEYS.cache,
       STORAGE_KEYS.baseline,
+      STORAGE_KEYS.history,
     ]);
     const backup = await readLastKnownGood();
     delete backup[STORAGE_KEYS.cache];
     delete backup[STORAGE_KEYS.baseline];
+    delete backup[STORAGE_KEYS.history];
     await AREA.set({
       [STORAGE_KEYS.lastKnownGood]: makeEnvelope(backup),
     });
-    await AREA.remove([STORAGE_KEYS.cache, STORAGE_KEYS.baseline]);
+    await AREA.remove([STORAGE_KEYS.cache, STORAGE_KEYS.baseline, STORAGE_KEYS.history]);
   });
 }
 
@@ -581,7 +616,13 @@ export async function restoreUndoSnapshot() {
     const undo = await readUndo();
     if (!undo) return null;
     const records = {};
-    for (const key of [STORAGE_KEYS.cache, STORAGE_KEYS.baseline]) {
+    const restorableKeys = [
+      STORAGE_KEYS.settings,
+      STORAGE_KEYS.cache,
+      STORAGE_KEYS.baseline,
+      STORAGE_KEYS.history,
+    ];
+    for (const key of restorableKeys) {
       if (undo.snapshot[key]) records[key] = undo.snapshot[key];
     }
     if (Object.keys(records).length) {
@@ -592,7 +633,7 @@ export async function restoreUndoSnapshot() {
       await writeRecords(records, generation);
     }
     const removed = [];
-    for (const key of [STORAGE_KEYS.cache, STORAGE_KEYS.baseline]) {
+    for (const key of restorableKeys) {
       if (Object.hasOwn(undo.snapshot, key) && undo.snapshot[key] == null) {
         await AREA.remove(key);
         removed.push(key);
@@ -608,8 +649,10 @@ export async function restoreUndoSnapshot() {
     await AREA.remove(STORAGE_KEYS.undo);
     return {
       scope: undo.scope,
+      settings: await readRecord(STORAGE_KEYS.settings),
       cache: await readRecord(STORAGE_KEYS.cache),
       baseline: await readRecord(STORAGE_KEYS.baseline),
+      history: await readRecord(STORAGE_KEYS.history),
     };
   });
 }
@@ -619,6 +662,7 @@ export async function getStorageDiagnostics() {
     STORAGE_KEYS.settings,
     STORAGE_KEYS.cache,
     STORAGE_KEYS.baseline,
+    STORAGE_KEYS.history,
     STORAGE_KEYS.quarantine,
   ]);
   return {
@@ -626,6 +670,7 @@ export async function getStorageDiagnostics() {
     settingsStored: !!stored[STORAGE_KEYS.settings],
     cacheStored: !!stored[STORAGE_KEYS.cache],
     baselineStored: !!stored[STORAGE_KEYS.baseline],
+    historyStored: !!stored[STORAGE_KEYS.history],
     quarantined: stored[STORAGE_KEYS.quarantine]?.data?.records?.length || 0,
   };
 }
