@@ -1110,6 +1110,34 @@ async function main() {
     });
     await options.reload();
     await options.waitForSelector('#backupJson');
+    await options.click('#buildDiagnostics');
+    await options.waitForSelector('#diagnosticsOutput:not([hidden])');
+    const diagnosticsText = await options.textContent('#diagnosticsOutput');
+    const diagnostics = JSON.parse(diagnosticsText);
+    check(
+      'local diagnostics expose version, permission, storage, refresh, and alarm health',
+      diagnostics.extension.minimumChromeVersion === '110' &&
+        typeof diagnostics.permissions.githubWebsite === 'boolean' &&
+        diagnostics.storage.schemaVersion === 4 &&
+        diagnostics.refresh.lastSuccessfulAt &&
+        diagnostics.alarms.refresh?.periodMinutes === 60,
+    );
+    check(
+      'diagnostics exclude credentials, private names, raw messages, and HTML',
+      !diagnosticsText.includes('smoke-export-secret') &&
+        !diagnosticsText.includes('private-smoke-fixture') &&
+        !diagnosticsText.includes('rawHtml') &&
+        !diagnosticsText.includes('"message"'),
+    );
+    await options.click('#copyDiagnostics');
+    await options.waitForFunction(() =>
+      /Diagnostics copied|Copy was blocked/.test(document.querySelector('#status').textContent),
+    );
+    check(
+      'redacted diagnostics remain inspectable and copyable without remote telemetry',
+      !(await options.isDisabled('#copyDiagnostics')),
+    );
+    await options.screenshot({ path: `${SHOTS}/09-diagnostics.png`, fullPage: true });
     check(
       'private names and trend history start as explicit opt-in export choices',
       !(await options.isChecked('#includePrivateExport')) &&

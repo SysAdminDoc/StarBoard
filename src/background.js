@@ -23,9 +23,13 @@ import {
   restoreUndoSnapshot,
   pruneStoredHistory,
   applyImportedState,
+  getHistory,
+  getStorageDiagnostics,
 } from './lib/storage.js';
 import { createRefreshCoordinator } from './lib/refresh-coordinator.js';
 import { deriveLifecycleEvents, mergeLifecycleEvents } from './lib/lifecycle.js';
+import { historyStats } from './lib/history.js';
+import { buildDiagnostics } from './lib/diagnostics.js';
 
 const ALARM = 'starboard-refresh';
 const RETRY_ALARM = 'starboard-retry';
@@ -279,6 +283,31 @@ async function syncAlarm() {
   }
 }
 
+async function diagnosticsBundle() {
+  const [settings, cache, storage, history, websitePermission, alarms, storageBytes] =
+    await Promise.all([
+      getSettings(),
+      getCache(),
+      getStorageDiagnostics(),
+      getHistory().then(historyStats),
+      hasWebPermission(),
+      chrome.alarms.getAll(),
+      chrome.storage.local.getBytesInUse(null),
+    ]);
+  return buildDiagnostics({
+    manifest: chrome.runtime.getManifest(),
+    settings,
+    cache,
+    storage,
+    history,
+    websitePermission,
+    notificationPermission: false,
+    alarms,
+    storageBytes,
+    userAgent: navigator.userAgent,
+  });
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   await syncAlarm();
   await updateBadge();
@@ -349,6 +378,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true, undo: await getUndoStatus() });
         break;
       }
+      case 'get-diagnostics':
+        sendResponse({ ok: true, diagnostics: await diagnosticsBundle() });
+        break;
       case 'refresh':
         sendResponse(
           await refresh({

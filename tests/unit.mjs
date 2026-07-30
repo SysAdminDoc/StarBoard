@@ -62,6 +62,7 @@ const {
   createCsv,
   validateBackupText,
 } = await import('../src/lib/transfer.js');
+const { buildDiagnostics } = await import('../src/lib/diagnostics.js');
 
 async function fixture(name) {
   return JSON.parse(await readFile(resolve(FIXTURES, name), 'utf8'));
@@ -771,6 +772,68 @@ await test('validated imports preserve local credentials and support full rollba
   assert.equal(restored.settings.username, 'before');
   assert.equal(restored.cache.profile.login, 'before');
   assert.equal((await storage.getSettings()).token, 'session-stays-local');
+});
+
+await test('diagnostics expose allow-listed health metadata without sensitive values', async () => {
+  const diagnostics = buildDiagnostics({
+    manifest: {
+      version: '1.2.0',
+      minimum_chrome_version: '110',
+      manifest_version: 3,
+    },
+    settings: {
+      dataSource: 'api',
+      token: 'ghp_diagnostic-secret',
+      username: 'private-owner',
+    },
+    cache: {
+      source: 'api',
+      requestedSource: 'api',
+      fetchedAt: Date.UTC(2026, 6, 29),
+      complete: false,
+      confidence: 'partial',
+      partialReason: 'rate-limited',
+      repos: [{ full_name: 'private-owner/private-repo', private: true }],
+      error: {
+        code: 'RATE_LIMITED',
+        message: 'private-owner/private-repo failed with ghp_diagnostic-secret',
+        status: 429,
+        rateLimited: true,
+        at: Date.UTC(2026, 6, 29, 1),
+        retryAt: Date.UTC(2026, 6, 29, 2),
+      },
+      rawHtml: '<p>private-owner/private-repo</p>',
+    },
+    storage: {
+      schemaVersion: 4,
+      settingsStored: true,
+      cacheStored: true,
+      baselineStored: true,
+      historyStored: true,
+      quarantined: 1,
+    },
+    history: { days: 3, points: 8, bytes: 900 },
+    websitePermission: false,
+    alarms: [
+      {
+        name: 'starboard-refresh',
+        scheduledTime: Date.UTC(2026, 6, 29, 3),
+        periodInMinutes: 60,
+      },
+    ],
+    storageBytes: 1200,
+    userAgent: 'Mozilla/5.0 Chrome/110.0.0.0',
+    now: Date.UTC(2026, 6, 29, 4),
+  });
+  const text = JSON.stringify(diagnostics);
+  assert.equal(diagnostics.extension.minimumChromeVersion, '110');
+  assert.equal(diagnostics.extension.runtimeChromeMajor, 110);
+  assert.equal(diagnostics.refresh.error.code, 'RATE_LIMITED');
+  assert.equal(diagnostics.alarms.refresh.periodMinutes, 60);
+  assert.doesNotMatch(
+    text,
+    /diagnostic-secret|private-owner|private-repo|rawHtml|<p>|message|token|cookie/i,
+  );
 });
 
 const failed = checks.filter((check) => !check.passed);

@@ -826,6 +826,26 @@ input[type='checkbox'][role='switch']:focus-visible {
   align-items: center;
 }
 
+.diagnostics-tool {
+  align-items: center;
+}
+
+#diagnosticsOutput {
+  width: 100%;
+  max-height: 300px;
+  flex: 1 1 100%;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--muted);
+  font: 10px/1.55 Consolas, 'Cascadia Mono', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 #storageInfo {
   display: block;
   margin-top: 2px;

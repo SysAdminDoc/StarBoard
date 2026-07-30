@@ -10,6 +10,7 @@ import {
   getCache,
   getBaseline,
   getHistory,
+  STORAGE_KEYS,
   applyTheme,
 } from './lib/storage.js';
 import { historyPointsForRepos, repositoryHistoryKey } from './lib/history.js';
@@ -122,6 +123,12 @@ async function updateUndoAvailability() {
   const response = await chrome.runtime.sendMessage({ type: 'undo-status' });
   el.undo.hidden = !response?.undo?.available;
 }
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local' || !changes[STORAGE_KEYS.undo]) return;
+  const envelope = changes[STORAGE_KEYS.undo].newValue;
+  el.undo.hidden = !(envelope?.data?.expiresAt > Date.now());
+});
 
 /* ---------- formatting ---------- */
 

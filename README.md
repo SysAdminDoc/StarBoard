@@ -28,6 +28,8 @@ projects are doing best**, and **what moved since yesterday**.
 - **Portable by choice** — download a checksummed JSON backup or timestamped
   CSV, dry-run restores before applying them, and roll back an import for 10
   minutes.
+- **Supportable without surveillance** — inspect and copy a redacted local
+  diagnostics snapshot without enabling telemetry or sending data anywhere.
 - **Sort by momentum** — order by *stars gained* or *forks gained* to see what is actually moving, not just what is already big.
 - **Live totals** — aggregate stars, forks and repo count, each with its own delta.
 - **Honest confidence** — exact, approximate, partial and stale snapshots are
@@ -150,6 +152,10 @@ hosts described above.
   Private repository names and trend history each require an unchecked-by-
   default opt-in. PATs are always omitted, and restore preserves the credential
   already held by this browser profile.
+- **Diagnostics:** the local support snapshot allow-lists only version, browser
+  floor, source, permission, schema, storage-size, refresh, retry, confidence,
+  normalized error-code and alarm metadata. It excludes tokens, cookies,
+  usernames, repository names, URLs, raw HTML and raw error messages.
 - **Required permissions:** `storage` keeps local state, `alarms` runs the
   selected refresh/retry schedule, `offscreen` provides `DOMParser`, and
   `https://api.github.com/*` supports the secondary API source.
@@ -178,6 +184,16 @@ Open **Settings → Local data** to download a portable file:
 
 Files never contain a PAT. A restore keeps the credential already stored in
 the current profile and replaces only records present in the backup.
+
+## Local diagnostics
+
+**Settings → Local data → Build diagnostics** creates an inspectable JSON
+snapshot entirely in the extension page. It reports the extension/browser
+version contract, active/configured source, optional permission state, storage
+schema and size, last successful/attempted refresh, confidence/completeness,
+retry time, normalized error code and both refresh alarms. **Copy** places that
+already-redacted text on the clipboard. No diagnostic is uploaded
+automatically—or at all—by StarBoard.
 
 ## How the deltas work
 
@@ -224,7 +240,7 @@ settings, performs a real fetch, and asserts on ordering, deltas, filtering,
 sorting, source defaults, popup-detail switches, the toolbar badge, the options
 page, credential handling, lifecycle/confidence labels, offline history ranges,
 portable-file privacy, import rollback, destructive-action recovery, worker
-termination and both themes — 76 checks. It
+termination, diagnostics redaction and both themes — 79 checks. It
 hits the live GitHub API unauthenticated (3–4 of your 60 hourly requests); set
 `GITHUB_TOKEN` to use the authenticated limit.
 
@@ -255,6 +271,7 @@ src/lib/refresh-coordinator.js  refresh intent serialization/coalescing
 src/lib/lifecycle.js repository add/remove/rename event derivation
 src/lib/history.js   bounded daily history and offline trend comparisons
 src/lib/transfer.js  checksummed backup/restore and privacy-aware CSV export
+src/lib/diagnostics.js allow-listed local support metadata
 src/lib/storage.js   versioned settings/cache/baseline persistence and recovery
 scripts/build.py     reproducible unsigned ZIP, hashes and SPDX packaging
 scripts/make_icons.py  icon generation

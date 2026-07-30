@@ -325,6 +325,25 @@
               </div>
             </div>
           </div>
+          <div class="data-tool diagnostics-tool">
+            <div>
+              <h3>Local diagnostics</h3>
+              <p>
+                Inspect a redacted snapshot of version, source, permission, storage, refresh and
+                alarm health. Repository names, tokens, cookies, raw HTML and error messages are
+                excluded.
+              </p>
+            </div>
+            <div class="data-tool-actions">
+              <button id="buildDiagnostics" class="secondary-btn" type="button">
+                Build diagnostics
+              </button>
+              <button id="copyDiagnostics" class="secondary-btn" type="button" disabled>
+                Copy
+              </button>
+            </div>
+            <pre id="diagnosticsOutput" tabindex="0" hidden></pre>
+          </div>
           <div class="actions">
             <button id="clear" class="danger-btn" type="button">
               Clear snapshot, baseline &amp; history

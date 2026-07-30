@@ -77,6 +77,15 @@
   Chrome 110 recovery path.
 - Fixed the Windows CI pip cache to key from `requirements-icons.txt`. The
   complete browser lane now contains 76 checks.
+- Added inspectable/copyable local diagnostics for the version/Chrome floor,
+  configured and active sources, permission/schema/storage state, refresh and
+  retry health, confidence, normalized error codes and alarms.
+- Diagnostics use an explicit scalar allow-list and exclude credentials,
+  cookies, usernames, repository names, URLs, raw HTML and raw error messages;
+  no telemetry or upload path was added.
+- Synchronized popup undo visibility directly from storage changes so recovery
+  appears even while a refresh response is still settling. The complete browser
+  lane now contains 79 checks.
 
 No permission scopes changed.
 

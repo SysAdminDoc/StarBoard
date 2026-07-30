@@ -440,6 +440,46 @@ $('applyImport').addEventListener('click', async () => {
   }).catch((error) => say(error.message || 'Could not restore backup.', 'err'));
 });
 
+let diagnosticsText = '';
+
+$('buildDiagnostics').addEventListener('click', async () => {
+  await withBusy($('buildDiagnostics'), 'Building…', async () => {
+    const response = await chrome.runtime.sendMessage({ type: 'get-diagnostics' });
+    if (!response?.ok) {
+      throw new Error(response?.error?.message || 'Could not build diagnostics.');
+    }
+    diagnosticsText = `${JSON.stringify(response.diagnostics, null, 2)}\n`;
+    $('diagnosticsOutput').textContent = diagnosticsText;
+    $('diagnosticsOutput').hidden = false;
+    $('copyDiagnostics').disabled = false;
+    say('Redacted diagnostics built locally.', 'ok');
+  }).catch((error) => say(error.message || 'Could not build diagnostics.', 'err'));
+});
+
+async function copyDiagnosticsText() {
+  try {
+    await navigator.clipboard.writeText(diagnosticsText);
+    return true;
+  } catch {
+    const textarea = document.createElement('textarea');
+    textarea.value = diagnosticsText;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    textarea.remove();
+    return copied;
+  }
+}
+
+$('copyDiagnostics').addEventListener('click', async () => {
+  if (!diagnosticsText) return;
+  const copied = await copyDiagnosticsText();
+  say(copied ? 'Diagnostics copied.' : 'Copy was blocked; select the diagnostics text manually.', copied ? 'ok' : 'err');
+});
+
 $('undoClear').addEventListener('click', async () => {
   await withBusy($('undoClear'), 'Restoring…', async () => {
     const response = await chrome.runtime.sendMessage({ type: 'undo' });
