@@ -34,11 +34,18 @@ function memoryArea(initial = {}) {
 }
 
 const area = memoryArea();
-globalThis.chrome = { storage: { local: area } };
+const sessionArea = memoryArea();
+globalThis.chrome = { storage: { local: area, session: sessionArea } };
 
 const storage = await import('../src/lib/storage.js');
 const { createRefreshCoordinator } = await import('../src/lib/refresh-coordinator.js');
 const { parseRetryAfter, requestText, RequestPolicyError } = await import('../src/lib/request.js');
+const {
+  fetchAccount,
+  readRate,
+  parseLinkHeader,
+  GitHubError,
+} = await import('../src/lib/github.js');
 
 async function fixture(name) {
   return JSON.parse(await readFile(resolve(FIXTURES, name), 'utf8'));
@@ -71,17 +78,25 @@ await test('v1.1 website settings migrate to the six-hour floor', async () => {
   assert.equal(migrated.envelope.data.showSourceStatus, true);
 });
 
-await test('current settings migration is idempotent', async () => {
-  const current = await fixture('v1.2.0-settings.json');
-  const first = storage.migrateRecord('settings', current, 3);
+await test('v1.2 settings migrate to session-aware schema v4', async () => {
+  const legacy = await fixture('v1.2.0-settings.json');
+  const first = storage.migrateRecord('settings', legacy, 3);
   const second = storage.migrateRecord('settings', first.envelope, 4);
-  assert.equal(first.changed, false);
+  assert.equal(first.changed, true);
+  assert.equal(first.envelope.data.tokenMode, 'session');
   assert.equal(second.changed, false);
-  assert.deepEqual(second.envelope.data, current.data);
+});
+
+await test('current settings migration is idempotent', async () => {
+  const current = await fixture('current-settings.json');
+  const migrated = storage.migrateRecord('settings', current, 4);
+  assert.equal(migrated.changed, false);
+  assert.deepEqual(migrated.envelope.data, current.data);
 });
 
 await test('corrupt settings restore last-known-good and record redacted quarantine metadata', async () => {
   Object.keys(area.values).forEach((key) => delete area.values[key]);
+  Object.keys(sessionArea.values).forEach((key) => delete sessionArea.values[key]);
   const saved = await storage.setSettings({ username: 'safe-user', dataSource: 'api' });
   area.values.settings = {
     schemaVersion: storage.SCHEMA_VERSION,
@@ -95,6 +110,28 @@ await test('corrupt settings restore last-known-good and record redacted quarant
   const quarantine = JSON.stringify(area.values.starboardQuarantine);
   assert.match(quarantine, /invalid username|invalid data source/);
   assert.doesNotMatch(quarantine, /must-not-leak/);
+});
+
+await test('PATs default to session storage, can opt into persistence, and clear on website mode', async () => {
+  Object.keys(area.values).forEach((key) => delete area.values[key]);
+  Object.keys(sessionArea.values).forEach((key) => delete sessionArea.values[key]);
+  const sessionSettings = await storage.setSettings({
+    username: 'octocat',
+    dataSource: 'api',
+    token: 'session-secret',
+  });
+  assert.equal(sessionSettings.tokenMode, 'session');
+  assert.equal(area.values.settings.data.token, '');
+  assert.equal(sessionArea.values.starboardSessionToken.data.token, 'session-secret');
+  assert.equal((await storage.getSettings()).token, 'session-secret');
+
+  await storage.setSettings({ tokenMode: 'persistent' });
+  assert.equal(area.values.settings.data.token, 'session-secret');
+  assert.equal(sessionArea.values.starboardSessionToken, undefined);
+
+  await storage.setSettings({ dataSource: 'web' });
+  assert.equal(area.values.settings.data.token, '');
+  assert.equal((await storage.getSettings()).token, '');
 });
 
 await test('refresh cache and baseline commit with one generation', async () => {
@@ -182,6 +219,163 @@ await test('request timeout aborts and reports a normalized code', async () => {
     }),
     (error) => error instanceof RequestPolicyError && error.code === 'TIMEOUT',
   );
+});
+
+await test('missing REST quota headers stay nullable and Link relations parse', async () => {
+  const response = new Response('{}', { status: 200 });
+  assert.deepEqual(readRate(response), {
+    remaining: null,
+    limit: null,
+    resetAt: null,
+  });
+  assert.deepEqual(
+    parseLinkHeader(
+      '<https://api.github.com/items?page=2>; rel="next", ' +
+        '<https://api.github.com/items?page=4>; rel="last"',
+    ),
+    {
+      next: 'https://api.github.com/items?page=2',
+      last: 'https://api.github.com/items?page=4',
+    },
+  );
+});
+
+await test('REST adapter follows Link pagination and reuses ETag snapshots', async () => {
+  const requests = [];
+  const profile = {
+    login: 'octocat',
+    name: 'The Octocat',
+    avatar_url: 'https://example.invalid/avatar.png',
+    html_url: 'https://github.com/octocat',
+    public_repos: 2,
+    followers: 10,
+  };
+  const repo = (id, name) => ({
+    id,
+    name,
+    full_name: `octocat/${name}`,
+    html_url: `https://github.com/octocat/${name}`,
+    stargazers_count: id,
+    forks_count: 0,
+    private: false,
+    fork: false,
+    archived: false,
+  });
+  const firstFetch = async (url, options) => {
+    requests.push({ url, headers: options.headers });
+    const parsed = new URL(url);
+    if (parsed.pathname === '/users/octocat') {
+      return new Response(JSON.stringify(profile), {
+        status: 200,
+        headers: { etag: '"profile"', 'x-ratelimit-remaining': '59' },
+      });
+    }
+    const page = parsed.searchParams.get('page');
+    const headers =
+      page === '1'
+        ? {
+            etag: '"page-1"',
+            link:
+              '<https://api.github.com/users/octocat/repos?type=owner&sort=updated&per_page=100&page=2>; rel="next"',
+          }
+        : { etag: '"page-2"' };
+    return new Response(JSON.stringify([repo(Number(page), `repo-${page}`)]), {
+      status: 200,
+      headers,
+    });
+  };
+  const first = await fetchAccount(
+    { username: 'octocat', token: '' },
+    { fetchImpl: firstFetch, sleep: async () => {}, now: () => 1000 },
+  );
+  assert.equal(first.repos.length, 2);
+  assert.equal(first.pagesFetched, 2);
+  assert.equal(first.complete, true);
+
+  const conditionalHeaders = [];
+  const second = await fetchAccount(
+    { username: 'octocat', token: '' },
+    {
+      previous: first,
+      fetchImpl: async (_url, options) => {
+        conditionalHeaders.push(options.headers['If-None-Match']);
+        return new Response(null, {
+          status: 304,
+          headers: { etag: options.headers['If-None-Match'] },
+        });
+      },
+      sleep: async () => {},
+      now: () => 2000,
+    },
+  );
+  assert.deepEqual(second.repos, first.repos);
+  assert.equal(second.pagesFetched, 2);
+  assert.deepEqual(conditionalHeaders, ['"profile"', '"page-1"', '"page-2"']);
+});
+
+await test('REST adapter normalizes exhausted retry responses', async () => {
+  await assert.rejects(
+    fetchAccount(
+      { username: 'octocat', token: '' },
+      {
+        fetchImpl: async () =>
+          new Response(JSON.stringify({ message: 'slow down' }), {
+            status: 429,
+            headers: { 'retry-after': '1' },
+          }),
+        sleep: async () => {},
+        retries: 0,
+        now: () => 1000,
+      },
+    ),
+    (error) =>
+      error instanceof GitHubError &&
+      error.code === 'RATE_LIMITED' &&
+      error.rateLimited === true,
+  );
+});
+
+await test('REST adapter honors exhausted 403 quota metadata', async () => {
+  await assert.rejects(
+    fetchAccount(
+      { username: 'octocat', token: '' },
+      {
+        fetchImpl: async () =>
+          new Response(JSON.stringify({ message: 'quota exhausted' }), {
+            status: 403,
+            headers: {
+              'x-ratelimit-remaining': '0',
+              'x-ratelimit-reset': '10',
+            },
+          }),
+        sleep: async () => {},
+        now: () => 1000,
+      },
+    ),
+    (error) =>
+      error instanceof GitHubError &&
+      error.code === 'RATE_LIMITED' &&
+      error.resetAt === 10_000,
+  );
+});
+
+await test('shared request policy retries 5xx responses serially', async () => {
+  let calls = 0;
+  const sleeps = [];
+  const result = await requestText('https://example.invalid', {
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response(calls === 1 ? 'unavailable' : 'ok', {
+        status: calls === 1 ? 503 : 200,
+      });
+    },
+    sleep: async (ms) => sleeps.push(ms),
+    random: () => 0,
+    baseDelayMs: 100,
+  });
+  assert.equal(result.value, 'ok');
+  assert.equal(calls, 2);
+  assert.deepEqual(sleeps, [100]);
 });
 
 const failed = checks.filter((check) => !check.passed);

@@ -8,12 +8,13 @@
   "scripts": {
     "icons": "py -3.12 scripts/make_icons.py",
     "build": "py -3.12 scripts/build.py",
+    "check": "node scripts/check.mjs",
     "test": "npm run test:unit && npm run test:release && npm run test:smoke",
     "test:unit": "node tests/unit.mjs",
     "test:release": "py -3.12 tests/release_test.py",
     "test:smoke": "node tests/smoke.mjs"
   },
   "devDependencies": {
-    "playwright": "^1.61.0"
+    "playwright": "1.62.0"
   }
 }

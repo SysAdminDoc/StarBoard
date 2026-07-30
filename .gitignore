@@ -7,7 +7,6 @@ dist/
 
 # Node (smoke tests only)
 node_modules/
-package-lock.json
 
 # Test output
 tests/screenshots/

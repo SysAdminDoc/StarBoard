@@ -42,6 +42,17 @@
 - Replaced self-signed CRX/RSA generation with a reproducible, standard-library
   release build that emits only the unsigned ZIP, its SHA-256, an SPDX 2.3 JSON
   SBOM and a per-file hash manifest.
+- Hardened the secondary REST adapter with 20-second aborts, bounded serial
+  retries, `Retry-After`, nullable quota parsing, `Link` pagination, lightweight
+  ETag reuse and visible safety-cap partial state.
+- Moved PATs to session-only storage by default, added an explicit warned
+  persistent mode, migrated existing saved credentials without data loss, and
+  added a control that forgets both credential stores.
+- Published the privacy/permission contract in Settings, README and the
+  checked-in Chrome Web Store listing metadata.
+- Added immutable npm installs, pinned optional Pillow tooling, dependency
+  audits, syntax/version checks, Dependabot, reproducible release tests and an
+  offline packaged-extension CI smoke lane.
 
 No permission scopes changed.
 

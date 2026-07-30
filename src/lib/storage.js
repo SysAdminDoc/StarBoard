@@ -6,7 +6,7 @@
  * cache and baseline together so the popup never observes mixed generations.
  */
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 export const STORAGE_KEYS = Object.freeze({
   settings: 'settings',
   cache: 'cache',
@@ -14,10 +14,12 @@ export const STORAGE_KEYS = Object.freeze({
   lastKnownGood: 'starboardLastKnownGood',
   quarantine: 'starboardQuarantine',
 });
+export const SESSION_TOKEN_KEY = 'starboardSessionToken';
 
 export const DEFAULTS = Object.freeze({
   username: '',
   token: '',
+  tokenMode: 'session',
   dataSource: 'web',
   refreshMinutes: 720,
   baselineHours: 24,
@@ -38,9 +40,11 @@ const VALID = Object.freeze({
   sortKey: new Set(['stars', 'starsDelta', 'forks', 'forksDelta', 'updated', 'name']),
   badgeMode: new Set(['stars', 'delta', 'off']),
   theme: new Set(['dark', 'light', 'auto']),
+  tokenMode: new Set(['session', 'persistent']),
 });
 const SETTINGS_KEYS = new Set(Object.keys(DEFAULTS));
 const AREA = chrome.storage.local;
+const SESSION_AREA = chrome.storage.session;
 
 let writeQueue = Promise.resolve();
 
@@ -79,7 +83,8 @@ function inferLegacyVersion(key, data) {
   if (key !== STORAGE_KEYS.settings) return 1;
   if (!Object.hasOwn(data, 'dataSource')) return 1;
   if (!Object.hasOwn(data, 'showFollowers')) return 2;
-  return 3;
+  if (!Object.hasOwn(data, 'tokenMode')) return 3;
+  return 4;
 }
 
 function migrateV1ToV2(key, value) {
@@ -108,10 +113,21 @@ function migrateV2ToV3(key, value) {
   return value;
 }
 
+function migrateV3ToV4(key, value) {
+  if (key !== STORAGE_KEYS.settings) return value;
+  return {
+    ...value,
+    // Existing stored PATs must not disappear during upgrade. The settings
+    // page labels this retained mode and lets the user move/forget it.
+    tokenMode: value.token ? 'persistent' : 'session',
+  };
+}
+
 function validateSettings(value) {
   assert(isObject(value), 'settings must be an object');
   assert(typeof value.username === 'string' && value.username.length <= 100, 'invalid username');
   assert(typeof value.token === 'string', 'invalid token');
+  assert(VALID.tokenMode.has(value.tokenMode), 'invalid token storage mode');
   assert(VALID.dataSource.has(value.dataSource), 'invalid data source');
   assertFinite(value.refreshMinutes, 'refreshMinutes');
   assertFinite(value.baselineHours, 'baselineHours');
@@ -204,6 +220,7 @@ export function migrateRecord(key, raw, now = Date.now()) {
   while (version < SCHEMA_VERSION) {
     if (version === 1) value = migrateV1ToV2(key, value);
     else if (version === 2) value = migrateV2ToV3(key, value);
+    else if (version === 3) value = migrateV3ToV4(key, value);
     version += 1;
   }
 
@@ -317,6 +334,12 @@ export function applyTheme(theme) {
 }
 
 export async function getSettings() {
+  const settings = await getStoredSettings();
+  if (settings.tokenMode !== 'session') return settings;
+  return { ...settings, token: await getSessionToken() };
+}
+
+async function getStoredSettings() {
   const settings = await readRecord(STORAGE_KEYS.settings);
   if (settings) return settings;
   const defaults = { ...DEFAULTS };
@@ -326,8 +349,68 @@ export async function getSettings() {
 
 export async function setSettings(patch) {
   return serialized(async () => {
-    const current = await getSettings();
-    const next = normalizeSettings({ ...current, ...patch });
+    const current = await getStoredSettings();
+    const currentSessionToken =
+      current.tokenMode === 'session' ? await getSessionToken() : '';
+    const requestedMode = patch.tokenMode || current.tokenMode;
+    let effectiveToken =
+      Object.hasOwn(patch, 'token')
+        ? String(patch.token || '').trim()
+        : current.tokenMode === 'session'
+          ? currentSessionToken
+          : current.token;
+    const switchingToWebsite = patch.dataSource === 'web';
+
+    if (switchingToWebsite) effectiveToken = '';
+    if (requestedMode === 'session') {
+      await setSessionToken(effectiveToken);
+    } else {
+      await SESSION_AREA.remove(SESSION_TOKEN_KEY);
+    }
+
+    const next = normalizeSettings({
+      ...current,
+      ...patch,
+      tokenMode: requestedMode,
+      token: requestedMode === 'persistent' ? effectiveToken : '',
+    });
+    await writeRecords({ [STORAGE_KEYS.settings]: next });
+    return {
+      ...copy(next),
+      token: requestedMode === 'session' ? effectiveToken : next.token,
+    };
+  });
+}
+
+async function getSessionToken() {
+  const raw = (await SESSION_AREA.get(SESSION_TOKEN_KEY))[SESSION_TOKEN_KEY];
+  if (raw == null) return '';
+  if (
+    !isObject(raw) ||
+    raw.schemaVersion !== SCHEMA_VERSION ||
+    typeof raw.data?.token !== 'string'
+  ) {
+    await SESSION_AREA.remove(SESSION_TOKEN_KEY);
+    return '';
+  }
+  return raw.data.token;
+}
+
+async function setSessionToken(token) {
+  if (!token) {
+    await SESSION_AREA.remove(SESSION_TOKEN_KEY);
+    return;
+  }
+  await SESSION_AREA.set({
+    [SESSION_TOKEN_KEY]: makeEnvelope({ token }),
+  });
+}
+
+export async function forgetToken() {
+  return serialized(async () => {
+    await SESSION_AREA.remove(SESSION_TOKEN_KEY);
+    const current = await getStoredSettings();
+    const next = normalizeSettings({ ...current, token: '', tokenMode: 'session' });
     await writeRecords({ [STORAGE_KEYS.settings]: next });
     return copy(next);
   });

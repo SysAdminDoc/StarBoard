@@ -108,13 +108,43 @@ instead of quietly reporting wrong numbers.
 | `public_repo` scope, or fine-grained w/ read-only **Metadata** | 5,000 | No |
 | `repo` scope | 5,000 | Yes |
 
-A full refresh of a 200-repo account costs 3–4 requests. The token is stored in
-`chrome.storage.local` in your browser profile and is sent only to
-`api.github.com`.
+A full refresh of a 200-repo account costs 3–4 requests. Tokens use
+`chrome.storage.session` by default and are sent only to `api.github.com`.
+Persistent storage is available as an explicit warned choice, with a dedicated
+**Forget token** action.
 
 Use the API source when you need exact counts above 1,000, lower bandwidth, or
 private repositories through a token. Otherwise the website source is the
 recommended zero-setup choice.
+
+## Privacy and permissions
+
+StarBoard has no developer telemetry, analytics, advertising, remote backend
+or third-party data sharing. Its only network destinations are the two GitHub
+hosts described above.
+
+- **Data kept locally:** your username, display preferences, repository/profile
+  snapshot, comparison baseline, refresh metadata and recovery metadata stay in
+  this Chromium profile until you clear them or uninstall StarBoard.
+- **Website session:** Chromium attaches applicable `github.com` cookies to the
+  website-source requests. StarBoard never reads or stores cookie values; it
+  parses only the returned repository/profile HTML.
+- **API credentials:** PATs use `chrome.storage.session` by default and clear
+  with the browser session. Persistent storage is an explicit, warned choice.
+  Tokens are sent only to `api.github.com`, omitted from diagnostics and
+  exports, and removable from both stores with **Forget token**.
+- **Clearing and export:** **Clear cached data** removes repository snapshots
+  and baselines while preserving settings. StarBoard performs no automatic
+  export; user-initiated backup/export files never include a PAT.
+- **Required permissions:** `storage` keeps local state, `alarms` runs the
+  selected refresh/retry schedule, `offscreen` provides `DOMParser`, and
+  `https://api.github.com/*` supports the secondary API source.
+- **Optional permission:** `https://github.com/*` is requested only from a user
+  action when the website source is selected.
+
+The checked-in [store listing contract](store-listing.json) is the source of
+truth for permission justifications, privacy disclosures and release
+screenshots.
 
 ## How the deltas work
 
@@ -129,9 +159,11 @@ button in the popup to start counting from now.
 ## Development
 
 ```bash
+py -3.12 -m pip install -r requirements-icons.txt
 py -3.12 scripts/make_icons.py   # regenerate toolbar icons
 py -3.12 scripts/build.py        # build ZIP, checksums and SPDX SBOM
-npm install                      # playwright, for the smoke test
+npm ci                           # exact Playwright lock, for browser tests
+npm run check                    # syntax, JSON and version alignment
 node tests/unit.mjs              # deterministic storage/refresh/request checks
 py -3.12 tests/release_test.py   # isolated, reproducible release validation
 node tests/smoke.mjs             # drive the real popup against the live API
@@ -144,7 +176,7 @@ and request timeout/backoff without network access. `tests/smoke.mjs` loads the
 extension into a throwaway Chromium profile, seeds
 settings, performs a real fetch, and asserts on ordering, deltas, filtering,
 sorting, source defaults, popup-detail switches, the toolbar badge, the options
-page and both themes — 48 checks. It
+page, credential handling, worker lifecycle and both themes — 56 checks. It
 hits the live GitHub API unauthenticated (3–4 of your 60 hourly requests); set
 `GITHUB_TOKEN` to use the authenticated limit.
 
@@ -153,6 +185,12 @@ from an optional to a declared permission, because the consent bubble is native
 UI that automation cannot click. Every line of fetch, pagination and parsing
 logic still executes for real; only the consent step — which must stay human in
 production — is bypassed.
+
+CI uses the immutable npm lock, audits high-severity advisories, validates the
+release twice for byte identity, and boots the packaged ZIP without network
+access. Dependabot checks npm and GitHub Actions weekly. Live API/web parity
+remains a local release check because CI must not depend on GitHub quota or
+credentials.
 
 ### Layout
 

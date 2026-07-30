@@ -1,0 +1,2 @@
+# Optional development dependency used only by scripts/make_icons.py.
+Pillow==12.3.0

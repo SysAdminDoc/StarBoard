@@ -16,6 +16,7 @@ const $ = (id) => document.getElementById(id);
 const fields = {
   username: $('username'),
   token: $('token'),
+  tokenMode: $('tokenMode'),
   dataSource: $('dataSource'),
   refreshMinutes: $('refreshMinutes'),
   baselineHours: $('baselineHours'),
@@ -37,6 +38,12 @@ function syncSourceUI() {
   const web = fields.dataSource.value === 'web';
   $('sourceHint').textContent = SOURCE_HINTS[fields.dataSource.value];
   $('tokenField').style.display = web ? 'none' : '';
+  const persistent = fields.tokenMode.value === 'persistent';
+  $('tokenStorageHint').textContent = persistent
+    ? 'Persistent mode keeps the PAT in chrome.storage.local after the browser closes. Choose this only on a trusted profile.'
+    : 'Session mode keeps the PAT in chrome.storage.session and clears it when the browser session ends.';
+  $('tokenStorageHint').classList.toggle('token-warning', persistent);
+  $('forgetToken').disabled = !fields.token.value;
   for (const option of fields.refreshMinutes.options) {
     const minutes = Number(option.value);
     option.disabled = web && minutes > 0 && minutes < WEB_MIN_REFRESH_MINUTES;
@@ -97,6 +104,7 @@ async function load() {
   const s = await getSettings();
   fields.username.value = s.username;
   fields.token.value = s.token;
+  fields.tokenMode.value = s.tokenMode;
   fields.refreshMinutes.value = String(s.refreshMinutes);
   fields.baselineHours.value = String(s.baselineHours);
   fields.badgeMode.value = s.badgeMode;
@@ -117,6 +125,7 @@ function collect() {
   return {
     username: fields.username.value.trim().replace(/^@/, ''),
     token: fields.token.value.trim(),
+    tokenMode: fields.tokenMode.value,
     refreshMinutes: Number(fields.refreshMinutes.value),
     baselineHours: Number(fields.baselineHours.value),
     badgeMode: fields.badgeMode.value,
@@ -153,6 +162,8 @@ fields.dataSource.addEventListener('change', async () => {
     const source = fields.dataSource.value;
     const refreshMinutes = Number(fields.refreshMinutes.value);
     await patchSettings({ dataSource: source, refreshMinutes });
+    if (source === 'web') fields.token.value = '';
+    syncSourceUI();
     say(`Switching to ${source === 'web' ? 'github.com' : 'the GitHub API'}…`);
     const result = await chrome.runtime.sendMessage({
       type: 'settings-changed',
@@ -245,6 +256,43 @@ $('clear').addEventListener('click', async () => {
   await chrome.runtime.sendMessage({ type: 'update-badge' });
   await showStorageInfo();
   say('Cached repos and baseline cleared. Settings kept.', 'ok');
+});
+
+fields.token.addEventListener('input', syncSourceUI);
+fields.tokenMode.addEventListener('change', async () => {
+  fields.tokenMode.disabled = true;
+  try {
+    const settings = await patchSettings({
+      tokenMode: fields.tokenMode.value,
+      token: fields.token.value,
+    });
+    fields.token.value = settings.token;
+    say(
+      settings.tokenMode === 'session'
+        ? 'Token will clear with this browser session.'
+        : 'Token will remain on this device until you forget it.',
+      settings.tokenMode === 'session' ? 'ok' : '',
+    );
+  } catch (error) {
+    say(error.message || 'Could not change token storage.', 'err');
+    const settings = await getSettings();
+    fields.tokenMode.value = settings.tokenMode;
+  } finally {
+    fields.tokenMode.disabled = false;
+    syncSourceUI();
+  }
+});
+
+$('forgetToken').addEventListener('click', async () => {
+  await withBusy($('forgetToken'), 'Forgetting…', async () => {
+    const response = await chrome.runtime.sendMessage({ type: 'forget-token' });
+    if (!response?.ok) throw new Error(response?.error?.message || 'Could not forget the token.');
+    fields.token.value = '';
+    fields.tokenMode.value = 'session';
+    syncSourceUI();
+    say('Token removed from session and persistent storage.', 'ok');
+  }).catch((error) => say(error.message || 'Could not forget the token.', 'err'));
+  syncSourceUI();
 });
 
 let settingsSaveQueue = Promise.resolve();

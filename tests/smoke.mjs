@@ -24,6 +24,7 @@ const UNPACKED = resolve(HERE, '.unpacked');
 const args = process.argv.slice(2);
 const FROM_ZIP = args.includes('--zip');
 const SKIP_WEB = args.includes('--no-web');
+const OFFLINE = args.includes('--offline');
 const USERNAME = args.find((a) => !a.startsWith('--')) || 'SysAdminDoc';
 const TOKEN = process.env.GITHUB_TOKEN || '';
 const WEB_BUILD = resolve(HERE, '.webbuild');
@@ -306,6 +307,12 @@ async function main() {
     const firstRunOptions = await ctx.newPage();
     await firstRunOptions.goto(`chrome-extension://${extId}/src/options.html`);
     await firstRunOptions.waitForSelector('#dataSource');
+    await firstRunOptions.waitForFunction(
+      () =>
+        document.querySelector('#dataSource').value === 'web' &&
+        document.querySelector('#refreshMinutes').value === '720' &&
+        document.querySelector('#tokenField').style.display === 'none',
+    );
     check(
       'website source is the first-run default',
       (await firstRunOptions.inputValue('#dataSource')) === 'web',
@@ -313,6 +320,10 @@ async function main() {
     check(
       'token field is hidden for the default source',
       await firstRunOptions.$eval('#tokenField', (node) => node.style.display === 'none'),
+    );
+    check(
+      'PAT storage defaults to the browser session',
+      (await firstRunOptions.inputValue('#tokenMode')) === 'session',
     );
     check(
       'website source defaults to a 12-hour interval',
@@ -361,6 +372,7 @@ async function main() {
         deduped: complete.repos.length,
         duplicatesRemoved: complete.duplicatesRemoved,
         approximate: complete.confidence,
+        privateRepos: complete.repos.filter((repo) => repo.private).length,
         capped: [capped.complete, capped.partialReason, capped.cap.maxRepositories],
         drifted: [drifted.complete, drifted.partialReason],
       };
@@ -369,7 +381,8 @@ async function main() {
       'website contract deduplicates and labels approximation',
       webContract.deduped === 2 &&
         webContract.duplicatesRemoved === 1 &&
-        webContract.approximate === 'approximate',
+        webContract.approximate === 'approximate' &&
+        webContract.privateRepos === 1,
       JSON.stringify(webContract),
     );
     check(
@@ -382,6 +395,13 @@ async function main() {
       JSON.stringify(webContract),
     );
     await firstRunOptions.close();
+
+    if (OFFLINE) {
+      const failed = checks.filter((check) => !check.pass);
+      console.log(`\n${checks.length - failed.length}/${checks.length} offline checks passed`);
+      process.exitCode = failed.length ? 1 : 0;
+      return;
+    }
 
     // Seed settings the way the options page would, then reopen the popup.
     await popup.evaluate(
@@ -484,7 +504,7 @@ async function main() {
     });
     check(
       'settings, cache, and baseline use versioned envelopes',
-      committedGeneration.versions.every((version) => version === 3),
+      committedGeneration.versions.every((version) => version === 4),
       JSON.stringify(committedGeneration),
     );
     check(
@@ -554,12 +574,24 @@ async function main() {
     // Toolbar badge should carry the star total.
     const badge = await worker.evaluate(() => chrome.action.getBadgeText({}));
     check('toolbar badge set', badge.length > 0, `"${badge}"`);
+    await worker.evaluate(() => chrome.alarms.clear('starboard-refresh'));
+    await popup.evaluate(() => chrome.runtime.sendMessage({ type: 'settings-changed' }));
+    const recreatedAlarm = await worker.evaluate(() => chrome.alarms.get('starboard-refresh'));
+    check(
+      'settings reconciliation recreates the refresh alarm',
+      recreatedAlarm?.periodInMinutes === 60,
+      JSON.stringify(recreatedAlarm || null),
+    );
 
     // Options page renders and reflects the stored username.
     const options = await ctx.newPage();
     await options.setViewportSize({ width: 800, height: 900 });
     await options.goto(`chrome-extension://${extId}/src/options.html`);
     await options.waitForSelector('#username');
+    await options.waitForFunction(
+      (username) => document.querySelector('#username').value === username,
+      USERNAME,
+    );
     check(
       'options page loads with saved settings',
       (await options.inputValue('#username')) === USERNAME,
@@ -572,7 +604,74 @@ async function main() {
       switchNames.length === 5 && switchNames.every(Boolean),
       switchNames.join(' | '),
     );
+    check(
+      'settings exposes persistent-token warning and forget control',
+      (await options.locator('#tokenMode option[value="persistent"]').count()) === 1 &&
+        (await options.locator('#forgetToken').count()) === 1,
+    );
     await options.screenshot({ path: `${SHOTS}/03-options.png`, fullPage: true });
+
+    const priorCredentialSettings = await options.evaluate(async () => {
+      const { getSettings } = await import('./lib/storage.js');
+      const settings = await getSettings();
+      return {
+        token: settings.token,
+        tokenMode: settings.tokenMode,
+        dataSource: settings.dataSource,
+      };
+    });
+    const sessionCredentialState = await options.evaluate(async () => {
+      await chrome.runtime.sendMessage({
+        type: 'patch-settings',
+        changes: {
+          dataSource: 'api',
+          tokenMode: 'session',
+          token: 'starboard-session-test-token',
+        },
+      });
+      const [local, session] = await Promise.all([
+        chrome.storage.local.get('settings'),
+        chrome.storage.session.get('starboardSessionToken'),
+      ]);
+      return {
+        localRedacted: local.settings.data.token === '',
+        sessionStored:
+          session.starboardSessionToken?.data?.token === 'starboard-session-test-token',
+      };
+    });
+    check(
+      'session PAT mode keeps the token out of local storage',
+      sessionCredentialState.localRedacted && sessionCredentialState.sessionStored,
+      JSON.stringify(sessionCredentialState),
+    );
+    await options.fill('#token', 'starboard-session-test-token');
+    await options.click('#forgetToken');
+    await options.waitForFunction(() => /removed/i.test(document.querySelector('#status').textContent));
+    const tokenForgotten = await options.evaluate(async () => {
+      const [local, session] = await Promise.all([
+        chrome.storage.local.get('settings'),
+        chrome.storage.session.get('starboardSessionToken'),
+      ]);
+      return (
+        local.settings.data.token === '' &&
+        !session.starboardSessionToken &&
+        document.querySelector('#token').value === ''
+      );
+    });
+    check('forget token clears both credential stores', tokenForgotten);
+    await options.evaluate(async (prior) => {
+      await chrome.runtime.sendMessage({
+        type: 'patch-settings',
+        changes: prior,
+      });
+    }, priorCredentialSettings);
+    await options.fill('#token', priorCredentialSettings.token);
+    await options.selectOption('#tokenMode', priorCredentialSettings.tokenMode);
+    await options.waitForFunction(async (prior) => {
+      const { getSettings } = await import('./lib/storage.js');
+      const settings = await getSettings();
+      return settings.tokenMode === prior.tokenMode && settings.token === prior.token;
+    }, priorCredentialSettings);
 
     // Denying the optional website permission must preserve the working API
     // source instead of leaving a source choice that cannot refresh.
@@ -744,6 +843,75 @@ async function main() {
       lightContrast.toFixed(2),
     );
     await popup.screenshot({ path: `${SHOTS}/04-popup-light.png` });
+
+    // Refresh ownership belongs to the worker, so closing the initiating popup
+    // must not cancel the generation.
+    const beforePopupClose = await options.evaluate(async () => {
+      const { getCache } = await import('./lib/storage.js');
+      return (await getCache()).generation;
+    });
+    await popup.evaluate(() => {
+      chrome.runtime.sendMessage({
+        type: 'refresh',
+        force: true,
+        reason: 'popup-close-smoke',
+      });
+    });
+    await popup.close();
+    await options.waitForFunction(async (generation) => {
+      const { getCache } = await import('./lib/storage.js');
+      return (await getCache())?.generation !== generation;
+    }, beforePopupClose);
+    check('refresh survives closure of its initiating popup', true);
+
+    // Explicitly stop the MV3 worker, then wake it through a message and prove
+    // the committed generation and alarm survived lifecycle termination.
+    const lifecycleGeneration = await options.evaluate(async () => {
+      const { getCache } = await import('./lib/storage.js');
+      return (await getCache()).generation;
+    });
+    const cdp = await ctx.newCDPSession(options);
+    const workerStopped = new Promise((resolveStop) => {
+      const timeout = setTimeout(() => resolveStop(false), 5000);
+      cdp.on('ServiceWorker.workerVersionUpdated', ({ versions }) => {
+        if (
+          versions.some(
+            (version) =>
+              version.scriptURL === worker.url() && version.runningStatus === 'stopped',
+          )
+        ) {
+          clearTimeout(timeout);
+          resolveStop(true);
+        }
+      });
+    });
+    await cdp.send('ServiceWorker.enable');
+    await cdp.send('ServiceWorker.stopAllWorkers');
+    check('service worker can be explicitly terminated', await workerStopped);
+    const restarted = await options.evaluate(() =>
+      chrome.runtime.sendMessage({ type: 'update-badge' }),
+    );
+    const lifecycleState = await options.evaluate(async () => {
+      const { getCache } = await import('./lib/storage.js');
+      const [cache, alarm] = await Promise.all([
+        getCache(),
+        chrome.alarms.get('starboard-refresh'),
+      ]);
+      return {
+        generation: cache?.generation,
+        repos: cache?.repos?.length || 0,
+        alarm: alarm?.periodInMinutes || 0,
+      };
+    });
+    check(
+      'worker restart preserves committed state and alarm',
+      restarted?.ok === true &&
+        lifecycleState.generation === lifecycleGeneration &&
+        lifecycleState.repos > 0 &&
+        lifecycleState.alarm === 60,
+      JSON.stringify(lifecycleState),
+    );
+    await cdp.detach();
   } finally {
     await closeContext(ctx);
   }

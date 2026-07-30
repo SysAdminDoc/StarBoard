@@ -55,18 +55,36 @@
             <span class="hint" id="sourceHint"></span>
           </label>
 
-          <label class="field" id="tokenField">
-            <span class="label">Personal access token <span class="opt">optional</span></span>
-            <input id="token" type="password" placeholder="ghp_… or github_pat_…" spellcheck="false" autocomplete="off" />
+          <div class="field" id="tokenField">
+            <label class="label" for="token">
+              Personal access token <span class="opt">optional</span>
+            </label>
+            <input
+              id="token"
+              type="password"
+              placeholder="ghp_… or github_pat_…"
+              spellcheck="false"
+              autocomplete="off"
+            />
             <span class="hint">
               Without a token GitHub allows 60 requests per hour and only shows public repos. A
               token with the <code>public_repo</code> scope (or a fine-grained token with read-only
               <em>Metadata</em>) raises that to 5,000/hour; add <code>repo</code> to include private
-              repos. Stored locally in this browser profile only, never transmitted anywhere except
-              api.github.com.
+              repos. It is sent only to api.github.com.
               <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">Create one →</a>
             </span>
-          </label>
+            <div class="token-storage-row">
+              <label for="tokenMode">
+                <span class="label">Keep token</span>
+                <select id="tokenMode">
+                  <option value="session">For this browser session — default</option>
+                  <option value="persistent">On this device until forgotten</option>
+                </select>
+              </label>
+              <button id="forgetToken" class="secondary-btn" type="button">Forget token</button>
+            </div>
+            <span id="tokenStorageHint" class="hint"></span>
+          </div>
 
           <div class="actions">
             <button id="save" class="primary-btn" type="button">Save &amp; refresh</button>
@@ -227,6 +245,24 @@
             Everything StarBoard stores stays local:
             <span id="storageInfo">—</span>
           </p>
+          <div class="privacy-disclosure">
+            <h3>Privacy at a glance</h3>
+            <ul>
+              <li>Username, repository snapshot, baseline and settings stay in this profile.</li>
+              <li>
+                Website mode lets the browser attach your github.com session cookies; StarBoard
+                never reads or stores the cookie values.
+              </li>
+              <li>
+                API tokens are session-only by default, go only to api.github.com, and are never
+                included in diagnostics or exports.
+              </li>
+              <li>No analytics, developer telemetry, advertising or third-party data sharing.</li>
+            </ul>
+            <a href="https://github.com/SysAdminDoc/StarBoard#privacy-and-permissions" target="_blank" rel="noreferrer">
+              Full privacy and permission details →
+            </a>
+          </div>
           <div class="actions">
             <button id="clear" class="danger-btn" type="button">Clear cached data</button>
           </div>

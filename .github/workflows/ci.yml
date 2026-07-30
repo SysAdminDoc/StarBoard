@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: py -3.12 -m pip install --disable-pip-version-check -r requirements-icons.txt
+      - run: npm run check
+      - run: npm run test:unit
+      - run: npm run test:release
+      - run: npm run build
+      - run: npx playwright install chromium
+      - run: node tests/smoke.mjs --zip --offline
+      - uses: actions/upload-artifact@v4
+        with:
+          name: starboard-unsigned-release
+          path: dist/*
+          if-no-files-found: error

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "updated": "2026-07-29",
+  "name": "StarBoard",
+  "summary": "Rank your GitHub repositories by stars and track star and fork changes locally.",
+  "privacyDisclosure": {
+    "developerTelemetry": false,
+    "soldOrShared": false,
+    "websiteSession": "The browser attaches github.com cookies to website-source requests. StarBoard never reads or stores cookie values.",
+    "tokenHandling": "PATs are session-only by default, sent only to api.github.com, never exported, and can be explicitly persisted or forgotten.",
+    "retention": "Settings, repository snapshots, and comparison baselines stay in the browser profile until the user clears them or uninstalls the extension."
+  },
+  "permissions": [
+    {
+      "name": "storage",
+      "required": true,
+      "justification": "Persist local settings, last-known-good repository snapshots, and comparison baselines."
+    },
+    {
+      "name": "alarms",
+      "required": true,
+      "justification": "Run the user-selected local refresh schedule and bounded retry."
+    },
+    {
+      "name": "offscreen",
+      "required": true,
+      "justification": "Parse github.com HTML with DOMParser when the optional website source is active."
+    },
+    {
+      "name": "https://api.github.com/*",
+      "required": true,
+      "justification": "Provide the secondary REST data source."
+    },
+    {
+      "name": "https://github.com/*",
+      "required": false,
+      "justification": "Read repository pages only after the user chooses the default website source and grants access."
+    }
+  ],
+  "screenshots": [
+    "docs/screenshot-popup.png",
+    "docs/screenshot-deltas.png",
+    "docs/screenshot-web-mode.png",
+    "docs/screenshot-options.png"
+  ]
+}

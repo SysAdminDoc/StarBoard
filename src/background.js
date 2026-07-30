@@ -10,6 +10,7 @@ import { fetchAccount, GitHubError } from './lib/github.js';
 import {
   getSettings,
   setSettings,
+  forgetToken,
   getCache,
   getBaseline,
   setCache,
@@ -168,16 +169,16 @@ async function runRefresh(intent) {
   const { settings } = intent;
   const generation = generationId();
   try {
+    const previous = await getCache();
     const result =
       settings.dataSource === 'web'
         ? await fetchAccountViaWeb(settings.username)
-        : await fetchAccount(settings);
+        : await fetchAccount(settings, { previous });
     const existingBaseline = await getBaseline();
     const baseline = chooseBaseline(existingBaseline, result.repos, settings.baselineHours, {
       rebase: intent.rebase,
       generation,
     });
-    const previous = await getCache();
     const source = result.source || 'api';
     const complete = result.complete !== false;
     const approximate = !!result.approximate;
@@ -277,6 +278,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     switch (msg?.type) {
       case 'patch-settings': {
         const settings = await setSettings(msg.changes || {});
+        sendResponse({ ok: true, settings });
+        break;
+      }
+      case 'forget-token': {
+        const settings = await forgetToken();
         sendResponse({ ok: true, settings });
         break;
       }
