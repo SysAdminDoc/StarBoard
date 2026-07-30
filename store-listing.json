@@ -9,7 +9,8 @@
     "websiteSession": "The browser attaches github.com cookies to website-source requests. StarBoard never reads or stores cookie values.",
     "tokenHandling": "PATs are session-only by default, sent only to api.github.com, never exported, and can be explicitly persisted or forgotten.",
     "retention": "Settings, repository snapshots, comparison baselines, and bounded daily history stay in the browser profile until the user clears them or uninstalls the extension.",
-    "portableFiles": "Backup and CSV export are user-initiated. Private repository names and history require separate opt-ins; PATs are never included."
+    "portableFiles": "Backup and CSV export are user-initiated. Private repository names and history require separate opt-ins; PATs are never included.",
+    "notifications": "Local milestone and growth alerts are disabled by default. Chrome notification access is requested only when the user opts in."
   },
   "permissions": [
     {
@@ -36,6 +37,11 @@
       "name": "https://github.com/*",
       "required": false,
       "justification": "Read repository pages only after the user chooses the default website source and grants access."
+    },
+    {
+      "name": "notifications",
+      "required": false,
+      "justification": "Show local milestone or minimum-growth alerts only after the user enables them in Settings."
     }
   ],
   "screenshots": [

@@ -63,6 +63,13 @@ const {
   validateBackupText,
 } = await import('../src/lib/transfer.js');
 const { buildDiagnostics } = await import('../src/lib/diagnostics.js');
+const {
+  DEFAULT_NOTIFICATION_CONFIG,
+  emptyNotificationState,
+  evaluateNotificationEvents,
+  markNotificationsDelivered,
+  notificationAvailability,
+} = await import('../src/lib/notifications.js');
 
 async function fixture(name) {
   return JSON.parse(await readFile(resolve(FIXTURES, name), 'utf8'));
@@ -468,16 +475,29 @@ await test('destructive portfolio changes keep one expiring recovery snapshot', 
   };
   const baseline = storage.snapshotOf(cache.repos, { now: 100, generation: 'undo-g1' });
   await storage.commitRefresh(cache, baseline, 'undo-g1');
+  await storage.setNotificationState({
+    ...emptyNotificationState(),
+    pending: [
+      {
+        id: 'undo-alert',
+        title: 'Portfolio milestone',
+        message: 'Your repositories reached 100 stars.',
+        createdAt: 100,
+      },
+    ],
+  });
 
   await storage.clearPortfolioData();
   assert.equal(await storage.getCache(), null);
   assert.equal(await storage.getBaseline(), null);
+  assert.equal((await storage.getNotificationState()).pending.length, 0);
   assert.equal((await storage.getUndoStatus()).scope, 'clear-portfolio');
 
   const restored = await storage.restoreUndoSnapshot();
   assert.equal(restored.cache.generation, 'undo-g1');
   assert.equal(restored.baseline.generation, 'undo-g1');
   assert.equal(restored.history.snapshots.length, 1);
+  assert.equal(restored.notificationState.pending[0].id, 'undo-alert');
   assert.equal((await storage.getUndoStatus()).available, false);
 
   await storage.createUndoSnapshot('baseline-reset', ['baseline']);
@@ -661,6 +681,10 @@ await test('portable backups are checksummed, credential-free, and privacy-filte
     cache,
     baseline,
     history,
+    notificationConfig: {
+      ...DEFAULT_NOTIFICATION_CONFIG,
+      portfolioMilestone: 250,
+    },
     now: exportedAt,
   });
   const publicText = JSON.stringify(publicBackup);
@@ -668,6 +692,9 @@ await test('portable backups are checksummed, credential-free, and privacy-filte
   const publicPreview = await validateBackupText(publicText);
   assert.equal(publicPreview.summary.repositories, 1);
   assert.equal(publicPreview.summary.historyDays, 0);
+  assert.equal(publicPreview.summary.notificationConfig, true);
+  assert.equal(publicPreview.records.notificationConfig.portfolioMilestone, 250);
+  assert.equal(publicPreview.records.notificationState, undefined);
   assert.equal(publicPreview.records.settings.token, '');
 
   const privateBackup = await createBackup({
@@ -675,6 +702,10 @@ await test('portable backups are checksummed, credential-free, and privacy-filte
     cache,
     baseline,
     history,
+    notificationConfig: {
+      ...DEFAULT_NOTIFICATION_CONFIG,
+      portfolioMilestone: 250,
+    },
     includePrivate: true,
     includeHistory: true,
     now: exportedAt,
@@ -714,6 +745,10 @@ await test('validated imports preserve local credentials and support full rollba
     dataSource: 'api',
     refreshMinutes: 60,
     token: 'session-stays-local',
+  });
+  await storage.setNotificationConfig({
+    enabled: false,
+    portfolioMilestone: 100,
   });
   const beforeCache = {
     profile: { login: 'before' },
@@ -759,6 +794,11 @@ await test('validated imports preserve local credentials and support full rollba
     cache: importedCache,
     baseline: storage.snapshotOf(importedCache.repos, { now: 90 }),
     history: recordDailyHistory(null, importedCache, { now: 100 }),
+    notificationConfig: {
+      ...DEFAULT_NOTIFICATION_CONFIG,
+      enabled: false,
+      portfolioMilestone: 250,
+    },
     includeHistory: true,
     now: 100,
   });
@@ -767,10 +807,12 @@ await test('validated imports preserve local credentials and support full rollba
   assert.equal(applied.settings.username, 'after');
   assert.equal((await storage.getSettings()).token, 'session-stays-local');
   assert.equal(applied.cache.generation, applied.baseline.generation);
+  assert.equal((await storage.getNotificationConfig()).portfolioMilestone, 250);
 
   const restored = await storage.restoreUndoSnapshot();
   assert.equal(restored.settings.username, 'before');
   assert.equal(restored.cache.profile.login, 'before');
+  assert.equal(restored.notificationConfig.portfolioMilestone, 100);
   assert.equal((await storage.getSettings()).token, 'session-stays-local');
 });
 
@@ -834,6 +876,149 @@ await test('diagnostics expose allow-listed health metadata without sensitive va
     text,
     /diagnostic-secret|private-owner|private-repo|rawHtml|<p>|message|token|cookie/i,
   );
+});
+
+await test('notification milestones and deltas deduplicate across worker restarts', async () => {
+  const previous = {
+    confidence: 'exact',
+    repos: [
+      {
+        id: 1,
+        name: 'demo',
+        full_name: 'octocat/demo',
+        stargazers_count: 9,
+        forks_count: 0,
+        fork: false,
+        approx: false,
+      },
+      {
+        id: 2,
+        name: 'other',
+        full_name: 'octocat/other',
+        stargazers_count: 90,
+        forks_count: 0,
+        fork: false,
+        approx: false,
+      },
+    ],
+  };
+  const current = {
+    confidence: 'exact',
+    repos: [
+      { ...previous.repos[0], stargazers_count: 12 },
+      { ...previous.repos[1], stargazers_count: 91 },
+    ],
+  };
+  const config = {
+    ...DEFAULT_NOTIFICATION_CONFIG,
+    enabled: true,
+    portfolioMilestone: 100,
+    portfolioDelta: 4,
+    repositoryMilestone: 10,
+    repositoryDelta: 3,
+  };
+  const first = evaluateNotificationEvents(
+    previous,
+    current,
+    config,
+    emptyNotificationState(),
+    { generation: 'notification-g1', now: 1000 },
+  );
+  assert.deepEqual(
+    first.pending.map((event) => event.id),
+    [
+      'portfolio:delta:notification-g1',
+      'portfolio:milestone:100',
+      'repo:id:1:delta:notification-g1',
+      'repo:id:1:milestone:10',
+    ],
+  );
+
+  const restarted = evaluateNotificationEvents(previous, current, config, first, {
+    generation: 'notification-g1',
+    now: 2000,
+  });
+  assert.deepEqual(restarted, first);
+
+  const delivered = markNotificationsDelivered(
+    first,
+    first.pending.map((event) => event.id),
+    3000,
+  );
+  const noRepeat = evaluateNotificationEvents(previous, current, config, delivered, {
+    generation: 'notification-g2',
+    now: 4000,
+  });
+  assert.equal(
+    noRepeat.pending.filter((event) => event.id.includes('milestone')).length,
+    0,
+  );
+});
+
+await test('notification quiet hours, cooldowns, and approximation guards are deterministic', async () => {
+  const noon = new Date(2026, 6, 29, 12, 0, 0, 0).getTime();
+  const quiet = notificationAvailability(
+    {
+      ...DEFAULT_NOTIFICATION_CONFIG,
+      enabled: true,
+      quietStart: '00:00',
+      quietEnd: '23:59',
+    },
+    emptyNotificationState(),
+    noon,
+  );
+  assert.equal(quiet.allowed, false);
+  assert.ok(quiet.nextAt > noon);
+
+  const cooldownState = { ...emptyNotificationState(), lastSentAt: noon - 30 * 60_000 };
+  const cooling = notificationAvailability(
+    {
+      ...DEFAULT_NOTIFICATION_CONFIG,
+      enabled: true,
+      quietStart: '00:00',
+      quietEnd: '00:00',
+      cooldownMinutes: 60,
+    },
+    cooldownState,
+    noon,
+  );
+  assert.equal(cooling.allowed, false);
+  assert.equal(cooling.nextAt, cooldownState.lastSentAt + 60 * 60_000);
+
+  const approximate = evaluateNotificationEvents(
+    {
+      confidence: 'exact',
+      repos: [
+        {
+          id: 1,
+          name: 'demo',
+          full_name: 'octocat/demo',
+          stargazers_count: 9,
+          forks_count: 0,
+          fork: false,
+          approx: false,
+        },
+      ],
+    },
+    {
+      confidence: 'approximate',
+      repos: [
+        {
+          id: 1,
+          name: 'demo',
+          full_name: 'octocat/demo',
+          stargazers_count: 1000,
+          forks_count: 0,
+          fork: false,
+          approx: true,
+        },
+      ],
+    },
+    { ...DEFAULT_NOTIFICATION_CONFIG, enabled: true },
+    emptyNotificationState(),
+    { generation: 'notification-approx', now: noon },
+  );
+  assert.equal(approximate.pending.length, 0);
 });
 
 const failed = checks.filter((check) => !check.passed);

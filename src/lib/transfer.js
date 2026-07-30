@@ -22,6 +22,7 @@ const PORTABLE_KEYS = [
   STORAGE_KEYS.cache,
   STORAGE_KEYS.baseline,
   STORAGE_KEYS.history,
+  STORAGE_KEYS.notificationConfig,
 ];
 
 function assert(condition, message) {
@@ -115,6 +116,7 @@ export async function createBackup({
   cache,
   baseline,
   history,
+  notificationConfig,
   includePrivate = false,
   includeHistory = false,
   now = Date.now(),
@@ -134,6 +136,9 @@ export async function createBackup({
     records[STORAGE_KEYS.history] = portableRecord(
       sanitizeHistory(sourceHistory, includePrivate, names),
     );
+  }
+  if (notificationConfig) {
+    records[STORAGE_KEYS.notificationConfig] = portableRecord(notificationConfig);
   }
 
   const core = {
@@ -176,6 +181,7 @@ function summarize(records, versions) {
     baselineRepositories: Object.keys(baseline?.counts || {}).length,
     historyDays: trends.days,
     historyPoints: trends.points,
+    notificationConfig: !!records[STORAGE_KEYS.notificationConfig],
     migratedRecords: versions.filter((version) => version < SCHEMA_VERSION).length,
   };
 }

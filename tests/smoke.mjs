@@ -28,6 +28,7 @@ const OFFLINE = args.includes('--offline');
 const USERNAME = args.find((a) => !a.startsWith('--')) || 'SysAdminDoc';
 const TOKEN = process.env.GITHUB_TOKEN || '';
 const WEB_BUILD = resolve(HERE, '.webbuild');
+const NOTIFICATION_BUILD = resolve(HERE, '.notificationbuild');
 const WEB_FIXTURES = {
   page1: readFileSync(resolve(HERE, 'fixtures', 'web', 'repositories-page-1.html'), 'utf8'),
   page2: readFileSync(resolve(HERE, 'fixtures', 'web', 'repositories-page-2.html'), 'utf8'),
@@ -57,6 +58,22 @@ function buildWebVariant(source) {
   delete manifest.optional_host_permissions;
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   return WEB_BUILD;
+}
+
+function buildNotificationVariant(source) {
+  rmSync(NOTIFICATION_BUILD, { recursive: true, force: true });
+  mkdirSync(NOTIFICATION_BUILD, { recursive: true });
+  for (const entry of ['manifest.json', 'src', 'icons']) {
+    cpSync(resolve(source, entry), resolve(NOTIFICATION_BUILD, entry), { recursive: true });
+  }
+  const manifestPath = resolve(NOTIFICATION_BUILD, 'manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  manifest.permissions = [...new Set([...manifest.permissions, 'notifications'])];
+  manifest.optional_permissions = (manifest.optional_permissions || []).filter(
+    (permission) => permission !== 'notifications',
+  );
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  return NOTIFICATION_BUILD;
 }
 
 /** Extract the built ZIP so the test exercises the artifact users install. */
@@ -238,6 +255,140 @@ async function testWebMode(source) {
     const tokenHidden = await options.$eval('#tokenField', (n) => n.style.display === 'none');
     check('token field hidden in web mode', tokenHidden);
     await options.screenshot({ path: `${SHOTS}/07-options-web.png`, fullPage: true });
+  } finally {
+    await closeContext(ctx);
+  }
+}
+
+async function testNotificationMode(source) {
+  const profile = resolve(HERE, '.profile-notifications');
+  rmSync(profile, { recursive: true, force: true });
+  const variant = buildNotificationVariant(source);
+  const ctx = await chromium.launchPersistentContext(profile, {
+    ...BROWSER_CHANNEL,
+    headless: false,
+    args: [`--disable-extensions-except=${variant}`, `--load-extension=${variant}`],
+  });
+
+  try {
+    let [worker] = ctx.serviceWorkers();
+    if (!worker) worker = await ctx.waitForEvent('serviceworker', { timeout: 15000 });
+    const extId = new URL(worker.url()).host;
+    const options = await ctx.newPage();
+    captureErrors(options, 'notification options');
+    await options.goto(`chrome-extension://${extId}/src/options.html`);
+    await options.waitForSelector('#notificationsEnabled');
+    await options.waitForFunction(
+      () =>
+        document.querySelector('#notificationPermissionState').textContent.startsWith('Off') &&
+        document.querySelector('#portfolioMilestone').disabled,
+    );
+    check(
+      'notification controls begin disabled behind an explicit opt-in',
+      !(await options.isChecked('#notificationsEnabled')) &&
+        (await options.isDisabled('#portfolioMilestone')),
+    );
+
+    await options.check('#notificationsEnabled');
+    await options.waitForFunction(async () => {
+      const { getNotificationConfig } = await import('./lib/storage.js');
+      return (await getNotificationConfig()).enabled;
+    });
+    check(
+      'granted notification access enables local alert controls',
+      !(await options.isDisabled('#portfolioMilestone')) &&
+        /On/.test(await options.textContent('#notificationPermissionState')),
+    );
+
+    await options.evaluate(async () => {
+      const { setNotificationConfig, setNotificationState } = await import('./lib/storage.js');
+      const { emptyNotificationState } = await import('./lib/notifications.js');
+      await setNotificationConfig({
+        enabled: true,
+        quietStart: '00:00',
+        quietEnd: '00:00',
+        cooldownMinutes: 0,
+      });
+      await setNotificationState({
+        ...emptyNotificationState(),
+        pending: [
+          {
+            id: 'smoke-notification:milestone:100',
+            title: 'Portfolio milestone',
+            message: 'Your repositories reached 100 stars.',
+            createdAt: Date.now(),
+          },
+        ],
+      });
+    });
+    const delivery = await options.evaluate(() =>
+      chrome.runtime.sendMessage({
+        type: 'patch-notification-config',
+        changes: {
+          enabled: true,
+          quietStart: '00:00',
+          quietEnd: '00:00',
+          cooldownMinutes: 0,
+        },
+      }),
+    );
+    await options.waitForFunction(
+      () =>
+        new Promise((resolve) => {
+          chrome.notifications.getAll((notifications) =>
+            resolve(Object.keys(notifications).length === 1),
+          );
+        }),
+    );
+    const deliveredState = await options.evaluate(async () => {
+      const { getNotificationState } = await import('./lib/storage.js');
+      const state = await getNotificationState();
+      const notifications = await new Promise((resolve) =>
+        chrome.notifications.getAll(resolve),
+      );
+      return {
+        pending: state.pending.length,
+        seen: Object.keys(state.seen).length,
+        ids: Object.keys(notifications),
+      };
+    });
+    check(
+      'queued alert creates one OS notification and persists delivery deduplication',
+      delivery?.ok === true &&
+        deliveredState.pending === 0 &&
+        deliveredState.seen === 1 &&
+        deliveredState.ids.length === 1,
+      JSON.stringify({ delivery, ...deliveredState }),
+    );
+
+    const cdp = await ctx.newCDPSession(options);
+    await cdp.send('ServiceWorker.enable');
+    await cdp.send('ServiceWorker.stopAllWorkers');
+    await options.evaluate(() => chrome.runtime.sendMessage({ type: 'notification-status' }));
+    const afterRestart = await options.evaluate(
+      () =>
+        new Promise((resolve) =>
+          chrome.notifications.getAll((notifications) =>
+            resolve(Object.keys(notifications).length),
+          ),
+        ),
+    );
+    check('worker restart does not repeat a delivered alert', afterRestart === 1);
+    await cdp.detach();
+    await options.screenshot({ path: `${SHOTS}/10-notifications.png`, fullPage: true });
+    await options.evaluate(
+      () =>
+        new Promise((resolve) =>
+          chrome.notifications.getAll((notifications) => {
+            Promise.all(
+              Object.keys(notifications).map(
+                (id) =>
+                  new Promise((done) => chrome.notifications.clear(id, () => done())),
+              ),
+            ).then(resolve);
+          }),
+        ),
+    );
   } finally {
     await closeContext(ctx);
   }
@@ -617,7 +768,7 @@ async function main() {
     );
 
     const historyFixture = await popup.evaluate(async () => {
-      const { getCache, getHistory, setHistory } = await import('./lib/storage.js');
+      const { getCache, getHistory, setCache, setHistory } = await import('./lib/storage.js');
       const { recordDailyHistory } = await import('./lib/history.js');
       const cache = await getCache();
       const current = cache.repos.filter((repo) => !repo.fork);
@@ -646,6 +797,9 @@ async function main() {
         );
       }
       await setHistory(history);
+      // Keep subsequent popup reloads from starting an unrelated live refresh
+      // while deterministic sort/trend assertions are in flight.
+      await setCache({ ...cache, fetchedAt: Date.now() });
       return { days: history.snapshots.length, missingAt90 };
     });
     await popup.reload();
@@ -680,14 +834,53 @@ async function main() {
 
     // Re-sorting by name must actually change the order.
     await popup.selectOption('#sort', 'name');
-    await popup.waitForTimeout(300);
-    const byName = await popup.$$eval('.row .name', (n) => n.map((x) => x.textContent));
-    const nameSorted = byName.every(
-      (v, i) => i === 0 || byName[i - 1].localeCompare(v) <= 0,
+    await popup.waitForFunction(async () => {
+      const { getSettings } = await import('./lib/storage.js');
+      const names = [...document.querySelectorAll('.row .name')].map(
+        (node) => node.textContent,
+      );
+      return (
+        names.length > 1 &&
+        (await getSettings()).sortKey === 'name' &&
+        names.every((value, index) =>
+          index === 0 || names[index - 1].localeCompare(value) <= 0
+        )
+      );
+    });
+    const nameSortState = await popup.evaluate(async () => {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+      const { getSettings } = await import('./lib/storage.js');
+      const names = [...document.querySelectorAll('.row .name')].map(
+        (node) => node.textContent,
+      );
+      return {
+        stored: (await getSettings()).sortKey,
+        selected: document.querySelector('#sort').value,
+        sorted: names.every(
+          (value, index) => index === 0 || names[index - 1].localeCompare(value) <= 0,
+        ),
+        first: names[0] || null,
+      };
+    });
+    check(
+      'sort by name works',
+      nameSortState.stored === 'name' &&
+        nameSortState.selected === 'name' &&
+        nameSortState.sorted,
+      JSON.stringify(nameSortState),
     );
-    check('sort by name works', nameSorted, `first: ${byName[0]}`);
     await popup.selectOption('#sort', 'stars');
-    await popup.waitForTimeout(300);
+    await popup.waitForFunction(async () => {
+      const { getSettings } = await import('./lib/storage.js');
+      const stars = [...document.querySelectorAll('.row .stat.stars b')].map(
+        (node) => Number(node.textContent.replace(/[~,]/g, '')),
+      );
+      return (
+        stars.length > 1 &&
+        (await getSettings()).sortKey === 'stars' &&
+        stars.every((value, index) => index === 0 || stars[index - 1] >= value)
+      );
+    });
 
     // Toolbar badge should carry the star total.
     const badge = await worker.evaluate(() => chrome.action.getBadgeText({}));
@@ -714,7 +907,7 @@ async function main() {
       'options page loads with saved settings',
       (await options.inputValue('#username')) === USERNAME,
     );
-    const switchNames = await options.$$eval('[role="switch"]', (nodes) =>
+    const switchNames = await options.$$eval('.details-card [role="switch"]', (nodes) =>
       nodes.map((node) => node.labels?.[0]?.innerText.trim() || ''),
     );
     check(
@@ -813,6 +1006,33 @@ async function main() {
       );
     } else {
       check('website permission denial keeps API mode active', false, 'permission API not mockable');
+    }
+
+    await options.waitForFunction(
+      () =>
+        document.querySelector('#notificationPermissionState').textContent.startsWith('Off') &&
+        document.querySelector('#portfolioMilestone').disabled,
+    );
+    check(
+      'notification permission is optional and controls stay off before opt-in',
+      !(await options.isChecked('#notificationsEnabled')) &&
+        (await options.isDisabled('#portfolioMilestone')),
+    );
+    if (permissionMocked) {
+      await options.click('#notificationsEnabled');
+      await options.waitForFunction(() =>
+        /Notification access was denied/.test(document.querySelector('#status').textContent),
+      );
+      check(
+        'notification permission denial leaves alerts disabled',
+        !(await options.isChecked('#notificationsEnabled')) &&
+          (await options.evaluate(async () => {
+            const { getNotificationConfig } = await import('./lib/storage.js');
+            return !(await getNotificationConfig()).enabled;
+          })),
+      );
+    } else {
+      check('notification permission denial leaves alerts disabled', false, 'permission API not mockable');
     }
 
     // Popup-detail switches are independent and persist immediately.
@@ -925,12 +1145,13 @@ async function main() {
     // Deltas: plant a baseline that is deliberately behind the live counts and
     // confirm the popup reports the gain rather than just the total.
     await popup.evaluate(async () => {
-      const { getCache, setBaseline } = await import('./lib/storage.js');
+      const { getCache, setBaseline, setCache } = await import('./lib/storage.js');
       const cache = await getCache();
       const counts = {};
       for (const r of cache.repos) {
         counts[r.full_name] = [Math.max(0, r.stargazers_count - 3), Math.max(0, r.forks_count - 1)];
       }
+      await setCache({ ...cache, fetchedAt: Date.now() });
       await setBaseline({ at: Date.now(), counts, generation: cache.generation });
     });
     await popup.reload();
@@ -1223,6 +1444,10 @@ async function main() {
       const { getSettings } = await import('./lib/storage.js');
       return (await getSettings()).theme === 'dark';
     });
+    await options.waitForFunction(() => {
+      const button = document.querySelector('#undoClear');
+      return button.hidden && !button.disabled && button.getAttribute('aria-busy') !== 'true';
+    });
     check('restored backup can be rolled back during the undo window', true);
 
     const beforeClear = await options.evaluate(async () => {
@@ -1255,6 +1480,10 @@ async function main() {
       );
     });
     await options.waitForSelector('#undoClear:not([hidden])');
+    await options.waitForFunction(() => {
+      const button = document.querySelector('#undoClear');
+      return !button.hidden && !button.disabled && button.getAttribute('aria-busy') !== 'true';
+    });
     await options.click('#undoClear');
     await options.waitForFunction(async (before) => {
       const { getCache, getHistory } = await import('./lib/storage.js');
@@ -1267,6 +1496,9 @@ async function main() {
   } finally {
     await closeContext(ctx);
   }
+
+  console.log('\n--- opt-in notifications ---');
+  await testNotificationMode(source);
 
   if (!SKIP_WEB) {
     console.log('\n--- web (no-token) mode ---');

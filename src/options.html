@@ -229,6 +229,95 @@
           </div>
         </section>
 
+        <section class="card notification-card">
+          <div class="section-heading">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20">
+                <path d="M10 19a2.5 2.5 0 0 0 2.45-2H7.55A2.5 2.5 0 0 0 10 19Zm6-5.5-1.5-2.15V7a4.5 4.5 0 0 0-3.75-4.44V1.5a.75.75 0 0 0-1.5 0v1.06A4.5 4.5 0 0 0 5.5 7v4.35L4 13.5V15h12v-1.5ZM6.25 13.5l.75-1.08V7a3 3 0 0 1 6 0v5.42l.75 1.08h-7.5Z" />
+              </svg>
+            </span>
+            <span>
+              <h2>Notifications</h2>
+              <p>Opt into local milestone and growth alerts—no backend required.</p>
+            </span>
+          </div>
+          <label class="toggle-row notification-master">
+            <span>
+              <b>Allow local alerts</b>
+              <small>Chrome asks for notification access only when you turn this on.</small>
+            </span>
+            <input id="notificationsEnabled" type="checkbox" role="switch" />
+          </label>
+          <p id="notificationPermissionState" class="note notification-state"></p>
+          <div id="notificationControls" class="notification-grid">
+            <label class="field">
+              <span>Portfolio milestone every</span>
+              <select id="portfolioMilestone">
+                <option value="0">Off</option>
+                <option value="25">25 stars</option>
+                <option value="50">50 stars</option>
+                <option value="100">100 stars</option>
+                <option value="250">250 stars</option>
+                <option value="500">500 stars</option>
+                <option value="1000">1,000 stars</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Repository milestone every</span>
+              <select id="repositoryMilestone">
+                <option value="0">Off</option>
+                <option value="5">5 stars</option>
+                <option value="10">10 stars</option>
+                <option value="25">25 stars</option>
+                <option value="50">50 stars</option>
+                <option value="100">100 stars</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Alert after portfolio gains</span>
+              <select id="portfolioDelta">
+                <option value="0">Off</option>
+                <option value="5">5 stars</option>
+                <option value="10">10 stars</option>
+                <option value="25">25 stars</option>
+                <option value="50">50 stars</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Alert after one repo gains</span>
+              <select id="repositoryDelta">
+                <option value="0">Off</option>
+                <option value="1">1 star</option>
+                <option value="3">3 stars</option>
+                <option value="5">5 stars</option>
+                <option value="10">10 stars</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Quiet hours start</span>
+              <input id="quietStart" type="time" />
+            </label>
+            <label class="field">
+              <span>Quiet hours end</span>
+              <input id="quietEnd" type="time" />
+            </label>
+            <label class="field">
+              <span>Cooldown between alert groups</span>
+              <select id="notificationCooldown">
+                <option value="60">1 hour</option>
+                <option value="360">6 hours</option>
+                <option value="720">12 hours</option>
+                <option value="1440">24 hours</option>
+                <option value="10080">7 days</option>
+              </select>
+            </label>
+          </div>
+          <p class="note callout">
+            Approximate/partial snapshots do not trigger portfolio alerts, and approximate
+            repository rows are skipped. Failed refreshes never create alerts.
+          </p>
+        </section>
+
         <section class="card data-card">
           <div class="section-heading">
             <span class="section-icon" aria-hidden="true">
@@ -256,6 +345,10 @@
               <li>
                 API tokens are session-only by default, go only to api.github.com, and are never
                 included in diagnostics or exports.
+              </li>
+              <li>
+                Notification access is optional, requested only when alerts are enabled, and used
+                only for local milestone/growth messages.
               </li>
               <li>No analytics, developer telemetry, advertising or third-party data sharing.</li>
             </ul>
@@ -354,12 +447,12 @@
           </div>
           <p id="clearScope" class="note destructive-scope" hidden>
             This removes the cached repository snapshot, comparison baseline and all trend
-            history. Settings and credentials stay unchanged. Click the confirm button within 8
-            seconds to continue.
+            history, plus any queued alert delivery state. Settings, alert preferences and
+            credentials stay unchanged. Click the confirm button within 8 seconds to continue.
           </p>
           <p class="note callout data-callout">
-            Clearing removes repository counts, the comparison baseline and trend history. Your
-            account, appearance settings and credentials are preserved.
+            Clearing removes repository counts, the comparison baseline, trend history and queued
+            alerts. Your account, appearance and alert settings, and credentials are preserved.
           </p>
         </section>
       </main>

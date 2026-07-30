@@ -5,6 +5,7 @@ import {
   getCache,
   getBaseline,
   getHistory,
+  getNotificationConfig,
   applyTheme,
 } from './lib/storage.js';
 import { historyStats } from './lib/history.js';
@@ -30,6 +31,15 @@ const fields = {
   showMetadata: $('showMetadata'),
   showForkStats: $('showForkStats'),
   showSourceStatus: $('showSourceStatus'),
+};
+const notificationFields = {
+  portfolioMilestone: $('portfolioMilestone'),
+  repositoryMilestone: $('repositoryMilestone'),
+  portfolioDelta: $('portfolioDelta'),
+  repositoryDelta: $('repositoryDelta'),
+  quietStart: $('quietStart'),
+  quietEnd: $('quietEnd'),
+  cooldownMinutes: $('notificationCooldown'),
 };
 
 const SOURCE_HINTS = {
@@ -128,7 +138,7 @@ async function load() {
   syncSourceUI();
   applyTheme(s.theme);
   $('version').textContent = `v${chrome.runtime.getManifest().version}`;
-  await showStorageInfo();
+  await Promise.all([showStorageInfo(), loadNotificationConfig()]);
 }
 
 function collect() {
@@ -167,6 +177,41 @@ function downloadText(text, filename, type) {
 
 function exportDate() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function notificationPatch() {
+  return {
+    portfolioMilestone: Number(notificationFields.portfolioMilestone.value),
+    repositoryMilestone: Number(notificationFields.repositoryMilestone.value),
+    portfolioDelta: Number(notificationFields.portfolioDelta.value),
+    repositoryDelta: Number(notificationFields.repositoryDelta.value),
+    quietStart: notificationFields.quietStart.value,
+    quietEnd: notificationFields.quietEnd.value,
+    cooldownMinutes: Number(notificationFields.cooldownMinutes.value),
+  };
+}
+
+function syncNotificationUI(config, permitted, pending = 0) {
+  $('notificationsEnabled').checked = !!config.enabled;
+  for (const [key, field] of Object.entries(notificationFields)) {
+    field.value = String(config[key]);
+    field.disabled = !config.enabled;
+  }
+  $('notificationControls').setAttribute('aria-disabled', String(!config.enabled));
+  $('notificationPermissionState').textContent =
+    config.enabled && permitted
+      ? `On · ${pending} queued alert${pending === 1 ? '' : 's'}. Quiet hours and cooldown apply locally.`
+      : config.enabled
+        ? 'Notification access was removed. Turn alerts off and on to grant it again.'
+        : permitted
+          ? 'Off · notification access remains granted in Chrome but no alerts are generated.'
+          : 'Off · notification access has not been requested.';
+}
+
+async function loadNotificationConfig() {
+  const response = await chrome.runtime.sendMessage({ type: 'notification-status' });
+  if (!response?.ok) throw new Error(response?.error?.message || 'Could not load notifications.');
+  syncNotificationUI(response.config, response.permitted, response.pending);
 }
 
 /**
@@ -358,13 +403,14 @@ $('pruneHistory').addEventListener('click', async () => {
 });
 
 async function readPortableState() {
-  const [settings, cache, baseline, history] = await Promise.all([
+  const [settings, cache, baseline, history, notificationConfig] = await Promise.all([
     getSettings(),
     getCache(),
     getBaseline(),
     getHistory(),
+    getNotificationConfig(),
   ]);
-  return { settings, cache, baseline, history };
+  return { settings, cache, baseline, history, notificationConfig };
 }
 
 $('backupJson').addEventListener('click', async () => {
@@ -416,7 +462,8 @@ $('importFile').addEventListener('change', async () => {
       `${summary.repositories} repositories, ${summary.baselineRepositories} baseline entries, ` +
       `${summary.historyPoints} history points across ${summary.historyDays} days, ` +
       `${summary.privateRepositories} private repositories. ` +
-      `${summary.migratedRecords} record${summary.migratedRecords === 1 ? '' : 's'} will migrate.`;
+      `${summary.migratedRecords} record${summary.migratedRecords === 1 ? '' : 's'} will migrate. ` +
+      `${summary.notificationConfig ? 'Notification settings are included.' : 'No notification settings.'}`;
     $('importPreview').hidden = false;
     say('Backup validated. Review the dry-run summary before applying it.', 'ok');
   } catch (error) {
@@ -478,6 +525,64 @@ $('copyDiagnostics').addEventListener('click', async () => {
   if (!diagnosticsText) return;
   const copied = await copyDiagnosticsText();
   say(copied ? 'Diagnostics copied.' : 'Copy was blocked; select the diagnostics text manually.', copied ? 'ok' : 'err');
+});
+
+$('notificationsEnabled').addEventListener('change', async () => {
+  const checkbox = $('notificationsEnabled');
+  const enabling = checkbox.checked;
+  checkbox.disabled = true;
+  try {
+    let permitted = await chrome.permissions.contains({ permissions: ['notifications'] });
+    if (enabling && !permitted) {
+      permitted = await chrome.permissions.request({ permissions: ['notifications'] });
+    }
+    if (enabling && !permitted) {
+      checkbox.checked = false;
+      say('Notification access was denied; alerts remain off.', 'err');
+      await loadNotificationConfig();
+      return;
+    }
+    const response = await chrome.runtime.sendMessage({
+      type: 'patch-notification-config',
+      changes: { enabled: enabling },
+    });
+    if (!response?.ok) throw new Error(response?.error?.message || 'Could not save notifications.');
+    syncNotificationUI(response.config, response.permitted, response.pending);
+    say(enabling ? 'Local alerts enabled.' : 'Local alerts disabled.', 'ok');
+  } catch (error) {
+    await loadNotificationConfig().catch(() => {});
+    say(error.message || 'Could not change notification access.', 'err');
+  } finally {
+    checkbox.disabled = false;
+  }
+});
+
+for (const field of Object.values(notificationFields)) {
+  field.addEventListener('change', async () => {
+    field.disabled = true;
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'patch-notification-config',
+        changes: notificationPatch(),
+      });
+      if (!response?.ok) {
+        throw new Error(response?.error?.message || 'Could not save notification settings.');
+      }
+      syncNotificationUI(response.config, response.permitted, response.pending);
+      say('Notification settings saved.', 'ok');
+    } catch (error) {
+      await loadNotificationConfig().catch(() => {});
+      say(error.message || 'Could not save notification settings.', 'err');
+    } finally {
+      field.disabled = !$('notificationsEnabled').checked;
+    }
+  });
+}
+
+chrome.permissions.onRemoved.addListener((permissions) => {
+  if (permissions.permissions?.includes('notifications')) {
+    loadNotificationConfig().catch(() => {});
+  }
 });
 
 $('undoClear').addEventListener('click', async () => {

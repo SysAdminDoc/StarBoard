@@ -25,14 +25,24 @@ import {
   applyImportedState,
   getHistory,
   getStorageDiagnostics,
+  getNotificationConfig,
+  setNotificationConfig,
+  getNotificationState,
+  setNotificationState,
 } from './lib/storage.js';
 import { createRefreshCoordinator } from './lib/refresh-coordinator.js';
 import { deriveLifecycleEvents, mergeLifecycleEvents } from './lib/lifecycle.js';
 import { historyStats } from './lib/history.js';
 import { buildDiagnostics } from './lib/diagnostics.js';
+import {
+  evaluateNotificationEvents,
+  markNotificationsDelivered,
+  notificationAvailability,
+} from './lib/notifications.js';
 
 const ALARM = 'starboard-refresh';
 const RETRY_ALARM = 'starboard-retry';
+const NOTIFICATION_ALARM = 'starboard-notification';
 const OFFSCREEN_PATH = 'src/offscreen.html';
 const GITHUB_ORIGIN = 'https://github.com/*';
 
@@ -176,6 +186,77 @@ async function scheduleRetry(retryAt) {
   }
 }
 
+async function hasNotificationPermission() {
+  return chrome.permissions.contains({ permissions: ['notifications'] });
+}
+
+function createSystemNotification(options) {
+  return new Promise((resolve, reject) => {
+    const id = `starboard-${Date.now()}-${crypto.randomUUID()}`;
+    chrome.notifications.create(id, options, (createdId) => {
+      const error = chrome.runtime.lastError;
+      if (error) reject(new Error(error.message));
+      else resolve(createdId);
+    });
+  });
+}
+
+async function deliverPendingNotifications() {
+  const [config, state, permitted] = await Promise.all([
+    getNotificationConfig(),
+    getNotificationState(),
+    hasNotificationPermission(),
+  ]);
+  await chrome.alarms.clear(NOTIFICATION_ALARM);
+  if (!config.enabled || !permitted || !state.pending.length) return state;
+
+  const availability = notificationAvailability(config, state);
+  if (!availability.allowed) {
+    if (availability.nextAt) {
+      chrome.alarms.create(NOTIFICATION_ALARM, { when: availability.nextAt });
+    }
+    return state;
+  }
+
+  const pending = state.pending.slice(0, 8);
+  const first = pending[0];
+  const more = pending.length - 1;
+  await createSystemNotification({
+    type: 'basic',
+    iconUrl: chrome.runtime.getURL('icons/icon128.png'),
+    title: pending.length === 1 ? first.title : 'StarBoard portfolio update',
+    message:
+      pending.length === 1
+        ? first.message
+        : `${first.message} ${more} more change${more === 1 ? '' : 's'} are ready.`,
+    priority: 0,
+  });
+  const next = markNotificationsDelivered(
+    state,
+    pending.map((event) => event.id),
+  );
+  await setNotificationState(next);
+  if (next.pending.length) {
+    const afterDelivery = notificationAvailability(config, next);
+    if (afterDelivery.nextAt) {
+      chrome.alarms.create(NOTIFICATION_ALARM, { when: afterDelivery.nextAt });
+    }
+  }
+  return next;
+}
+
+async function evaluateNotifications(previous, current, settings, generation) {
+  const config = await getNotificationConfig();
+  if (!config.enabled) return;
+  const state = await getNotificationState();
+  const next = evaluateNotificationEvents(previous, current, config, state, {
+    generation,
+    includeForks: settings.includeForks,
+  });
+  await setNotificationState(next);
+  await deliverPendingNotifications();
+}
+
 /** Run one generation selected by the refresh coordinator. */
 async function runRefresh(intent) {
   const { settings } = intent;
@@ -219,6 +300,7 @@ async function runRefresh(intent) {
     const committed = await commitRefresh(cache, baseline, generation);
     await updateBadge({ settings, ...committed });
     await scheduleRetry(result.retryAt);
+    await evaluateNotifications(previous, committed.cache, settings, generation).catch(() => {});
     // History can approach 2 MiB. Keep it in storage rather than echoing it
     // through the MV3 response channel; the popup reads it locally after the
     // refresh response arrives.
@@ -284,13 +366,23 @@ async function syncAlarm() {
 }
 
 async function diagnosticsBundle() {
-  const [settings, cache, storage, history, websitePermission, alarms, storageBytes] =
+  const [
+    settings,
+    cache,
+    storage,
+    history,
+    websitePermission,
+    notificationPermission,
+    alarms,
+    storageBytes,
+  ] =
     await Promise.all([
       getSettings(),
       getCache(),
       getStorageDiagnostics(),
       getHistory().then(historyStats),
       hasWebPermission(),
+      hasNotificationPermission(),
       chrome.alarms.getAll(),
       chrome.storage.local.getBytesInUse(null),
     ]);
@@ -301,7 +393,7 @@ async function diagnosticsBundle() {
     storage,
     history,
     websitePermission,
-    notificationPermission: false,
+    notificationPermission,
     alarms,
     storageBytes,
     userAgent: navigator.userAgent,
@@ -318,10 +410,13 @@ chrome.runtime.onInstalled.addListener(async () => {
 chrome.runtime.onStartup.addListener(async () => {
   await syncAlarm();
   await updateBadge();
+  await deliverPendingNotifications().catch(() => {});
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === ALARM || alarm.name === RETRY_ALARM) {
+  if (alarm.name === NOTIFICATION_ALARM) {
+    deliverPendingNotifications().catch(() => {});
+  } else if (alarm.name === ALARM || alarm.name === RETRY_ALARM) {
     refresh({ reason: alarm.name === RETRY_ALARM ? 'retry' : 'alarm' });
   }
 });
@@ -348,6 +443,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       case 'clear-portfolio': {
         await clearPortfolioData();
+        await chrome.alarms.clear(NOTIFICATION_ALARM);
         await updateBadge();
         sendResponse({ ok: true, undo: await getUndoStatus() });
         break;
@@ -359,6 +455,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const restored = await restoreUndoSnapshot();
         await syncAlarm();
         await updateBadge();
+        await deliverPendingNotifications().catch(() => {});
         sendResponse({
           ok: !!restored,
           restored,
@@ -375,12 +472,45 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         await applyImportedState(msg.records);
         await syncAlarm();
         await updateBadge();
+        await deliverPendingNotifications().catch(() => {});
         sendResponse({ ok: true, undo: await getUndoStatus() });
         break;
       }
       case 'get-diagnostics':
         sendResponse({ ok: true, diagnostics: await diagnosticsBundle() });
         break;
+      case 'notification-status': {
+        const [config, permitted, state] = await Promise.all([
+          getNotificationConfig(),
+          hasNotificationPermission(),
+          getNotificationState(),
+        ]);
+        sendResponse({
+          ok: true,
+          config,
+          permitted,
+          pending: state.pending.length,
+        });
+        break;
+      }
+      case 'patch-notification-config': {
+        const config = await setNotificationConfig(msg.changes || {});
+        let state = await getNotificationState();
+        if (!config.enabled) {
+          state = { ...state, pending: [] };
+          await setNotificationState(state);
+          await chrome.alarms.clear(NOTIFICATION_ALARM);
+        } else {
+          state = await deliverPendingNotifications();
+        }
+        sendResponse({
+          ok: true,
+          config,
+          permitted: await hasNotificationPermission(),
+          pending: state.pending.length,
+        });
+        break;
+      }
       case 'refresh':
         sendResponse(
           await refresh({

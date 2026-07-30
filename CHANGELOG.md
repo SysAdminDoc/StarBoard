@@ -86,8 +86,20 @@
 - Synchronized popup undo visibility directly from storage changes so recovery
   appears even while a refresh response is still settling. The complete browser
   lane now contains 79 checks.
+- Added disabled-by-default local portfolio/repository star alerts with
+  independent milestone and minimum-growth thresholds, quiet hours and
+  cooldown controls.
+- Requested Chrome's notification permission only from the explicit Settings
+  opt-in, skipped failed/partial/approximate inputs, and persisted bounded event
+  IDs so alarms and Manifest V3 worker restarts cannot repeat a delivered
+  milestone.
+- Included non-secret alert preferences in portable backup/restore while
+  excluding queued/delivered event state. Clear/undo now also covers queued
+  portfolio alerts. The complete browser lane now contains 85 checks and passes
+  on the declared Chrome 110 floor.
 
-No permission scopes changed.
+Permission change: added the optional `notifications` permission. It is not
+requested until the user turns on local alerts.
 
 ## v1.1.0 — 2026-07-29
 

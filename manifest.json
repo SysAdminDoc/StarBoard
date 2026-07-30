@@ -6,6 +6,7 @@
   "author": "SysAdminDoc",
   "minimum_chrome_version": "110",
   "permissions": ["storage", "alarms", "offscreen"],
+  "optional_permissions": ["notifications"],
   "host_permissions": ["https://api.github.com/*"],
   "optional_host_permissions": ["https://github.com/*"],
   "action": {

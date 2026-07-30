@@ -12,6 +12,13 @@ import {
   recordDailyHistory,
   validateHistory,
 } from './history.js';
+import {
+  DEFAULT_NOTIFICATION_CONFIG,
+  emptyNotificationState,
+  normalizeNotificationConfig,
+  validateNotificationConfig,
+  validateNotificationState,
+} from './notifications.js';
 
 export const SCHEMA_VERSION = 4;
 export const STORAGE_KEYS = Object.freeze({
@@ -19,6 +26,8 @@ export const STORAGE_KEYS = Object.freeze({
   cache: 'cache',
   baseline: 'baseline',
   history: 'history',
+  notificationConfig: 'notificationConfig',
+  notificationState: 'notificationState',
   lastKnownGood: 'starboardLastKnownGood',
   quarantine: 'starboardQuarantine',
   undo: 'starboardUndo',
@@ -207,6 +216,8 @@ function validateRecord(key, value) {
   else if (key === STORAGE_KEYS.cache) validateCache(value);
   else if (key === STORAGE_KEYS.baseline) validateBaseline(value);
   else if (key === STORAGE_KEYS.history) validateHistory(value);
+  else if (key === STORAGE_KEYS.notificationConfig) validateNotificationConfig(value);
+  else if (key === STORAGE_KEYS.notificationState) validateNotificationState(value);
   else throw new Error(`unknown storage record: ${key}`);
 }
 
@@ -488,6 +499,33 @@ export async function pruneStoredHistory(keepDays) {
   });
 }
 
+export async function getNotificationConfig() {
+  const stored = await readRecord(STORAGE_KEYS.notificationConfig);
+  if (stored) return stored;
+  const config = { ...DEFAULT_NOTIFICATION_CONFIG };
+  await writeRecords({ [STORAGE_KEYS.notificationConfig]: config });
+  return config;
+}
+
+export async function setNotificationConfig(patch) {
+  return serialized(async () => {
+    const current =
+      (await readRecord(STORAGE_KEYS.notificationConfig)) ||
+      { ...DEFAULT_NOTIFICATION_CONFIG };
+    const config = normalizeNotificationConfig({ ...current, ...patch });
+    await writeRecords({ [STORAGE_KEYS.notificationConfig]: config });
+    return config;
+  });
+}
+
+export async function getNotificationState() {
+  return (await readRecord(STORAGE_KEYS.notificationState)) || emptyNotificationState();
+}
+
+export async function setNotificationState(state) {
+  await serialized(() => writeRecords({ [STORAGE_KEYS.notificationState]: state }));
+}
+
 export async function applyImportedState(input) {
   return serialized(async () => {
     assert(isObject(input), 'import records must be an object');
@@ -496,6 +534,7 @@ export async function applyImportedState(input) {
       STORAGE_KEYS.cache,
       STORAGE_KEYS.baseline,
       STORAGE_KEYS.history,
+      STORAGE_KEYS.notificationConfig,
     ]);
     const unknown = Object.keys(input).filter((key) => !allowed.has(key));
     assert(!unknown.length, `unsupported import records: ${unknown.join(', ')}`);
@@ -594,15 +633,22 @@ export async function clearPortfolioData() {
       STORAGE_KEYS.cache,
       STORAGE_KEYS.baseline,
       STORAGE_KEYS.history,
+      STORAGE_KEYS.notificationState,
     ]);
     const backup = await readLastKnownGood();
     delete backup[STORAGE_KEYS.cache];
     delete backup[STORAGE_KEYS.baseline];
     delete backup[STORAGE_KEYS.history];
+    delete backup[STORAGE_KEYS.notificationState];
     await AREA.set({
       [STORAGE_KEYS.lastKnownGood]: makeEnvelope(backup),
     });
-    await AREA.remove([STORAGE_KEYS.cache, STORAGE_KEYS.baseline, STORAGE_KEYS.history]);
+    await AREA.remove([
+      STORAGE_KEYS.cache,
+      STORAGE_KEYS.baseline,
+      STORAGE_KEYS.history,
+      STORAGE_KEYS.notificationState,
+    ]);
   });
 }
 
@@ -665,6 +711,8 @@ export async function restoreUndoSnapshot() {
       STORAGE_KEYS.cache,
       STORAGE_KEYS.baseline,
       STORAGE_KEYS.history,
+      STORAGE_KEYS.notificationConfig,
+      STORAGE_KEYS.notificationState,
     ];
     for (const key of restorableKeys) {
       if (undo.snapshot[key]) records[key] = undo.snapshot[key];
@@ -697,6 +745,8 @@ export async function restoreUndoSnapshot() {
       cache: await readRecord(STORAGE_KEYS.cache),
       baseline: await readRecord(STORAGE_KEYS.baseline),
       history: await readRecord(STORAGE_KEYS.history),
+      notificationConfig: await readRecord(STORAGE_KEYS.notificationConfig),
+      notificationState: await readRecord(STORAGE_KEYS.notificationState),
     };
   });
 }

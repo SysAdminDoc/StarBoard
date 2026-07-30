@@ -30,6 +30,9 @@ projects are doing best**, and **what moved since yesterday**.
   minutes.
 - **Supportable without surveillance** — inspect and copy a redacted local
   diagnostics snapshot without enabling telemetry or sending data anywhere.
+- **Alerts on your terms** — opt into local portfolio/repository star
+  milestones or minimum-growth alerts, with quiet hours, cooldowns and
+  restart-safe deduplication.
 - **Sort by momentum** — order by *stars gained* or *forks gained* to see what is actually moving, not just what is already big.
 - **Live totals** — aggregate stars, forks and repo count, each with its own delta.
 - **Honest confidence** — exact, approximate, partial and stale snapshots are
@@ -135,8 +138,8 @@ hosts described above.
 
 - **Data kept locally:** your username, display preferences, repository/profile
   snapshot, comparison baseline, daily trend points, refresh metadata and
-  recovery metadata stay in this Chromium profile until you clear them or
-  uninstall StarBoard.
+  recovery metadata, alert preferences and bounded alert-delivery state stay in
+  this Chromium profile until you clear them or uninstall StarBoard.
 - **Website session:** Chromium attaches applicable `github.com` cookies to the
   website-source requests. StarBoard never reads or stores cookie values; it
   parses only the returned repository/profile HTML.
@@ -145,9 +148,9 @@ hosts described above.
   Tokens are sent only to `api.github.com`, omitted from diagnostics and
   exports, and removable from both stores with **Forget token**.
 - **Clearing and recovery:** clearing names the repository snapshot,
-  comparison baseline and daily history it will remove, requires a second
-  activation, and keeps one local undo snapshot for 10 minutes. Settings and
-  credentials remain untouched.
+  comparison baseline, daily history and queued alert-delivery state it will
+  remove, requires a second activation, and keeps one local undo snapshot for
+  10 minutes. Settings, alert preferences and credentials remain untouched.
 - **Portable files:** JSON backup and CSV export are user-initiated only.
   Private repository names and trend history each require an unchecked-by-
   default opt-in. PATs are always omitted, and restore preserves the credential
@@ -159,8 +162,9 @@ hosts described above.
 - **Required permissions:** `storage` keeps local state, `alarms` runs the
   selected refresh/retry schedule, `offscreen` provides `DOMParser`, and
   `https://api.github.com/*` supports the secondary API source.
-- **Optional permission:** `https://github.com/*` is requested only from a user
-  action when the website source is selected.
+- **Optional permissions:** `https://github.com/*` is requested only from a
+  user action when the website source is selected. `notifications` is requested
+  only when local alerts are turned on; alerts are disabled by default.
 
 The checked-in [store listing contract](store-listing.json) is the source of
 truth for permission justifications, privacy disclosures and release
@@ -171,9 +175,9 @@ screenshots.
 Open **Settings → Local data** to download a portable file:
 
 - **Download JSON** creates a format-versioned backup of settings, the current
-  snapshot and baseline. Its SHA-256 checksum covers the full non-secret
-  payload. History and private repository names remain excluded unless you
-  explicitly select their separate inclusion boxes.
+  snapshot, baseline and local alert preferences. Its SHA-256 checksum covers
+  the full non-secret payload. History and private repository names remain
+  excluded unless you explicitly select their separate inclusion boxes.
 - **Export CSV** writes timestamped repository star/fork counts, deltas, source
   and confidence. With history selected it exports the retained daily series;
   otherwise it exports the current snapshot against the comparison baseline.
@@ -194,6 +198,21 @@ schema and size, last successful/attempted refresh, confidence/completeness,
 retry time, normalized error code and both refresh alarms. **Copy** places that
 already-redacted text on the clipboard. No diagnostic is uploaded
 automatically—or at all—by StarBoard.
+
+## Local notifications
+
+Open **Settings → Notifications** and turn on **Allow local alerts** to make
+Chrome request its optional notification permission. Portfolio and individual
+repository thresholds are independent: choose recurring star milestones,
+minimum gains between successful refreshes, or set any threshold to **Off**.
+Quiet hours and the cooldown are evaluated locally.
+
+Alerts are generated only from a newly committed successful refresh.
+Approximate/partial portfolio totals and approximate repositories are skipped,
+and failed refreshes never generate an alert. Pending/delivered event IDs are
+bounded and persisted so a Manifest V3 worker restart cannot repeat the same
+milestone. Turning alerts off immediately clears queued events without changing
+the saved thresholds.
 
 ## How the deltas work
 
@@ -240,7 +259,8 @@ settings, performs a real fetch, and asserts on ordering, deltas, filtering,
 sorting, source defaults, popup-detail switches, the toolbar badge, the options
 page, credential handling, lifecycle/confidence labels, offline history ranges,
 portable-file privacy, import rollback, destructive-action recovery, worker
-termination, diagnostics redaction and both themes — 79 checks. It
+termination, diagnostics redaction, notification opt-in/deduplication and both
+themes — 85 checks. It
 hits the live GitHub API unauthenticated (3–4 of your 60 hourly requests); set
 `GITHUB_TOKEN` to use the authenticated limit.
 
@@ -249,6 +269,10 @@ from an optional to a declared permission, because the consent bubble is native
 UI that automation cannot click. Every line of fetch, pagination and parsing
 logic still executes for real; only the consent step — which must stay human in
 production — is bypassed.
+
+The notification lane similarly copies the extension into a throwaway build
+with `notifications` promoted from optional to declared so automation can test
+real OS-notification creation without clicking a native permission bubble.
 
 CI uses the immutable npm lock, audits high-severity advisories, validates the
 release twice for byte identity, and boots the packaged ZIP without network
@@ -270,6 +294,7 @@ src/lib/request.js   timeout, Retry-After and bounded retry policy
 src/lib/refresh-coordinator.js  refresh intent serialization/coalescing
 src/lib/lifecycle.js repository add/remove/rename event derivation
 src/lib/history.js   bounded daily history and offline trend comparisons
+src/lib/notifications.js local milestone evaluation and delivery deduplication
 src/lib/transfer.js  checksummed backup/restore and privacy-aware CSV export
 src/lib/diagnostics.js allow-listed local support metadata
 src/lib/storage.js   versioned settings/cache/baseline persistence and recovery
