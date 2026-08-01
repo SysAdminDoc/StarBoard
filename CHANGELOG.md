@@ -12,6 +12,12 @@
 
 ### Fixed
 
+- Corrected a documented limitation that does not exist. The website source was
+  described as reporting approximate counts above 1,000; the repositories tab
+  in fact renders full numbers (`241,273`, not `241k`), so there is no
+  precision penalty and no reason to prefer the API source for accuracy. The
+  parser still recognises abbreviated forms as a guard against future markup
+  changes, and now has tests covering full, abbreviated and malformed input.
 - Repository listings now page over a fixed name order instead of a live
   ranking. Sorting by stars or last-updated meant a repository could move
   backwards across a page boundary mid-walk and never be fetched — an omission

@@ -8,10 +8,15 @@
  * These functions are pure and take a parsed Document — the fetching lives in
  * offscreen.js, because MV3 service workers have no DOMParser.
  *
- * Known limitation: GitHub abbreviates counts at 1,000+ ("1.2k"), so repos
- * past that threshold report an approximate figure. Such repos are flagged
- * `approx: true` and the UI marks them, because silently rounding would make
- * the star/fork deltas quietly wrong.
+ * Counts on the repositories tab are rendered in full — `241,273`, not `241k`
+ * (verified 2026-07-31 against github.com/torvalds?tab=repositories). There is
+ * therefore no precision penalty here, and `approx` is false in practice.
+ *
+ * `parseCount` still understands the abbreviated forms on purpose. GitHub does
+ * abbreviate on other surfaces (the repository page header, search results),
+ * so if this tab ever adopts that rendering the parser degrades to a figure
+ * explicitly labeled approximate instead of silently reporting `1` for `1.2k`
+ * and making every delta wrong. Do not "simplify" that away.
  */
 
 import { RequestPolicyError, requestText } from './request.js';

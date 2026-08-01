@@ -346,6 +346,32 @@ await test('REST adapter follows Link pagination and reuses ETag snapshots', asy
   assert.deepEqual(conditionalHeaders, ['"profile"', '"page-1"', '"page-2"']);
 });
 
+await test('website count parsing covers full, abbreviated, and malformed input', async () => {
+  const { parseCount } = await import('../src/lib/scrape.js');
+  // What the repositories tab actually renders (verified 2026-07-31): full
+  // numbers, comma grouped, never abbreviated — so `approximate` stays false.
+  assert.deepEqual(parseCount('52'), [52, false]);
+  assert.deepEqual(parseCount('1,234'), [1234, false]);
+  assert.deepEqual(parseCount('241,273'), [241273, false]);
+  assert.deepEqual(parseCount('  8  '), [8, false]);
+  assert.deepEqual(parseCount('0'), [0, false]);
+
+  // Retained as a drift guard: if the tab ever abbreviates, the value is
+  // flagged approximate rather than silently parsed as 1.
+  assert.deepEqual(parseCount('1.2k'), [1200, true]);
+  assert.deepEqual(parseCount('12k'), [12000, true]);
+  assert.deepEqual(parseCount('1.3m'), [1300000, true]);
+  assert.deepEqual(parseCount('1.2K'), [1200, true]);
+
+  // Malformed input must never throw and never invent a count.
+  assert.deepEqual(parseCount(''), [0, false]);
+  assert.deepEqual(parseCount(null), [0, false]);
+  assert.deepEqual(parseCount(undefined), [0, false]);
+  assert.deepEqual(parseCount('Star'), [0, false]);
+  assert.deepEqual(parseCount('1.2x'), [0, false]);
+  assert.deepEqual(parseCount('--'), [0, false]);
+});
+
 await test('website adapter pages over an immutable ordering', async () => {
   const { reposUrl } = await import('../src/lib/scrape.js');
   const url = reposUrl('octocat', 2);

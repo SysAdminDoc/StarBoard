@@ -94,12 +94,8 @@ The first time you save or select this source, Chrome asks permission to read
 `github.com`. The permission remains optional in the manifest and is only
 requested from that explicit user action.
 
-Two honest caveats:
+One honest caveat:
 
-- **Counts above 1,000 are approximate.** GitHub's own pages render `1.2k`
-  rather than `1,247`, so a repo that large cannot report an exact figure —
-  and a `+3` gain is invisible at that resolution. Affected repos are shown as
-  `~1,200` rather than pretending to be precise. Under 1,000, counts are exact.
 - **It costs more bandwidth.** One page load per 30 repos (~12× the API's
   payload for the same data), fetched one page at a time. Requests time out and
   retry serially, deduplicate rows, and stop at a documented 50-page /
@@ -107,9 +103,13 @@ Two honest caveats:
   StarBoard labels the retained result partial instead of presenting it as
   complete.
 
-Star and fork numbers are otherwise identical to the API's — the test suite
+Star and fork numbers are identical to the API's. The repositories tab renders
+full counts — `241,273`, not `241k` — so there is no precision penalty at any
+size (verified 2026-07-31 against a 241,000-star repository). The test suite
 asserts exact parity across every repo, so a GitHub markup change fails loudly
-instead of quietly reporting wrong numbers.
+instead of quietly reporting wrong numbers, and if GitHub ever does start
+abbreviating, affected repos are labeled approximate rather than silently
+rounded.
 
 <p align="center">
   <img src="docs/screenshot-web-mode.png" width="440" alt="StarBoard running in web mode, footer reading via github.com" />
@@ -128,9 +128,9 @@ A full refresh of a 200-repo account costs 3–4 requests. Tokens use
 Persistent storage is available as an explicit warned choice, with a dedicated
 **Forget token** action.
 
-Use the API source when you need exact counts above 1,000, lower bandwidth, or
-private repositories through a token. Otherwise the website source is the
-recommended zero-setup choice.
+Use the API source when you want lower bandwidth, a documented rate-limit
+budget, or private repositories through a token. Otherwise the website source
+is the recommended zero-setup choice.
 
 ## Privacy and permissions
 
