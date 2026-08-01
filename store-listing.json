@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updated": "2026-07-29",
+  "updated": "2026-07-31",
   "name": "StarBoard",
   "summary": "Rank your GitHub repositories by stars and track star and fork changes locally.",
   "privacyDisclosure": {

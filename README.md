@@ -1,6 +1,6 @@
 # StarBoard
 
-[![Version](https://img.shields.io/badge/version-1.2.0-7aa2ff)](https://github.com/SysAdminDoc/StarBoard/releases)
+[![Version](https://img.shields.io/badge/version-1.3.0-7aa2ff)](https://github.com/SysAdminDoc/StarBoard/releases)
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-e3b341)](#install)
 [![Manifest](https://img.shields.io/badge/manifest-v3-8b949e)](manifest.json)
@@ -24,7 +24,8 @@ projects are doing best**, and **what moved since yesterday**.
 - **Ranked instantly** — all repos sorted by stars, descending, the moment the popup opens.
 - **Change tracking** — green `+3` / `+1` badges next to each repo's stars and forks, measured against a baseline snapshot you control.
 - **Offline trends** — compare portfolio and per-repository movement over 7,
-  30 or 90 days from bounded daily history stored only in your profile.
+  30 or 90 days from a full year of bounded daily history stored only in your
+  profile; ranges longer than the data retained are marked unavailable.
 - **Portable by choice** — download a checksummed JSON backup or timestamped
   CSV, dry-run restores before applying them, and roll back an import for 10
   minutes.
@@ -43,7 +44,7 @@ projects are doing best**, and **what moved since yesterday**.
   fork/archive, count-precision, lifecycle and last-push filters; save up to 12
   named views, then rename or delete them with undo.
 - **Two data sources** — your signed-in github.com session with **no token at
-  all** by default, or the GitHub API when you need exact high-count metrics.
+  all** by default, or the GitHub API for lower bandwidth and private repos.
 - **Private repos** — supported when you add a token.
 - **Background refresh** — configurable interval, with a conservative 12-hour
   website default and six-hour automatic minimum.
