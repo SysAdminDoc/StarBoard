@@ -109,6 +109,19 @@ function check(name, pass, detail = '') {
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
 }
 
+async function waitForCheck(name, wait) {
+  let pass = false;
+  let detail = '';
+  try {
+    await wait();
+    pass = true;
+  } catch (error) {
+    detail = String(error?.message || error).split('\n')[0];
+  }
+  check(name, pass, detail);
+  return pass;
+}
+
 /**
  * The popup paints the first screen of rows synchronously and the rest in
  * frame-sized chunks, so reading the whole collection means waiting for the
@@ -1498,18 +1511,26 @@ async function main() {
         filterReconciliation.rendered === filterReconciliation.expected,
         JSON.stringify(filterReconciliation),
       );
-      const scrollKept = await popup.evaluate(async () => {
+      const scrollStart = await popup.evaluate(() => {
         const list = document.getElementById('list');
         const scrollable = list.scrollHeight > list.clientHeight;
         list.scrollTop = 120;
-        const before = list.scrollTop;
-        // Force a re-render with an identical result set.
-        const { getPortfolioViewState } = await import('./lib/storage.js');
-        await getPortfolioViewState();
-        window.dispatchEvent(new Event('resize'));
-        await new Promise((resolve) => setTimeout(resolve, 150));
-        return { scrollable, before, after: list.scrollTop };
+        return { scrollable, before: list.scrollTop };
       });
+      // Selecting the active sort again forces a render with the same result
+      // identity. Wait for both persistence and chunked row painting.
+      await popup.selectOption('#sort', 'name');
+      await popup.waitForFunction(
+        (expectedRows) =>
+          document.body.dataset.portfolioState === 'saved' &&
+          document.body.dataset.listState === 'painted' &&
+          document.querySelectorAll('.row').length === expectedRows,
+        filterReconciliation.expected,
+      );
+      const scrollKept = await popup.evaluate((start) => {
+        const list = document.getElementById('list');
+        return { ...start, after: list.scrollTop };
+      }, scrollStart);
       check(
         'a re-render of the same results keeps scroll position',
         scrollKept.scrollable && scrollKept.before > 0 && scrollKept.before === scrollKept.after,
@@ -1915,14 +1936,16 @@ async function main() {
     check('dark-theme normal text contrast reaches 4.5:1', darkContrast >= 4.5, darkContrast.toFixed(2));
 
     if (!OFFLINE) {
-      await popup.waitForFunction(
-        () => {
-          const img = document.getElementById('avatar');
-          return img.complete && img.naturalWidth > 0;
-        },
-        { timeout: 15000 },
+      await waitForCheck('avatar loaded', () =>
+        popup.waitForFunction(
+          () => {
+            const img = document.getElementById('avatar');
+            return img.complete && img.naturalWidth > 0;
+          },
+          undefined,
+          { timeout: 15000 },
+        ),
       );
-      check('avatar loaded', true);
     }
 
     await listPainted(popup);
@@ -2342,22 +2365,25 @@ async function main() {
 
     // Re-sorting by name must actually change the order.
     await popup.selectOption('#sort', 'name');
-    await popup.waitForFunction(async () => {
-      const { getPortfolioViewState } = await import('./lib/storage.js');
+    await popup.waitForFunction(() => {
       const names = [...document.querySelectorAll('.row .name')].map(
         (node) => node.textContent,
       );
-      return (
+      const status = document.querySelector('#live-status').textContent;
+      const ready =
         names.length > 1 &&
         document.body.dataset.portfolioState === 'saved' &&
-        (await getPortfolioViewState()).active.sortKey === 'name' &&
+        document.body.dataset.listState === 'painted' &&
+        document.querySelector('#sort').value === 'name' &&
+        /sorted by name/i.test(status) &&
+        /\d+ repositories match/i.test(status) &&
         names.every((value, index) =>
-          index === 0 || names[index - 1].localeCompare(value) <= 0
-        )
-      );
+          index === 0 || names[index - 1].localeCompare(value) <= 0,
+        );
+      if (ready) window.__nameSortAnnouncement = status;
+      return ready;
     });
     const nameSortState = await popup.evaluate(async () => {
-      await new Promise((resolveWait) => setTimeout(resolveWait, 100));
       const [{ getCache, getPortfolioViewState }, { filterRepositories }] = await Promise.all([
         import('./lib/storage.js'),
         import('./lib/portfolio-views.js'),
@@ -2379,7 +2405,7 @@ async function main() {
           views.active,
           cache.lifecycleEvents || [],
         ).length,
-        status: document.querySelector('#live-status').textContent,
+        status: window.__nameSortAnnouncement || '',
         error: document.body.dataset.portfolioError || null,
       };
     });
@@ -2574,49 +2600,64 @@ async function main() {
       );
     });
     await popup.selectOption('#viewSelect', savedViewId);
-    await popup.waitForFunction(async (expectedId) => {
-      const { getPortfolioViewState } = await import('./lib/storage.js');
-      return (
-        document.body.dataset.portfolioState === 'saved' &&
-        (await getPortfolioViewState()).activeViewId === expectedId &&
-        document.querySelector('#filterVisibility').value === 'private' &&
-        document.querySelectorAll('.row').length === 1
-      );
-    }, savedViewId);
-    check('selecting a saved view restores its filters', true);
+    const viewSelected = await waitForCheck('selecting a saved view restores its filters', () =>
+      popup.waitForFunction((expectedId) => {
+        return (
+          document.body.dataset.portfolioState === 'saved' &&
+          document.querySelector('#viewSelect').value === expectedId &&
+          document.querySelector('#filterVisibility').value === 'private' &&
+          document.querySelectorAll('.row').length === 1
+        );
+      }, savedViewId),
+    );
 
-    await popup.click('#renameView');
-    await popup.fill('#viewName', 'Private archive');
-    await popup.click('#confirmView');
-    await popup.waitForFunction(async () => {
-      const { getPortfolioViewState } = await import('./lib/storage.js');
-      return (
-        document.body.dataset.portfolioState === 'saved' &&
-        (await getPortfolioViewState()).views[0]?.name === 'Private archive'
+    let viewRenamed = false;
+    if (viewSelected) {
+      await popup.click('#renameView');
+      await popup.fill('#viewName', 'Private archive');
+      await popup.click('#confirmView');
+      viewRenamed = await waitForCheck('saved views can be renamed with recovery', () =>
+        popup.waitForFunction(() => {
+          const selected = document.querySelector('#viewSelect').selectedOptions[0];
+          return (
+            document.body.dataset.portfolioState === 'saved' &&
+            selected?.textContent.trim() === 'Private archive'
+          );
+        }),
       );
-    });
-    check('saved views can be renamed with recovery', true);
+    } else {
+      check('saved views can be renamed with recovery', false, 'saved view selection failed');
+    }
 
-    await popup.click('#deleteView');
-    await popup.waitForFunction(async () => {
-      const { getPortfolioViewState } = await import('./lib/storage.js');
-      return (
-        document.body.dataset.portfolioState === 'saved' &&
-        (await getPortfolioViewState()).views.length === 0
+    if (viewRenamed) {
+      await popup.click('#deleteView');
+      await popup.waitForFunction((deletedId) => {
+        const select = document.querySelector('#viewSelect');
+        return (
+          document.body.dataset.portfolioState === 'saved' &&
+          select.value !== deletedId &&
+          ![...select.options].some((option) => option.value === deletedId)
+        );
+      }, savedViewId);
+      await popup.waitForSelector('#undo:not([hidden])');
+      await popup.click('#undo');
+      await waitForCheck('deleted saved views restore through the shared undo action', () =>
+        popup.waitForFunction((expectedId) => {
+          const select = document.querySelector('#viewSelect');
+          return (
+            document.body.dataset.portfolioState === 'saved' &&
+            select.value === expectedId &&
+            select.selectedOptions[0]?.textContent.trim() === 'Private archive'
+          );
+        }, savedViewId),
       );
-    });
-    await popup.waitForSelector('#undo:not([hidden])');
-    await popup.click('#undo');
-    await popup.waitForFunction(async () => {
-      const { getPortfolioViewState } = await import('./lib/storage.js');
-      const views = await getPortfolioViewState();
-      return (
-        views.views[0]?.name === 'Private archive' &&
-        views.activeViewId === views.views[0].id &&
-        document.querySelector('#viewSelect').value === views.activeViewId
+    } else {
+      check(
+        'deleted saved views restore through the shared undo action',
+        false,
+        'saved view rename failed',
       );
-    });
-    check('deleted saved views restore through the shared undo action', true);
+    }
     await popup.screenshot({ path: `${SHOTS}/11-saved-filters.png` });
 
     await popup.click('#resetFilters');
@@ -2904,11 +2945,17 @@ async function main() {
     check('baseline reset keeps the list', stillRendered > 0, `${stillRendered} rows`);
     await popup.waitForSelector('#undo:not([hidden])');
     await popup.click('#undo');
-    await popup.waitForFunction(async (previous) => {
-      const { getBaseline } = await import('./lib/storage.js');
-      return (await getBaseline()).at === previous;
-    }, baselineBeforeReset);
-    check('baseline reset can be undone within the recovery window', true);
+    await waitForCheck('baseline reset can be undone within the recovery window', async () => {
+      await popup.waitForFunction(() => {
+        const undo = document.querySelector('#undo');
+        return undo.hidden && /last data action undone/i.test(document.querySelector('#live-status').textContent);
+      });
+      const restored = await popup.evaluate(async (previous) => {
+        const { getBaseline } = await import('./lib/storage.js');
+        return (await getBaseline()).at === previous;
+      }, baselineBeforeReset);
+      if (!restored) throw new Error('the restored baseline timestamp did not match');
+    });
 
     // Deltas: plant a baseline that is deliberately behind the live counts and
     // confirm the popup reports the gain rather than just the total.
@@ -2945,7 +2992,14 @@ async function main() {
     );
 
     await popup.selectOption('#sort', 'starsDelta');
-    await popup.waitForTimeout(300);
+    await popup.waitForFunction(() => {
+      return (
+        document.body.dataset.portfolioState === 'saved' &&
+        document.body.dataset.listState === 'painted' &&
+        document.querySelector('#sort').value === 'starsDelta' &&
+        document.querySelector('.row .stat.stars .delta')?.textContent === '+3'
+      );
+    });
     const gainedFirst = await popup.textContent('.row .stat.stars .delta');
     check('sort by stars gained works', gainedFirst === '+3', gainedFirst);
     await popup.screenshot({ path: `${SHOTS}/05-deltas.png` });
@@ -2984,11 +3038,14 @@ async function main() {
       });
     });
     await popup.close();
-    await options.waitForFunction(async (generation) => {
-      const { getCache } = await import('./lib/storage.js');
-      return (await getCache())?.generation !== generation;
-    }, beforePopupClose);
-    check('refresh survives closure of its initiating popup', true);
+    await waitForCheck('refresh survives closure of its initiating popup', () =>
+      options.waitForFunction((generation) => {
+        chrome.storage.local.get('cache', ({ cache }) => {
+          window.__popupCloseRefreshCommitted = cache?.data?.generation !== generation;
+        });
+        return window.__popupCloseRefreshCommitted === true;
+      }, beforePopupClose),
+    );
 
     // Explicitly stop the MV3 worker, then wake it through a message and prove
     // the committed generation and alarm survived lifecycle termination.
@@ -3057,11 +3114,16 @@ async function main() {
     }, historyBeforePrune);
     await options.waitForSelector('#undoClear:not([hidden])');
     await options.click('#undoClear');
-    await options.waitForFunction(async (before) => {
-      const { getHistory } = await import('./lib/storage.js');
-      return (await getHistory()).snapshots.length === before;
-    }, historyBeforePrune);
-    check('pruned history can be restored during the undo window', true);
+    await waitForCheck('pruned history can be restored during the undo window', async () => {
+      await options.waitForFunction(() =>
+        /last data action undone/i.test(document.querySelector('#status').textContent),
+      );
+      const restored = await options.evaluate(async (before) => {
+        const { getHistory } = await import('./lib/storage.js');
+        return (await getHistory()).snapshots.length === before;
+      }, historyBeforePrune);
+      if (!restored) throw new Error('the restored history length did not match');
+    });
 
     await options.evaluate(async () => {
       const { getCache, getBaseline, getHistory, setCache, setBaseline, setHistory } =
@@ -3212,33 +3274,67 @@ async function main() {
     );
     await options.screenshot({ path: `${SHOTS}/08-import-preview.png`, fullPage: true });
     await options.click('#applyImport');
-    await options.waitForFunction(async () => {
-      const { getSettings, getPortfolioViewState } = await import('./lib/storage.js');
-      const [settings, views] = await Promise.all([
-        getSettings(),
-        getPortfolioViewState(),
-      ]);
-      return (
-        settings.theme === 'light' &&
-        settings.token === 'smoke-export-secret' &&
-        views.views[0]?.name === 'Private archive'
+    const restoreApplied = await waitForCheck(
+      'restore applies portable state without replacing the local credential',
+      async () => {
+        await options.waitForFunction(() => {
+          chrome.storage.local.get('portfolioViews', ({ portfolioViews }) => {
+            window.__importedSavedView =
+              portfolioViews?.data?.views?.[0]?.name === 'Private archive';
+          });
+          return (
+            document.querySelector('#theme').value === 'light' &&
+            document.querySelector('#token').value === 'smoke-export-secret' &&
+            window.__importedSavedView === true &&
+            /backup restored/i.test(document.querySelector('#status').textContent)
+          );
+        });
+        await options.waitForSelector('#undoClear:not([hidden])');
+        const stateMatches = await options.evaluate(async () => {
+          const { getSettings, getPortfolioViewState } = await import('./lib/storage.js');
+          const [settings, views] = await Promise.all([getSettings(), getPortfolioViewState()]);
+          return (
+            settings.theme === 'light' &&
+            settings.token === 'smoke-export-secret' &&
+            views.views[0]?.name === 'Private archive'
+          );
+        });
+        if (!stateMatches) throw new Error('the restored settings or saved view did not match');
+      },
+    );
+    if (restoreApplied) {
+      await options.click('#undoClear');
+      await waitForCheck('restored backup can be rolled back during the undo window', async () => {
+        await options.waitForFunction(() => {
+          chrome.storage.local.get('portfolioViews', ({ portfolioViews }) => {
+            window.__rolledBackSavedViews = portfolioViews?.data?.views?.length === 0;
+          });
+          return (
+            document.querySelector('#theme').value === 'dark' &&
+            window.__rolledBackSavedViews === true &&
+            /last data action undone/i.test(document.querySelector('#status').textContent)
+          );
+        });
+        await options.waitForFunction(() => {
+          const button = document.querySelector('#undoClear');
+          return button.hidden && !button.disabled && button.getAttribute('aria-busy') !== 'true';
+        });
+        const stateMatches = await options.evaluate(async () => {
+          const { getSettings, getPortfolioViewState } = await import('./lib/storage.js');
+          return (
+            (await getSettings()).theme === 'dark' &&
+            (await getPortfolioViewState()).views.length === 0
+          );
+        });
+        if (!stateMatches) throw new Error('the rolled-back settings or saved views did not match');
+      });
+    } else {
+      check(
+        'restored backup can be rolled back during the undo window',
+        false,
+        'backup restore failed',
       );
-    });
-    await options.waitForSelector('#undoClear:not([hidden])');
-    check('restore applies portable state without replacing the local credential', true);
-    await options.click('#undoClear');
-    await options.waitForFunction(async () => {
-      const { getSettings, getPortfolioViewState } = await import('./lib/storage.js');
-      return (
-        (await getSettings()).theme === 'dark' &&
-        (await getPortfolioViewState()).views.length === 0
-      );
-    });
-    await options.waitForFunction(() => {
-      const button = document.querySelector('#undoClear');
-      return button.hidden && !button.disabled && button.getAttribute('aria-busy') !== 'true';
-    });
-    check('restored backup can be rolled back during the undo window', true);
+    }
 
     const beforeClear = await options.evaluate(async () => {
       const { getCache, getHistory } = await import('./lib/storage.js');
@@ -3275,14 +3371,25 @@ async function main() {
       return !button.hidden && !button.disabled && button.getAttribute('aria-busy') !== 'true';
     });
     await options.click('#undoClear');
-    await options.waitForFunction(async (before) => {
-      const { getCache, getHistory } = await import('./lib/storage.js');
-      return (
-        (await getCache())?.generation === before.generation &&
-        (await getHistory()).snapshots.length === before.historyDays
-      );
-    }, beforeClear);
-    check('cleared snapshot, baseline, and history can be restored together', true);
+    await waitForCheck('cleared snapshot, baseline, and history can be restored together', async () => {
+      await options.waitForFunction(() => {
+        const button = document.querySelector('#undoClear');
+        return (
+          button.hidden &&
+          !button.disabled &&
+          button.getAttribute('aria-busy') !== 'true' &&
+          /last data action undone/i.test(document.querySelector('#status').textContent)
+        );
+      });
+      const restored = await options.evaluate(async (before) => {
+        const { getCache, getHistory } = await import('./lib/storage.js');
+        return (
+          (await getCache())?.generation === before.generation &&
+          (await getHistory()).snapshots.length === before.historyDays
+        );
+      }, beforeClear);
+      if (!restored) throw new Error('the restored snapshot or history did not match');
+    });
   } finally {
     await closeContext(ctx);
   }

@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Browser regressions now print named failures and continue through the
+  remaining checks, with state-backed waits replacing fixed settle delays.
 - The complete deterministic browser suite now runs headlessly in CI against
   the shipped ZIP, covering 131 offline checks without live GitHub traffic.
 - GitHub REST requests now pin the current `2026-03-10` API contract, with
