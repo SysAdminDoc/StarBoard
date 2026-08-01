@@ -385,7 +385,7 @@ await test('corrupt settings restore last-known-good and record redacted quarant
   assert.doesNotMatch(quarantine, /must-not-leak/);
 });
 
-await test('PATs default to session storage, can opt into persistence, and clear on website mode', async () => {
+await test('PATs survive source switches and clear only through Forget token', async () => {
   const sessionSettings = await storage.setSettings({
     username: 'octocat',
     dataSource: 'api',
@@ -396,12 +396,25 @@ await test('PATs default to session storage, can opt into persistence, and clear
   assert.equal(sessionArea.values.starboardSessionToken.data.token, 'session-secret');
   assert.equal((await storage.getSettings()).token, 'session-secret');
 
+  await storage.setSettings({ dataSource: 'web' });
+  assert.equal(sessionArea.values.starboardSessionToken.data.token, 'session-secret');
+  assert.equal((await storage.getSettings()).token, 'session-secret');
+  await storage.setSettings({ dataSource: 'api' });
+  assert.equal((await storage.getSettings()).token, 'session-secret');
+
   await storage.setSettings({ tokenMode: 'persistent' });
   assert.equal(area.values.settings.data.token, 'session-secret');
   assert.equal(sessionArea.values.starboardSessionToken, undefined);
 
   await storage.setSettings({ dataSource: 'web' });
+  assert.equal(area.values.settings.data.token, 'session-secret');
+  assert.equal((await storage.getSettings()).token, 'session-secret');
+  await storage.setSettings({ dataSource: 'api' });
+  assert.equal((await storage.getSettings()).token, 'session-secret');
+
+  await storage.forgetToken();
   assert.equal(area.values.settings.data.token, '');
+  assert.equal(sessionArea.values.starboardSessionToken, undefined);
   assert.equal((await storage.getSettings()).token, '');
 });
 

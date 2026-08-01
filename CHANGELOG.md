@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Switching to the website source no longer silently erases a session or
+  persistent API token. The hidden credential remains unused by website reads,
+  returns when API mode is selected again, and is removed only by an explicit
+  token edit or the dedicated **Forget token** action.
 - JSON backups are now compact and measured against the restore limit before
   download. An oversized history export is stopped with a one-click retry path
   that excludes history, and oversized imports are rejected from file metadata

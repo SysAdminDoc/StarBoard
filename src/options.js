@@ -250,8 +250,8 @@ fields.dataSource.addEventListener('change', async () => {
     syncSourceUI();
     const source = fields.dataSource.value;
     const refreshMinutes = Number(fields.refreshMinutes.value);
-    await patchSettings({ dataSource: source, refreshMinutes });
-    if (source === 'web') fields.token.value = '';
+    const settings = await patchSettings({ dataSource: source, refreshMinutes });
+    fields.token.value = settings.token;
     syncSourceUI();
     say(`Switching to ${source === 'web' ? 'github.com' : 'the GitHub API'}…`);
     const result = await chrome.runtime.sendMessage({

@@ -609,15 +609,13 @@ export async function setSettings(patch) {
     const currentSessionToken =
       current.tokenMode === 'session' ? await getSessionToken() : '';
     const requestedMode = patch.tokenMode || current.tokenMode;
-    let effectiveToken =
+    const effectiveToken =
       Object.hasOwn(patch, 'token')
         ? String(patch.token || '').trim()
         : current.tokenMode === 'session'
           ? currentSessionToken
           : current.token;
-    const switchingToWebsite = patch.dataSource === 'web';
 
-    if (switchingToWebsite) effectiveToken = '';
     if (requestedMode === 'session') {
       await setSessionToken(effectiveToken);
     } else {
