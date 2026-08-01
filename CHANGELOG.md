@@ -7,6 +7,9 @@
 - Release packaging now uses an explicit extension-file inventory, refuses a
   dirty Git tree without an intentional development override, rejects stray
   files under shipping roots, and records the source commit in the SPDX SBOM.
+- Recovery copies now use one storage key per record, migrate the old shared bag
+  once, and serialize cross-context writes. A 404-byte notification write is
+  covered against the former 46,835-byte whole-shadow rewrite.
 - **Test connection** now costs one request: the website source parses only its
   first page and the API source reads one profile. Re-activation cancels the
   prior probe, and navigation aborts in-flight work.

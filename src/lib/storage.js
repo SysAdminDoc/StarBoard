@@ -47,6 +47,7 @@ export const STORAGE_KEYS = Object.freeze({
 });
 export const SESSION_TOKEN_KEY = 'starboardSessionToken';
 export const UNDO_WINDOW_MS = 10 * 60_000;
+const STORAGE_WRITE_LOCK = 'starboard-storage-write';
 
 const RECORD_LABELS = Object.freeze({
   [STORAGE_KEYS.settings]: 'Settings',
@@ -110,10 +111,24 @@ const SESSION_AREA = chrome.storage.session;
 
 let writeQueue = Promise.resolve();
 let quarantineQueue = Promise.resolve();
+let storageLockQueue = Promise.resolve();
 
 function serialized(work) {
   const result = writeQueue.then(work, work);
   writeQueue = result.catch(() => {});
+  return result;
+}
+
+/** Serialize record commits across extension pages and the service worker. */
+function storageLocked(work) {
+  const run = () => {
+    if (globalThis.navigator?.locks?.request) {
+      return globalThis.navigator.locks.request(STORAGE_WRITE_LOCK, { mode: 'exclusive' }, work);
+    }
+    return work();
+  };
+  const result = storageLockQueue.then(run, run);
+  storageLockQueue = result.catch(() => {});
   return result;
 }
 
@@ -126,7 +141,9 @@ function makeEnvelope(data, { generation = null, savedAt = Date.now() } = {}) {
     schemaVersion: SCHEMA_VERSION,
     savedAt,
     generation,
-    data: copy(data),
+    // chrome.storage clones at set() time. Callers already own fresh values,
+    // so cloning here only serializes large cache/history records needlessly.
+    data,
   };
 }
 
@@ -227,7 +244,8 @@ function migrateV1ToV2(key, value) {
 
 function migrateV2ToV3(key, value) {
   if (key === STORAGE_KEYS.settings) {
-    return normalizeSettings({ ...DEFAULTS, ...value });
+    // The final normalization pass validates once after every migration step.
+    return { ...DEFAULTS, ...value };
   }
   if (key === STORAGE_KEYS.cache) {
     const approximate = !!value.approximate || value.repos?.some((repo) => repo.approx);
@@ -350,7 +368,7 @@ function validateRecord(key, value) {
   else throw new Error(`unknown storage record: ${key}`);
 }
 
-export function normalizeSettings(value) {
+export function normalizeSettings(value, { validate = true } = {}) {
   const clean = {};
   for (const key of SETTINGS_KEYS) {
     if (Object.hasOwn(value, key)) clean[key] = value[key];
@@ -363,7 +381,7 @@ export function normalizeSettings(value) {
   if (next.dataSource === 'web' && next.refreshMinutes > 0 && next.refreshMinutes < 360) {
     next.refreshMinutes = 360;
   }
-  validateSettings(next);
+  if (validate) validateSettings(next);
   return next;
 }
 
@@ -392,12 +410,13 @@ export function migrateRecord(key, raw, now = Date.now()) {
   if (key === STORAGE_KEYS.cache) value = normalizeCacheUrls(value);
 
   if (key === STORAGE_KEYS.settings) {
-    if (wrapped && raw.schemaVersion === SCHEMA_VERSION) validateSettings(value);
-    value = normalizeSettings(value);
-  } else {
-    validateRecord(key, value);
-  }
-  validateRecord(key, value);
+    if (wrapped && raw.schemaVersion === SCHEMA_VERSION) {
+      validateSettings(value);
+      value = normalizeSettings(value, { validate: false });
+    } else {
+      value = normalizeSettings(value);
+    }
+  } else validateRecord(key, value);
 
   const generation = wrapped ? raw.generation ?? null : value.generation ?? null;
   const envelope = makeEnvelope(value, {
@@ -411,8 +430,11 @@ export function migrateRecord(key, raw, now = Date.now()) {
   return { envelope, changed };
 }
 
-async function readLastKnownGood() {
-  const raw = (await AREA.get(STORAGE_KEYS.lastKnownGood))[STORAGE_KEYS.lastKnownGood];
+export function recoveryStorageKey(key) {
+  return `${STORAGE_KEYS.lastKnownGood}:${key}`;
+}
+
+function legacyRecoveryData(raw) {
   if (
     !isObject(raw) ||
     !Number.isInteger(raw.schemaVersion) ||
@@ -421,10 +443,48 @@ async function readLastKnownGood() {
   ) {
     return {};
   }
-  // This outer envelope is only a bag of independently versioned records.
-  // Preserve every inner envelope across upgrades and downgrades; each one is
-  // migrated or rejected safely when it is actually restored.
   return raw.data;
+}
+
+/** Read requested split recovery records and prepare a one-time legacy split. */
+async function readRecoveryState(keys) {
+  const requested = [...new Set(keys)].filter(
+    (key) => !LAST_KNOWN_GOOD_EXCLUDED.has(key),
+  );
+  const requestedStorageKeys = requested.map(recoveryStorageKey);
+  const initial = await AREA.get([STORAGE_KEYS.lastKnownGood, ...requestedStorageKeys]);
+  const legacyRaw = initial[STORAGE_KEYS.lastKnownGood];
+  const legacy = legacyRecoveryData(legacyRaw);
+  const records = new Map();
+
+  for (const key of requested) {
+    const split = initial[recoveryStorageKey(key)];
+    if (split != null) records.set(key, split);
+    else if (Object.hasOwn(legacy, key)) records.set(key, legacy[key]);
+  }
+
+  const legacyEntries = Object.entries(legacy).filter(
+    ([key]) => !LAST_KNOWN_GOOD_EXCLUDED.has(key),
+  );
+  const migrationWrites = {};
+  if (legacyEntries.length) {
+    const splitKeys = legacyEntries.map(([key]) => recoveryStorageKey(key));
+    const existing = await AREA.get(splitKeys);
+    for (const [key, envelope] of legacyEntries) {
+      const splitKey = recoveryStorageKey(key);
+      if (existing[splitKey] == null) migrationWrites[splitKey] = envelope;
+    }
+  }
+
+  return {
+    records,
+    migrationWrites,
+    legacyPresent: legacyRaw != null,
+  };
+}
+
+async function readRecoveryRecord(key) {
+  return (await readRecoveryState([key])).records.get(key);
 }
 
 function quarantineRecords(raw) {
@@ -504,6 +564,14 @@ export async function dismissStorageRecoveryNotice(id) {
  * double the single biggest consumer and defeat the quota-proportional cap.
  */
 const LAST_KNOWN_GOOD_EXCLUDED = new Set([STORAGE_KEYS.history]);
+const RECOVERY_RECORD_KEYS = Object.freeze([
+  STORAGE_KEYS.settings,
+  STORAGE_KEYS.cache,
+  STORAGE_KEYS.baseline,
+  STORAGE_KEYS.notificationConfig,
+  STORAGE_KEYS.notificationState,
+  STORAGE_KEYS.portfolioViews,
+]);
 
 const CONSUMER_LABELS = Object.freeze({
   [STORAGE_KEYS.history]: 'Trend history',
@@ -530,7 +598,10 @@ function isQuotaError(error) {
 }
 
 async function largestConsumer() {
-  const keys = Object.values(STORAGE_KEYS);
+  const keys = [
+    ...Object.values(STORAGE_KEYS),
+    ...RECOVERY_RECORD_KEYS.map(recoveryStorageKey),
+  ];
   const sizes = await Promise.all(
     keys.map(async (key) => {
       try {
@@ -551,8 +622,8 @@ async function largestConsumer() {
  */
 async function commit(writes) {
   // An older build must never replace a record whose shape it cannot know.
-  // The recovery copy is exempt because its stable outer shape is only a bag;
-  // readLastKnownGood preserves the independently versioned entries inside it.
+  // Recovery keys are independently versioned records; the legacy bag is only
+  // excluded because it is removed after its one-time split migration.
   const guardedKeys = Object.keys(writes).filter((key) => key !== STORAGE_KEYS.lastKnownGood);
   if (guardedKeys.length) {
     const current = await AREA.get(guardedKeys);
@@ -573,26 +644,41 @@ async function commit(writes) {
 }
 
 async function writeRecords(records, generation = null) {
-  const backup = await readLastKnownGood();
-  const writes = {};
-  const nextBackup = { ...backup };
-  for (const [key, value] of Object.entries(records)) {
-    // A missing or older primary can still have a newer recovery envelope.
-    // Replacing that only surviving copy would be the same downgrade loss.
-    rejectFutureSchema(key, backup[key]);
-    validateRecord(key, value);
-    const wrapped = makeEnvelope(value, { generation: generation ?? value.generation ?? null });
-    writes[key] = wrapped;
-    if (!LAST_KNOWN_GOOD_EXCLUDED.has(key)) nextBackup[key] = wrapped;
-  }
-  for (const key of LAST_KNOWN_GOOD_EXCLUDED) delete nextBackup[key];
-  writes[STORAGE_KEYS.lastKnownGood] = makeEnvelope(nextBackup, { generation });
-  await commit(writes);
+  return storageLocked(async () => {
+    const keys = Object.keys(records);
+    const recovery = await readRecoveryState(keys);
+    const writes = { ...recovery.migrationWrites };
+    for (const [key, value] of Object.entries(records)) {
+      // A missing or older primary can still have a newer recovery envelope.
+      // Replacing that only surviving copy would be the same downgrade loss.
+      rejectFutureSchema(key, recovery.records.get(key));
+      validateRecord(key, value);
+      const wrapped = makeEnvelope(value, { generation: generation ?? value.generation ?? null });
+      writes[key] = wrapped;
+      if (!LAST_KNOWN_GOOD_EXCLUDED.has(key)) writes[recoveryStorageKey(key)] = wrapped;
+    }
+    await commit(writes);
+    if (recovery.legacyPresent) await AREA.remove(STORAGE_KEYS.lastKnownGood);
+  });
+}
+
+async function removeRecoveryRecords(keys) {
+  return storageLocked(async () => {
+    const recovery = await readRecoveryState([]);
+    const writes = { ...recovery.migrationWrites };
+    const removals = [];
+    for (const key of keys) {
+      delete writes[recoveryStorageKey(key)];
+      removals.push(recoveryStorageKey(key));
+    }
+    if (Object.keys(writes).length) await commit(writes);
+    if (recovery.legacyPresent) removals.push(STORAGE_KEYS.lastKnownGood);
+    if (removals.length) await AREA.remove(removals);
+  });
 }
 
 async function restoreRecord(key, raw, reason) {
-  const backup = await readLastKnownGood();
-  const candidate = backup[key];
+  const candidate = await readRecoveryRecord(key);
   if (candidate) {
     let envelope;
     try {
@@ -957,6 +1043,9 @@ export async function commitRefresh(cache, baseline, generation) {
     nextHistory = recordDailyHistory(currentHistory, nextCache, {
       now: nextCache.fetchedAt || Date.now(),
       maxBytes: historyMaxBytesForQuota(AREA.QUOTA_BYTES),
+      // readRecord already validated the current point; writeRecords validates
+      // the finished result once before publishing it.
+      validate: false,
     });
     await writeRecords(
       {
@@ -978,14 +1067,12 @@ export async function clearPortfolioData() {
       STORAGE_KEYS.history,
       STORAGE_KEYS.notificationState,
     ]);
-    const backup = await readLastKnownGood();
-    delete backup[STORAGE_KEYS.cache];
-    delete backup[STORAGE_KEYS.baseline];
-    delete backup[STORAGE_KEYS.history];
-    delete backup[STORAGE_KEYS.notificationState];
-    await commit({
-      [STORAGE_KEYS.lastKnownGood]: makeEnvelope(backup),
-    });
+    await removeRecoveryRecords([
+      STORAGE_KEYS.cache,
+      STORAGE_KEYS.baseline,
+      STORAGE_KEYS.history,
+      STORAGE_KEYS.notificationState,
+    ]);
     await AREA.remove([
       STORAGE_KEYS.cache,
       STORAGE_KEYS.baseline,
@@ -1073,17 +1160,11 @@ export async function restoreUndoSnapshot() {
     const removed = [];
     for (const key of restorableKeys) {
       if (Object.hasOwn(undo.snapshot, key) && undo.snapshot[key] == null) {
-        await AREA.remove(key);
         removed.push(key);
       }
     }
-    if (removed.length) {
-      const backup = await readLastKnownGood();
-      removed.forEach((key) => delete backup[key]);
-      await commit({
-        [STORAGE_KEYS.lastKnownGood]: makeEnvelope(backup),
-      });
-    }
+    if (removed.length) await removeRecoveryRecords(removed);
+    if (removed.length) await AREA.remove(removed);
     await AREA.remove(STORAGE_KEYS.undo);
     return {
       scope: undo.scope,

@@ -1067,17 +1067,9 @@ async function main() {
     );
 
     await firstRunOptions.evaluate(async () => {
-      const { SCHEMA_VERSION, STORAGE_KEYS } = await import('./lib/storage.js');
-      const stored = await chrome.storage.local.get(STORAGE_KEYS.lastKnownGood);
-      const recovery = stored[STORAGE_KEYS.lastKnownGood] || {
-        schemaVersion: SCHEMA_VERSION,
-        savedAt: Date.now(),
-        generation: null,
-        data: {},
-      };
-      delete recovery.data[STORAGE_KEYS.cache];
+      const { SCHEMA_VERSION, STORAGE_KEYS, recoveryStorageKey } = await import('./lib/storage.js');
+      await chrome.storage.local.remove(recoveryStorageKey(STORAGE_KEYS.cache));
       await chrome.storage.local.set({
-        [STORAGE_KEYS.lastKnownGood]: recovery,
         [STORAGE_KEYS.cache]: {
           schemaVersion: SCHEMA_VERSION,
           savedAt: Date.now(),

@@ -333,13 +333,14 @@ export function recordDailyHistory(
     now = cache?.fetchedAt || Date.now(),
     retentionDays = HISTORY_RETENTION_DAYS,
     maxBytes = HISTORY_MAX_BYTES,
+    validate = true,
   } = {},
 ) {
   assert(cache?.repos && Array.isArray(cache.repos), 'cache repositories are required for history');
   assert(Number.isInteger(retentionDays) && retentionDays >= 1, 'invalid history retention');
   assert(Number.isFinite(maxBytes) && maxBytes > 0, 'invalid history byte cap');
   const existing = current ? structuredClone(current) : emptyHistory();
-  validateHistory(existing);
+  if (validate) validateHistory(existing);
   // An empty or degraded account walk contains no measurement to record. In
   // particular, it must never erase the only same-day point we already have.
   if (cache.repos.length === 0) return existing;
@@ -419,16 +420,18 @@ export function recordDailyHistory(
     repos,
     snapshots: snapshots.filter((point) => point.day >= cutoff),
   });
+  let bytes = historyByteSize(next);
 
   // Oldest days go first. The dictionary is compacted alongside so a portfolio
   // that shrank does not keep paying for repositories no retained day mentions.
-  while (next.snapshots.length > 1 && historyByteSize(next) > maxBytes) {
+  while (next.snapshots.length > 1 && bytes > maxBytes) {
     next = compactDictionary({ ...next, snapshots: next.snapshots.slice(1) });
+    bytes = historyByteSize(next);
   }
-  if (next.snapshots.length === 1 && historyByteSize(next) > maxBytes) {
+  if (next.snapshots.length === 1 && bytes > maxBytes) {
     // Pathological single day: keep the day, shed repositories from the end.
     const only = next.snapshots[0];
-    while (next.repos.length > 0 && historyByteSize(next) > maxBytes) {
+    while (next.repos.length > 0 && bytes > maxBytes) {
       const keep = next.repos.length - 1;
       next = {
         formatVersion: HISTORY_FORMAT_VERSION,
@@ -446,11 +449,12 @@ export function recordDailyHistory(
       only.stars = next.snapshots[0].stars;
       only.forks = next.snapshots[0].forks;
       only.approx = next.snapshots[0].approx;
+      bytes = historyByteSize(next);
     }
   }
 
-  validateHistory(next);
-  assert(historyByteSize(next) <= maxBytes, 'history cannot fit within the configured cap');
+  if (validate) validateHistory(next);
+  assert(bytes <= maxBytes, 'history cannot fit within the configured cap');
   return next;
 }
 

@@ -27,6 +27,7 @@ function memoryArea(initial = {}, { quotaBytes = Infinity } = {}) {
   const area = {
     values,
     QUOTA_BYTES: 10 * 1024 * 1024,
+    writeBytes: [],
     // Mutable so a test can narrow the budget around one write.
     quotaBytes,
     onChanged: {
@@ -53,6 +54,7 @@ function memoryArea(initial = {}, { quotaBytes = Infinity } = {}) {
       );
     },
     async set(next) {
+      area.writeBytes.push(Buffer.byteLength(JSON.stringify(next)));
       const candidate = { ...values, ...clone(next) };
       if (sizeOf(candidate) > area.quotaBytes) {
         // Chrome rejects the whole write; nothing is partially applied.
@@ -168,6 +170,7 @@ async function fixture(name) {
 function resetStorage() {
   area.quotaBytes = Infinity;
   area.QUOTA_BYTES = 10 * 1024 * 1024;
+  area.writeBytes.length = 0;
   sessionArea.quotaBytes = Infinity;
   sessionArea.QUOTA_BYTES = 10 * 1024 * 1024;
 }
@@ -359,11 +362,14 @@ await test('a downgraded build explains and preserves every newer-schema record'
     assert.deepEqual(area.values.cache, futureCache);
 
     delete area.values.cache;
-    area.values.starboardLastKnownGood.data.cache = clone(futureCache);
+    area.values[storage.recoveryStorageKey(storage.STORAGE_KEYS.cache)] = clone(futureCache);
     await assert.rejects(storage.setCache({ ...cache, generation: 'older-generation' }), {
       code: 'STORAGE_VERSION_TOO_NEW',
     });
-    assert.deepEqual(area.values.starboardLastKnownGood.data.cache, futureCache);
+    assert.deepEqual(
+      area.values[storage.recoveryStorageKey(storage.STORAGE_KEYS.cache)],
+      futureCache,
+    );
 
     area.values.settings = currentSettings;
     const futureToken = {
@@ -418,7 +424,17 @@ await test('a schema upgrade keeps the complete recovery copy through its first 
     await storage.setNotificationConfig({ enabled: false });
     await storage.getPortfolioViewState();
 
-    const preserved = clone(area.values.starboardLastKnownGood.data);
+    const preserved = Object.fromEntries(
+      [
+        storage.STORAGE_KEYS.settings,
+        storage.STORAGE_KEYS.baseline,
+        storage.STORAGE_KEYS.notificationConfig,
+        storage.STORAGE_KEYS.portfolioViews,
+      ].map((key) => [
+        key,
+        clone(area.values[storage.recoveryStorageKey(key)]),
+      ]),
+    );
     const requiredKeys = [
       storage.STORAGE_KEYS.settings,
       storage.STORAGE_KEYS.baseline,
@@ -429,6 +445,7 @@ await test('a schema upgrade keeps the complete recovery copy through its first 
       assert.ok(preserved[key], `${key} must exist before the simulated upgrade`);
       preserved[key].schemaVersion = storage.SCHEMA_VERSION - 1;
     }
+    for (const key of requiredKeys) delete area.values[storage.recoveryStorageKey(key)];
     area.values.starboardLastKnownGood = {
       schemaVersion: storage.SCHEMA_VERSION - 1,
       savedAt: 90,
@@ -451,11 +468,10 @@ await test('a schema upgrade keeps the complete recovery copy through its first 
       generation: 'first-v6-write',
     });
 
-    const upgradedRecovery = area.values.starboardLastKnownGood;
-    assert.equal(upgradedRecovery.schemaVersion, storage.SCHEMA_VERSION);
+    assert.equal(area.values.starboardLastKnownGood, undefined);
     for (const key of requiredKeys) {
       assert.deepEqual(
-        upgradedRecovery.data[key],
+        area.values[storage.recoveryStorageKey(key)],
         preserved[key],
         `${key} recovery envelope must survive the first post-upgrade write`,
       );
@@ -1148,9 +1164,53 @@ await test('history is not mirrored into the recovery copy', async () => {
   assert.ok(area.values.history, 'history is stored');
   // The largest record must not be duplicated into the shadow copy: doing so
   // doubled the biggest consumer against a 5 MiB budget on Chrome <= 113.
-  const backup = area.values.starboardLastKnownGood.data;
-  assert.equal(backup.history, undefined);
-  assert.ok(backup.settings, 'settings are still recoverable');
+  assert.equal(area.values[storage.recoveryStorageKey(storage.STORAGE_KEYS.history)], undefined);
+  assert.ok(
+    area.values[storage.recoveryStorageKey(storage.STORAGE_KEYS.settings)],
+    'settings are still recoverable',
+  );
+});
+
+await test('recovery writes scale with the changed record instead of the whole shadow', async () => {
+  replaceAreaValues(area, {});
+  const cache = {
+    profile: { login: 'octocat' },
+    repos: Array.from({ length: 300 }, (_, index) => ({
+      full_name: `octocat/${'large-repository-name-'.repeat(4)}${index}`,
+      stargazers_count: index,
+      forks_count: index % 7,
+    })),
+    fetchedAt: 100,
+    source: 'api',
+    confidence: 'exact',
+  };
+  await storage.setCache(cache);
+  const cacheRecovery = area.values[storage.recoveryStorageKey(storage.STORAGE_KEYS.cache)];
+  const state = emptyNotificationState();
+  const stateEnvelope = {
+    schemaVersion: storage.SCHEMA_VERSION,
+    savedAt: 0,
+    generation: null,
+    data: state,
+  };
+  const legacyPayload = {
+    [storage.STORAGE_KEYS.notificationState]: state,
+    [storage.STORAGE_KEYS.lastKnownGood]: {
+      schemaVersion: storage.SCHEMA_VERSION,
+      savedAt: 0,
+      generation: null,
+      data: {
+        [storage.STORAGE_KEYS.cache]: cacheRecovery,
+        [storage.STORAGE_KEYS.notificationState]: stateEnvelope,
+      },
+    },
+  };
+  const legacyBytes = Buffer.byteLength(JSON.stringify(legacyPayload));
+  area.writeBytes.length = 0;
+  await storage.setNotificationState(state);
+  const actualBytes = area.writeBytes.at(-1);
+  assert.ok(actualBytes < legacyBytes / 4, `${actualBytes} must be below ${legacyBytes / 4}`);
+  console.log(`INFO  changed-record write ${actualBytes} bytes vs legacy ${legacyBytes} bytes`);
 });
 
 await test('website count parsing covers full, abbreviated, and malformed input', async () => {
