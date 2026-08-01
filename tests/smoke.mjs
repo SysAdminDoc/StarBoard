@@ -1107,7 +1107,10 @@ async function main() {
       check(
         'switching accounts starts a clean history instead of blending both',
         switched?.ok === true &&
-          beforeSwitch === 40 &&
+          // The 40-repository refresh shares a UTC day with the three-repo
+          // generation above, so the lossless same-day history merge retains
+          // all 43 until the account boundary deliberately resets the series.
+          beforeSwitch === 43 &&
           afterSwitch.historyRepos.length === 1 &&
           afterSwitch.historyRepos[0] === 'hubot/only' &&
           afterSwitch.login === 'hubot',

@@ -19,6 +19,12 @@ export const HISTORY_RETENTION_DAYS = 365;
 export const HISTORY_MAX_BYTES = 2 * 1024 * 1024;
 const DAY_MS = 86_400_000;
 const CONFIDENCE = ['exact', 'approximate', 'partial', 'stale'];
+const CONFIDENCE_SCORE = Object.freeze({
+  stale: 0,
+  partial: 1,
+  approximate: 2,
+  exact: 3,
+});
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -26,6 +32,47 @@ function assert(condition, message) {
 
 function finiteCount(value, label) {
   assert(Number.isFinite(value) && value >= 0, `${label} must be a non-negative number`);
+}
+
+function cacheConfidence(cache) {
+  if (CONFIDENCE.includes(cache.confidence)) return cache.confidence;
+  return cache.approximate ? 'approximate' : 'exact';
+}
+
+/** Merge two measurements for one UTC day without making the retained point poorer. */
+function mergeSameDaySnapshot(previous, incoming) {
+  if (CONFIDENCE_SCORE[incoming.confidence] < CONFIDENCE_SCORE[previous.confidence]) {
+    return previous;
+  }
+
+  const stars = incoming.stars.slice();
+  const forks = incoming.forks.slice();
+  const approximate = new Set(incoming.approx);
+  const previousApproximate = new Set(previous.approx);
+  let retainedPreviousMeasurement = false;
+
+  for (let i = 0; i < stars.length; i += 1) {
+    if (stars[i] !== null || previous.stars[i] === null) continue;
+    stars[i] = previous.stars[i];
+    forks[i] = previous.forks[i];
+    if (previousApproximate.has(i)) approximate.add(i);
+    retainedPreviousMeasurement = true;
+  }
+
+  const confidence =
+    retainedPreviousMeasurement &&
+    CONFIDENCE_SCORE[previous.confidence] < CONFIDENCE_SCORE[incoming.confidence]
+      ? previous.confidence
+      : incoming.confidence;
+  const merged = {
+    ...incoming,
+    confidence,
+    stars,
+    forks,
+    approx: [...approximate].sort((a, b) => a - b),
+  };
+  if (retainedPreviousMeasurement && previous.truncated) merged.truncated = true;
+  return merged;
 }
 
 export function utcDay(timestamp = Date.now()) {
@@ -279,6 +326,9 @@ export function recordDailyHistory(
   assert(Number.isFinite(maxBytes) && maxBytes > 0, 'invalid history byte cap');
   const existing = current ? structuredClone(current) : emptyHistory();
   validateHistory(existing);
+  // An empty or degraded account walk contains no measurement to record. In
+  // particular, it must never erase the only same-day point we already have.
+  if (cache.repos.length === 0) return existing;
 
   // A rename changes the key, so the old series has to be carried across
   // before today's counts are placed, or the repository restarts from zero.
@@ -315,22 +365,23 @@ export function recordDailyHistory(
     if (repo.approx) approx.push(at);
   }
 
-  const snapshots = carried.snapshots
-    .filter((point) => point.day !== day)
-    .map((point) => ({ ...point, stars: grow(point.stars), forks: grow(point.forks) }));
-  snapshots.push({
+  const carriedSnapshots = carried.snapshots.map((point) => ({
+    ...point,
+    stars: grow(point.stars),
+    forks: grow(point.forks),
+  }));
+  const previousToday = carriedSnapshots.find((point) => point.day === day);
+  const snapshots = carriedSnapshots.filter((point) => point.day !== day);
+  const incoming = {
     day,
     at: now,
     source: cache.source === 'web' ? 'web' : 'api',
-    confidence: CONFIDENCE.includes(cache.confidence)
-      ? cache.confidence
-      : cache.approximate
-        ? 'approximate'
-        : 'exact',
+    confidence: cacheConfidence(cache),
     stars,
     forks,
     approx: approx.sort((a, b) => a - b),
-  });
+  };
+  snapshots.push(previousToday ? mergeSameDaySnapshot(previousToday, incoming) : incoming);
   snapshots.sort((a, b) => a.day.localeCompare(b.day));
 
   const todayStart = Date.parse(`${utcDay(now)}T00:00:00.000Z`);

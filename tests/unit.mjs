@@ -1135,7 +1135,7 @@ await test('saved portfolio view deletion is recoverable through the shared undo
   assert.equal(restored.portfolioViews.active.language, 'JavaScript');
 });
 
-await test('daily history replaces same-day points and follows renames', async () => {
+await test('daily history updates same-day points and follows renames', async () => {
   const firstAt = Date.UTC(2026, 0, 1, 8);
   const first = {
     source: 'api',
@@ -1192,6 +1192,108 @@ await test('daily history replaces same-day points and follows renames', async (
   assert.equal(comparison.fullName, 'octocat/new-name');
   assert.equal(comparison.stars, 11);
   assert.equal(renamed.stargazers_count - comparison.stars, 7);
+});
+
+await test('same-day history keeps repositories missing from a later refresh', async () => {
+  const firstAt = Date.UTC(2026, 0, 2, 8);
+  const alpha = {
+    id: 1,
+    full_name: 'octocat/alpha',
+    stargazers_count: 10,
+    forks_count: 2,
+    private: false,
+  };
+  const bravo = {
+    id: 2,
+    full_name: 'octocat/bravo',
+    stargazers_count: 20,
+    forks_count: 4,
+    private: false,
+  };
+  let history = recordDailyHistory(
+    null,
+    { source: 'api', confidence: 'exact', repos: [alpha, bravo] },
+    { now: firstAt },
+  );
+  history = recordDailyHistory(
+    history,
+    {
+      source: 'api',
+      confidence: 'exact',
+      repos: [{ ...alpha, stargazers_count: 12, forks_count: 3 }],
+    },
+    { now: firstAt + 3_600_000 },
+  );
+
+  assert.equal(history.snapshots.length, 1);
+  const rows = historyRows(history);
+  assert.deepEqual(
+    rows.map((row) => [row.fullName, row.stars, row.forks]),
+    [
+      ['octocat/alpha', 12, 3],
+      ['octocat/bravo', 20, 4],
+    ],
+  );
+});
+
+await test('lower-confidence same-day history never displaces an exact point', async () => {
+  const firstAt = Date.UTC(2026, 0, 3, 8);
+  const repo = {
+    id: 1,
+    full_name: 'octocat/alpha',
+    stargazers_count: 10,
+    forks_count: 2,
+    private: false,
+  };
+  const exact = recordDailyHistory(
+    null,
+    { source: 'api', confidence: 'exact', repos: [repo] },
+    { now: firstAt },
+  );
+
+  for (const confidence of ['partial', 'stale']) {
+    const history = recordDailyHistory(
+      exact,
+      {
+        source: 'web',
+        confidence,
+        repos: [{ ...repo, stargazers_count: 99, forks_count: 9 }],
+      },
+      { now: firstAt + 3_600_000 },
+    );
+    assert.equal(history.snapshots[0].confidence, 'exact');
+    assert.equal(history.snapshots[0].source, 'api');
+    assert.equal(history.snapshots[0].stars[0], 10);
+    assert.equal(history.snapshots[0].forks[0], 2);
+  }
+});
+
+await test('an empty generation cannot erase same-day history', async () => {
+  const firstAt = Date.UTC(2026, 0, 4, 8);
+  const history = recordDailyHistory(
+    null,
+    {
+      source: 'api',
+      confidence: 'exact',
+      repos: [
+        {
+          id: 1,
+          full_name: 'octocat/alpha',
+          stargazers_count: 10,
+          forks_count: 2,
+          private: false,
+        },
+      ],
+    },
+    { now: firstAt },
+  );
+  const afterEmpty = recordDailyHistory(
+    history,
+    { source: 'api', confidence: 'exact', repos: [] },
+    { now: firstAt + 3_600_000 },
+  );
+
+  assert.deepEqual(afterEmpty, history);
 });
 
 await test('a trend series survives a change of data source', async () => {

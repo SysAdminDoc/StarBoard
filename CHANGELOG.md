@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- A partial, stale, or empty refresh can no longer erase a richer history point
+  recorded earlier on the same UTC day. Same-confidence refreshes merge at the
+  repository level, while lower-confidence generations leave the retained
+  point untouched.
 - Data-quality caveats are no longer hidden in tooltips. The reason a change
   column shows a dash, and the fact that some counts are approximate or come
   from the last snapshot rather than a live read, now appear as visible text
