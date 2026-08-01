@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Options-page contrast is now regression-tested in dark and light themes;
+  disabled notification labels remain readable and the token-mode choice no
+  longer clips at the page's own width.
 - CSV exports now guard ASCII, control-character, and full-width formula
   prefixes with an Excel-resistant tab while preserving numeric deltas.
 - Refresh retries now survive Manifest V3 worker teardown. Recovery alarms are

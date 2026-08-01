@@ -157,19 +157,29 @@ async function minimumTextContrast(page, theme) {
       const second = luminance(background);
       return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
     };
-    const values = [
-      ratio(read('--faint'), read('--bg')),
-      ratio(read('--faint'), read('--surface')),
-      ratio(read('--faint'), read('--surface-soft')),
-      ratio(read('--muted'), read('--bg')),
-      ratio(read('--muted'), read('--surface')),
+    const pairs = [
+      ['--faint', '--bg'],
+      ['--faint', '--surface'],
+      ['--faint', '--surface-soft'],
+      ['--muted', '--bg'],
+      ['--muted', '--surface'],
       // The onboarding call to action carries white text; it failed AA in dark
       // theme while every other pair passed, so it has to be enumerated.
-      ratio('#ffffff', read('--accent-strong')),
+      ['#ffffff', '--accent-strong'],
       // Rank medals were dark-theme literals with no light-theme override.
-      ratio(read('--rank-silver-text'), read('--surface-raised')),
-      ratio(read('--rank-bronze-text'), read('--surface-raised')),
+      ['--rank-silver-text', '--surface-raised'],
+      ['--rank-bronze-text', '--surface-raised'],
     ];
+    // The options page shares the core palette but has no rank-medal tokens.
+    // Keep one helper for both surfaces without turning an absent optional pair
+    // into NaN and silently disabling the gate.
+    const values = pairs
+      .map(([foreground, background]) => [
+        foreground.startsWith('#') ? foreground : read(foreground),
+        read(background),
+      ])
+      .filter(([foreground, background]) => foreground && background)
+      .map(([foreground, background]) => ratio(foreground, background));
     root.dataset.theme = previous;
     return Math.min(...values);
   }, theme);
@@ -741,6 +751,7 @@ async function main() {
     // opening the page must not request permission; Save supplies the required
     // user gesture in production.
     const firstRunOptions = await ctx.newPage();
+    await firstRunOptions.setViewportSize({ width: 800, height: 900 });
     await firstRunOptions.goto(`chrome-extension://${extId}/src/options.html`);
     await firstRunOptions.waitForSelector('#dataSource');
     await firstRunOptions.waitForFunction(
@@ -778,6 +789,47 @@ async function main() {
     check(
       'PAT storage defaults to the browser session',
       (await firstRunOptions.inputValue('#tokenMode')) === 'session',
+    );
+    for (const theme of ['dark', 'light']) {
+      const text = await minimumTextContrast(firstRunOptions, theme);
+      check(
+        `options ${theme}-theme text pairs all reach 4.5:1`,
+        text >= 4.5,
+        text.toFixed(2),
+      );
+      const control = await minimumControlContrast(firstRunOptions, theme);
+      check(
+        `options ${theme}-theme control boundaries reach 3:1`,
+        control >= 3,
+        control.toFixed(2),
+      );
+    }
+    const tokenModeLayout = await firstRunOptions.$eval('#tokenMode', (select) => {
+      const field = document.querySelector('#tokenField');
+      const previousDisplay = field.style.display;
+      field.style.display = 'block';
+      const styles = getComputedStyle(select);
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      context.font = styles.font;
+      const textWidth = context.measureText(select.selectedOptions[0].textContent).width;
+      const required =
+        textWidth +
+        Number.parseFloat(styles.paddingLeft) +
+        Number.parseFloat(styles.paddingRight) +
+        28;
+      const result = {
+        available: select.clientWidth,
+        required: Math.ceil(required),
+        text: select.selectedOptions[0].textContent,
+      };
+      field.style.display = previousDisplay;
+      return result;
+    });
+    check(
+      'token storage selector shows its full option text',
+      tokenModeLayout.available >= tokenModeLayout.required,
+      JSON.stringify(tokenModeLayout),
     );
     check(
       'website source defaults to a 12-hour interval',

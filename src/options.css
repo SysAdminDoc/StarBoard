@@ -903,10 +903,6 @@ input[type='checkbox'][role='switch']:focus-visible {
   width: 100%;
 }
 
-.notification-grid[aria-disabled='true'] {
-  opacity: 0.52;
-}
-
 footer {
   margin-top: 26px;
   color: var(--faint);
@@ -959,6 +955,13 @@ footer::before {
 
   .card {
     padding: 19px;
+  }
+}
+
+@media (max-width: 900px) {
+  .token-storage-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 }
 
