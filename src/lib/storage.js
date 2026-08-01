@@ -108,6 +108,7 @@ const AREA = chrome.storage.local;
 const SESSION_AREA = chrome.storage.session;
 
 let writeQueue = Promise.resolve();
+let quarantineQueue = Promise.resolve();
 
 function serialized(work) {
   const result = writeQueue.then(work, work);
@@ -425,26 +426,74 @@ async function readLastKnownGood() {
   return raw.data;
 }
 
-async function quarantine(key, raw, reason) {
-  const stored = (await AREA.get(STORAGE_KEYS.quarantine))[STORAGE_KEYS.quarantine];
-  const records =
-    isObject(stored) &&
-    Number.isInteger(stored.schemaVersion) &&
-    stored.schemaVersion >= 1 &&
-    stored.schemaVersion <= SCHEMA_VERSION &&
-    Array.isArray(stored.data?.records)
-      ? stored.data.records
-      : [];
-  const next = [
-    ...records.slice(-9),
-    {
+function quarantineRecords(raw) {
+  return isObject(raw) &&
+    Number.isInteger(raw.schemaVersion) &&
+    raw.schemaVersion >= 1 &&
+    raw.schemaVersion <= SCHEMA_VERSION &&
+    Array.isArray(raw.data?.records)
+    ? raw.data.records
+    : [];
+}
+
+function quarantine(key, raw, reason, outcome, writes = {}) {
+  const work = async () => {
+    const stored = (await AREA.get(STORAGE_KEYS.quarantine))[STORAGE_KEYS.quarantine];
+    rejectFutureSchema(STORAGE_KEYS.quarantine, stored);
+    const records = quarantineRecords(stored);
+    const at = Date.now();
+    const notice = {
+      id: `${at}:${key}:${crypto.randomUUID()}`,
       key,
-      at: Date.now(),
+      label: RECORD_LABELS[key] || key,
+      at,
       reason: String(reason || 'invalid record').slice(0, 240),
+      outcome,
+      acknowledgedAt: null,
       detectedSchema: Number.isInteger(raw?.schemaVersion) ? raw.schemaVersion : null,
-    },
-  ];
-  await commit({ [STORAGE_KEYS.quarantine]: makeEnvelope({ records: next }) });
+    };
+    await commit({
+      ...writes,
+      [STORAGE_KEYS.quarantine]: makeEnvelope({
+        records: [...records.slice(-9), notice],
+      }),
+    });
+    return copy(notice);
+  };
+  const result = quarantineQueue.then(work, work);
+  quarantineQueue = result.catch(() => {});
+  return result;
+}
+
+export async function getStorageRecoveryNotice() {
+  const raw = (await AREA.get(STORAGE_KEYS.quarantine))[STORAGE_KEYS.quarantine];
+  rejectFutureSchema(STORAGE_KEYS.quarantine, raw);
+  const notice = [...quarantineRecords(raw)]
+    .reverse()
+    .find((record) =>
+      !record.acknowledgedAt && ['restored', 'reset'].includes(record.outcome),
+    );
+  return notice ? copy(notice) : null;
+}
+
+export async function dismissStorageRecoveryNotice(id) {
+  return serialized(async () => {
+    const raw = (await AREA.get(STORAGE_KEYS.quarantine))[STORAGE_KEYS.quarantine];
+    rejectFutureSchema(STORAGE_KEYS.quarantine, raw);
+    const records = quarantineRecords(raw);
+    let dismissed = false;
+    const next = records.map((record) => {
+      if (record.id !== id || record.acknowledgedAt) return record;
+      dismissed = true;
+      return { ...record, acknowledgedAt: Date.now() };
+    });
+    if (dismissed) {
+      await commit({
+        [STORAGE_KEYS.quarantine]: makeEnvelope({ records: next }),
+      });
+    }
+    return dismissed;
+  });
 }
 
 /**
@@ -542,21 +591,24 @@ async function writeRecords(records, generation = null) {
 }
 
 async function restoreRecord(key, raw, reason) {
-  await quarantine(key, raw, reason);
   const backup = await readLastKnownGood();
   const candidate = backup[key];
   if (candidate) {
+    let envelope;
     try {
-      const { envelope } = migrateRecord(key, candidate);
-      await commit({ [key]: envelope });
-      return copy(envelope.data);
+      ({ envelope } = migrateRecord(key, candidate));
     } catch (error) {
       if (isVersionError(error)) throw error;
       // The backup is also unusable; fall through to a clean record.
     }
+    if (envelope) {
+      const recovery = await quarantine(key, raw, reason, 'restored', { [key]: envelope });
+      return { value: copy(envelope.data), recovery };
+    }
   }
+  const recovery = await quarantine(key, raw, reason, 'reset');
   await AREA.remove(key);
-  return null;
+  return { value: null, recovery };
 }
 
 async function readRecord(key) {
@@ -567,14 +619,20 @@ async function readRecord(key) {
     migrated = migrateRecord(key, raw);
   } catch (error) {
     if (isVersionError(error)) throw error;
-    return restoreRecord(key, raw, error.message);
+    const restored = await restoreRecord(key, raw, error.message);
+    return restored.value;
   }
   if (migrated.changed) {
     try {
       await writeRecords({ [key]: migrated.envelope.data });
     } catch (error) {
       if (isVersionError(error)) throw error;
-      return restoreRecord(key, raw, `migration write failed: ${error.message}`);
+      const restored = await restoreRecord(
+        key,
+        raw,
+        `migration write failed: ${error.message}`,
+      );
+      return restored.value;
     }
   }
   return copy(migrated.envelope.data);

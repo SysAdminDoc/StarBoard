@@ -17,6 +17,8 @@ import {
   deleteSavedPortfolioView,
   activateSavedPortfolioView,
   createUndoSnapshot,
+  dismissStorageRecoveryNotice,
+  getStorageRecoveryNotice,
   STORAGE_KEYS,
   applyTheme,
 } from './lib/storage.js';
@@ -124,6 +126,7 @@ let state = {
   baseline: null,
   history: null,
   portfolioViews: null,
+  storageRecoveryNotice: null,
   trendRange: 'baseline',
 };
 let refreshing = false;
@@ -764,6 +767,26 @@ function renderBanner() {
 }
 
 function renderBannerContent() {
+  if (state.storageRecoveryNotice) {
+    const notice = state.storageRecoveryNotice;
+    const outcome =
+      notice.outcome === 'restored'
+        ? 'was restored from the last-known-good copy after its stored record became invalid.'
+        : 'was reset because neither its stored record nor its recovery copy could be read.';
+    showBanner(`${notice.label} ${outcome} ${sentence(notice.reason)}`, {
+      label: 'Dismiss',
+      onClick: async () => {
+        try {
+          await dismissStorageRecoveryNotice(notice.id);
+          state.storageRecoveryNotice = await getStorageRecoveryNotice();
+          renderBanner();
+        } catch (error) {
+          announce(`Could not dismiss the storage notice. ${sentence(error.message)}`);
+        }
+      },
+    });
+    return;
+  }
   if (!navigator.onLine) {
     showBanner(
       state.cache?.repos
@@ -1414,6 +1437,9 @@ window.addEventListener('online', () => {
       getHistory(),
       getPortfolioViewState(),
     ]);
+    // Read this after the records: one of those reads may have just restored
+    // or reset an invalid envelope and written the notice we need to show.
+    state.storageRecoveryNotice = await getStorageRecoveryNotice();
   } catch (error) {
     // Without settings there is nothing to render. Say so rather than leaving
     // the static "Loading…" markup on screen with every control disabled.

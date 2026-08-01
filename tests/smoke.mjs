@@ -804,6 +804,86 @@ async function main() {
       JSON.stringify(downgradeResult),
     );
 
+    await firstRunOptions.evaluate(async () => {
+      const { SCHEMA_VERSION, STORAGE_KEYS } = await import('./lib/storage.js');
+      const stored = await chrome.storage.local.get(STORAGE_KEYS.lastKnownGood);
+      const recovery = stored[STORAGE_KEYS.lastKnownGood] || {
+        schemaVersion: SCHEMA_VERSION,
+        savedAt: Date.now(),
+        generation: null,
+        data: {},
+      };
+      delete recovery.data[STORAGE_KEYS.cache];
+      await chrome.storage.local.set({
+        [STORAGE_KEYS.lastKnownGood]: recovery,
+        [STORAGE_KEYS.cache]: {
+          schemaVersion: SCHEMA_VERSION,
+          savedAt: Date.now(),
+          generation: null,
+          data: { corrupt: true },
+        },
+      });
+    });
+    const recoveryPopup = await ctx.newPage();
+    captureErrors(recoveryPopup, 'storage recovery popup');
+    let recoveryResult;
+    try {
+      await recoveryPopup.goto(`chrome-extension://${extId}/src/popup.html`);
+      await recoveryPopup.waitForFunction(
+        () => document.querySelector('#banner .banner-action')?.textContent === 'Dismiss',
+        { timeout: 10000 },
+      );
+      recoveryResult = await recoveryPopup.evaluate(async () => {
+        const { getStorageRecoveryNotice, STORAGE_KEYS } = await import('./lib/storage.js');
+        return {
+          banner: document.querySelector('#banner')?.textContent || '',
+          action: document.querySelector('#banner .banner-action')?.textContent || '',
+          notice: await getStorageRecoveryNotice(),
+          cache: (await chrome.storage.local.get(STORAGE_KEYS.cache))[STORAGE_KEYS.cache],
+        };
+      });
+      await recoveryPopup.click('#banner .banner-action');
+      await recoveryPopup.waitForFunction(() => document.querySelector('#banner')?.hidden);
+      recoveryResult.noticeAfterDismiss = await recoveryPopup.evaluate(async () => {
+        const { getStorageRecoveryNotice } = await import('./lib/storage.js');
+        return getStorageRecoveryNotice();
+      });
+    } catch (error) {
+      recoveryResult = { error: error.message };
+    } finally {
+      await recoveryPopup.close();
+    }
+    check(
+      'a reset record names the loss and reason in a dismissible popup banner',
+      recoveryResult.action === 'Dismiss' &&
+        /repository snapshot was reset/i.test(recoveryResult.banner || '') &&
+        /cache profile login missing/i.test(recoveryResult.banner || '') &&
+        recoveryResult.notice?.outcome === 'reset' &&
+        recoveryResult.cache == null &&
+        recoveryResult.noticeAfterDismiss == null,
+      JSON.stringify(recoveryResult),
+    );
+
+    await firstRunOptions.reload();
+    await firstRunOptions.waitForFunction(
+      () =>
+        /1 storage record quarantined/i.test(
+          document.querySelector('#storageInfo')?.textContent || '',
+        ) && !document.querySelector('#storageDiagnosticsLink')?.hidden,
+    );
+    const recoveryLink = await firstRunOptions.$eval('#storageDiagnosticsLink', (node) => ({
+      text: node.textContent.trim(),
+      href: node.getAttribute('href'),
+      hidden: node.hidden,
+    }));
+    check(
+      'settings reports quarantined records with a local-diagnostics link',
+      recoveryLink.hidden === false &&
+        recoveryLink.href === '#localDiagnostics' &&
+        /local diagnostics/i.test(recoveryLink.text),
+      JSON.stringify(recoveryLink),
+    );
+
     await firstRunOptions.check('#includeHistoryExport');
     await firstRunOptions.evaluate(() => {
       const NativeTextEncoder = TextEncoder;

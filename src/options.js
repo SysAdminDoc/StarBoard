@@ -7,6 +7,7 @@ import {
   getHistory,
   getNotificationConfig,
   getPortfolioViewState,
+  getStorageDiagnostics,
   applyTheme,
 } from './lib/storage.js';
 import { historyStats } from './lib/history.js';
@@ -111,19 +112,28 @@ async function withBusy(button, busyLabel, work) {
 }
 
 async function showStorageInfo() {
-  const bytes = await chrome.storage.local.getBytesInUse(null);
   const [cache, settings, history] = await Promise.all([
     getCache(),
     getSettings(),
     getHistory(),
   ]);
+  // Read diagnostics after the records because those reads can quarantine an
+  // invalid envelope and the count should reflect that recovery immediately.
+  const [bytes, diagnostics] = await Promise.all([
+    chrome.storage.local.getBytesInUse(null),
+    getStorageDiagnostics(),
+  ]);
   const repos = cache?.repos?.length || 0;
   const badgeRepos = cache?.repos?.filter((repo) => settings.includeForks || !repo.fork);
   const stars = badgeRepos?.reduce((total, repo) => total + repo.stargazers_count, 0);
   const trends = historyStats(history);
-  $('storageInfo').textContent =
+  $('storageSummary').textContent =
     `${repos} repos cached, ${trends.points} daily trend points across ` +
-    `${trends.days} day${trends.days === 1 ? '' : 's'}, ${(bytes / 1024).toFixed(1)} KB total.`;
+    `${trends.days} day${trends.days === 1 ? '' : 's'}, ${(bytes / 1024).toFixed(1)} KB total.` +
+    (diagnostics.quarantined
+      ? ` ${diagnostics.quarantined} storage record${diagnostics.quarantined === 1 ? '' : 's'} quarantined.`
+      : '');
+  $('storageDiagnosticsLink').hidden = diagnostics.quarantined === 0;
   $('badgePreview').textContent = stars == null ? '—' : stars.toLocaleString();
 }
 

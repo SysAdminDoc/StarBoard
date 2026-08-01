@@ -332,7 +332,12 @@
           </div>
           <p class="note storage-note">
             Everything StarBoard stores stays local:
-            <span id="storageInfo">—</span>
+            <span id="storageInfo">
+              <span id="storageSummary">—</span>
+              <a id="storageDiagnosticsLink" href="#localDiagnostics" hidden>
+                Review local diagnostics →
+              </a>
+            </span>
           </p>
           <div class="privacy-disclosure">
             <h3>Privacy at a glance</h3>
@@ -418,7 +423,7 @@
               </div>
             </div>
           </div>
-          <div class="data-tool diagnostics-tool">
+          <div id="localDiagnostics" class="data-tool diagnostics-tool">
             <div>
               <h3>Local diagnostics</h3>
               <p>

@@ -370,19 +370,63 @@ await test('a schema upgrade keeps the complete recovery copy through its first 
 });
 
 await test('corrupt settings restore last-known-good and record redacted quarantine metadata', async () => {
-  const saved = await storage.setSettings({ username: 'safe-user', dataSource: 'api' });
-  area.values.settings = {
-    schemaVersion: storage.SCHEMA_VERSION,
-    savedAt: 10,
-    generation: null,
-    data: { username: 42, token: 'must-not-leak' },
-  };
-  const restored = await storage.getSettings();
-  assert.equal(restored.username, saved.username);
-  assert.equal(area.values.settings.schemaVersion, storage.SCHEMA_VERSION);
-  const quarantine = JSON.stringify(area.values.starboardQuarantine);
-  assert.match(quarantine, /invalid username|invalid data source/);
-  assert.doesNotMatch(quarantine, /must-not-leak/);
+  const originalLocal = clone(area.values);
+  const originalSession = clone(sessionArea.values);
+  try {
+    replaceAreaValues(area, {});
+    replaceAreaValues(sessionArea, {});
+    const saved = await storage.setSettings({ username: 'safe-user', dataSource: 'api' });
+    area.values.settings = {
+      schemaVersion: storage.SCHEMA_VERSION,
+      savedAt: 10,
+      generation: null,
+      data: { username: 42, token: 'must-not-leak' },
+    };
+
+    const restored = await storage.getSettings();
+    const notice = await storage.getStorageRecoveryNotice();
+    assert.equal(restored.username, saved.username);
+    assert.equal(area.values.settings.schemaVersion, storage.SCHEMA_VERSION);
+    assert.equal(notice.key, storage.STORAGE_KEYS.settings);
+    assert.equal(notice.label, 'Settings');
+    assert.equal(notice.outcome, 'restored');
+    assert.match(notice.reason, /invalid username|invalid data source/);
+    assert.doesNotMatch(JSON.stringify(notice), /must-not-leak/);
+    assert.equal((await storage.getStorageDiagnostics()).quarantined, 1);
+
+    assert.equal(await storage.dismissStorageRecoveryNotice(notice.id), true);
+    assert.equal(await storage.getStorageRecoveryNotice(), null);
+    assert.ok(area.values.starboardQuarantine.data.records[0].acknowledgedAt);
+  } finally {
+    replaceAreaValues(area, originalLocal);
+    replaceAreaValues(sessionArea, originalSession);
+  }
+});
+
+await test('a corrupt record without a usable recovery copy reports why it was reset', async () => {
+  const originalLocal = clone(area.values);
+  const originalSession = clone(sessionArea.values);
+  try {
+    replaceAreaValues(area, {});
+    replaceAreaValues(sessionArea, {});
+    area.values.cache = {
+      schemaVersion: storage.SCHEMA_VERSION,
+      savedAt: 10,
+      generation: null,
+      data: { corrupt: true },
+    };
+
+    assert.equal(await storage.getCache(), null);
+    const notice = await storage.getStorageRecoveryNotice();
+    assert.equal(notice.key, storage.STORAGE_KEYS.cache);
+    assert.equal(notice.label, 'The repository snapshot');
+    assert.equal(notice.outcome, 'reset');
+    assert.match(notice.reason, /cache profile login missing/);
+    assert.equal(area.values.cache, undefined);
+  } finally {
+    replaceAreaValues(area, originalLocal);
+    replaceAreaValues(sessionArea, originalSession);
+  }
 });
 
 await test('PATs survive source switches and clear only through Forget token', async () => {

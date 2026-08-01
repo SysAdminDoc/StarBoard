@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Invalid local records no longer disappear silently. StarBoard records whether
+  each one was restored or reset and why, shows a dismissible recovery banner
+  in the popup, and retains a quarantine count with a diagnostics link in
+  Settings.
 - Switching to the website source no longer silently erases a session or
   persistent API token. The hidden credential remains unused by website reads,
   returns when API mode is selected again, and is removed only by an explicit
