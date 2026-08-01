@@ -13,9 +13,6 @@
   "optional_permissions": [
     "notifications"
   ],
-  "host_permissions": [
-    "https://api.github.com/*"
-  ],
   "optional_host_permissions": [
     "https://github.com/*"
   ],

@@ -63,7 +63,7 @@ function buildWebVariant(source) {
   }
   const manifestPath = resolve(WEB_BUILD, 'manifest.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  manifest.host_permissions = [...manifest.host_permissions, 'https://github.com/*'];
+  manifest.host_permissions = [...(manifest.host_permissions || []), 'https://github.com/*'];
   delete manifest.optional_host_permissions;
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   return WEB_BUILD;
@@ -545,6 +545,12 @@ async function main() {
   mkdirSync(SHOTS, { recursive: true });
 
   const source = FROM_ZIP ? unpackBuiltZip() : ROOT;
+  const sourceManifest = JSON.parse(readFileSync(resolve(source, 'manifest.json'), 'utf8'));
+  check(
+    'API source does not request host access',
+    !(sourceManifest.host_permissions || []).includes('https://api.github.com/*'),
+    JSON.stringify(sourceManifest.host_permissions || []),
+  );
 
   const ctx = await chromium.launchPersistentContext(PROFILE, {
     ...BROWSER_CHANNEL,
@@ -3299,6 +3305,7 @@ async function main() {
     check(
       'local diagnostics expose version, permission, storage, refresh, and alarm health',
       diagnostics.extension.minimumChromeVersion === '120' &&
+        diagnostics.permissions.githubApiHostAccess === false &&
         typeof diagnostics.permissions.githubWebsite === 'boolean' &&
         diagnostics.storage.schemaVersion === expectedSchema &&
         diagnostics.refresh.lastSuccessfulAt &&

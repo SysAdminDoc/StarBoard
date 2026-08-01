@@ -151,6 +151,8 @@ rounded.
 
 A full refresh of a 200-repo account costs 3–4 requests. Tokens use
 `chrome.storage.session` by default and are sent only to `api.github.com`.
+API mode uses the endpoint's CORS policy and requests no host permission; only
+the optional website mode asks for `github.com` access.
 Persistent storage is available as an explicit warned choice, with a dedicated
 **Forget token** action.
 
@@ -162,7 +164,7 @@ is the recommended zero-setup choice.
 
 StarBoard has no developer telemetry, analytics, advertising, remote backend
 or third-party data sharing. Its only network destinations are the two GitHub
-hosts described above.
+hosts described above, and API mode does not request host access for either.
 
 - **Data kept locally:** your username, display preferences, repository/profile
   snapshot, comparison baseline, daily trend points, refresh metadata and
@@ -191,8 +193,8 @@ hosts described above.
   normalized error-code and alarm metadata. It excludes tokens, cookies,
   usernames, repository names, URLs, raw HTML and raw error messages.
 - **Required permissions:** `storage` keeps local state, `alarms` runs the
-  selected refresh/retry schedule, `offscreen` provides `DOMParser`, and
-  `https://api.github.com/*` supports the secondary API source.
+  selected refresh/retry schedule, and `offscreen` provides `DOMParser`. The
+  secondary API source uses CORS and needs no host permission.
 - **Optional permissions:** `https://github.com/*` is requested only from a
   user action when the website source is selected. `notifications` is requested
   only when local alerts are turned on; alerts are disabled by default.

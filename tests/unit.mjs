@@ -818,7 +818,7 @@ await test('REST adapter follows Link pagination and reuses ETag snapshots', asy
   const firstFetch = async (url, options) => {
     requests.push({ url, headers: options.headers });
     const parsed = new URL(url);
-    if (parsed.pathname === '/users/octocat') {
+    if (parsed.pathname === '/users/octocat' || parsed.pathname === '/user') {
       return new Response(JSON.stringify(profile), {
         status: 200,
         headers: { etag: '"profile"', 'x-ratelimit-remaining': '59' },
@@ -848,6 +848,24 @@ await test('REST adapter follows Link pagination and reuses ETag snapshots', asy
   assert.ok(
     requests.every(({ headers }) => headers['X-GitHub-Api-Version'] === '2026-03-10'),
     'every REST request must pin the current GitHub API version',
+  );
+
+  const authenticatedHeaders = [];
+  await fetchAccount(
+    { username: 'octocat', token: 'ghp_fixture' },
+    {
+      fetchImpl: async (url, options) => {
+        authenticatedHeaders.push(options.headers.Authorization);
+        return firstFetch(url, options);
+      },
+      sleep: async () => {},
+      now: () => 1500,
+    },
+  );
+  assert.ok(
+    authenticatedHeaders.length > 0 &&
+      authenticatedHeaders.every((value) => value === 'Bearer ghp_fixture'),
+    'token requests remain authenticated without a host permission',
   );
 
   const conditionalHeaders = [];

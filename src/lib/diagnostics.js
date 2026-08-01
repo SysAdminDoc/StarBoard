@@ -62,7 +62,7 @@ export function buildDiagnostics({
       pending: ['api', 'web'].includes(cache?.pendingSource) ? cache.pendingSource : null,
     },
     permissions: {
-      githubApi: true,
+      githubApiHostAccess: false,
       githubWebsite: !!websitePermission,
       notifications: !!notificationPermission,
     },
