@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Published the missing v1.3.0 and v1.4.0 GitHub releases from their exact
+  version-bump commits with reproducible ZIPs, checksums, per-file manifests,
+  and SPDX SBOMs. Validation now rejects a newest changelog release without
+  its corresponding git tag, and CI fetches full tag history for that gate.
 - Imported cache links are now constrained to GitHub origins before they reach
   the popup. Off-origin or malformed profile, avatar, and repository URLs are
   replaced with safe links derived from the validated account and repository

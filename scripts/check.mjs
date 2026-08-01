@@ -92,6 +92,18 @@ if (!newestHeading) {
   failures.push(
     `newest CHANGELOG heading v${newestHeading[1]} does not match manifest ${version}`,
   );
+} else {
+  const releaseTag = `v${newestHeading[1]}`;
+  const tagCheck = spawnSync(
+    'git',
+    ['rev-parse', '--verify', '--quiet', `refs/tags/${releaseTag}^{commit}`],
+    { cwd: ROOT, encoding: 'utf8' },
+  );
+  if (tagCheck.status !== 0) {
+    failures.push(
+      `newest CHANGELOG release ${releaseTag} has no corresponding git tag`,
+    );
+  }
 }
 // Store metadata is hand-mirrored from the manifest; drift is what gets a
 // submission rejected.
