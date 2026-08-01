@@ -90,6 +90,9 @@
 
 ### Changed
 
+- The test harness models `chrome.storage` faithfully: it enforces the byte
+  quota and rejects an oversized write whole, emits change events, and resets
+  between cases so tests are no longer order-coupled.
 - The offline test lane now drives the real refresh pipeline — background
   orchestration, the REST adapter, generation commit, deltas, history, the
   toolbar badge and backup/CSV export — against fixtures injected into the

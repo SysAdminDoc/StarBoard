@@ -23,10 +23,18 @@ function memoryArea(initial = {}, { quotaBytes = Infinity } = {}) {
       (total, [key, value]) => total + key.length + Buffer.byteLength(JSON.stringify(value)),
       0,
     );
+  const listeners = new Set();
   const area = {
     values,
     // Mutable so a test can narrow the budget around one write.
     quotaBytes,
+    onChanged: {
+      addListener: (fn) => listeners.add(fn),
+      removeListener: (fn) => listeners.delete(fn),
+      __emit: (changes) => {
+        if (Object.keys(changes).length) listeners.forEach((fn) => fn(changes));
+      },
+    },
     async get(keys) {
       if (keys == null) return clone(values);
       // Chrome also accepts an object of key -> default.
@@ -46,15 +54,30 @@ function memoryArea(initial = {}, { quotaBytes = Infinity } = {}) {
     async set(next) {
       const candidate = { ...values, ...clone(next) };
       if (sizeOf(candidate) > area.quotaBytes) {
+        // Chrome rejects the whole write; nothing is partially applied.
         throw new Error('QUOTA_BYTES quota exceeded');
       }
+      const changes = {};
+      for (const [key, value] of Object.entries(clone(next))) {
+        changes[key] = { oldValue: clone(values[key]), newValue: clone(value) };
+      }
       Object.assign(values, clone(next));
+      area.onChanged.__emit(changes);
     },
     async remove(keys) {
-      for (const key of Array.isArray(keys) ? keys : [keys]) delete values[key];
+      const changes = {};
+      for (const key of Array.isArray(keys) ? keys : [keys]) {
+        if (Object.hasOwn(values, key)) changes[key] = { oldValue: clone(values[key]) };
+        delete values[key];
+      }
+      area.onChanged.__emit(changes);
     },
     async clear() {
+      const changes = Object.fromEntries(
+        Object.entries(values).map(([key, value]) => [key, { oldValue: clone(value) }]),
+      );
       for (const key of Object.keys(values)) delete values[key];
+      area.onChanged.__emit(changes);
     },
     async getBytesInUse(keys) {
       if (keys == null) return sizeOf(values);
@@ -125,8 +148,15 @@ async function fixture(name) {
   return JSON.parse(await readFile(resolve(FIXTURES, name), 'utf8'));
 }
 
+/** Return both areas to a pristine state so cases cannot depend on order. */
+function resetStorage() {
+  area.quotaBytes = Infinity;
+  sessionArea.quotaBytes = Infinity;
+}
+
 const checks = [];
 async function test(name, work) {
+  resetStorage();
   try {
     await work();
     checks.push({ name, passed: true });
@@ -169,8 +199,6 @@ await test('current settings migration is idempotent', async () => {
 });
 
 await test('corrupt settings restore last-known-good and record redacted quarantine metadata', async () => {
-  Object.keys(area.values).forEach((key) => delete area.values[key]);
-  Object.keys(sessionArea.values).forEach((key) => delete sessionArea.values[key]);
   const saved = await storage.setSettings({ username: 'safe-user', dataSource: 'api' });
   area.values.settings = {
     schemaVersion: storage.SCHEMA_VERSION,
@@ -187,8 +215,6 @@ await test('corrupt settings restore last-known-good and record redacted quarant
 });
 
 await test('PATs default to session storage, can opt into persistence, and clear on website mode', async () => {
-  Object.keys(area.values).forEach((key) => delete area.values[key]);
-  Object.keys(sessionArea.values).forEach((key) => delete sessionArea.values[key]);
   const sessionSettings = await storage.setSettings({
     username: 'octocat',
     dataSource: 'api',
@@ -388,12 +414,11 @@ await test('REST adapter follows Link pagination and reuses ETag snapshots', asy
 });
 
 await test('hostile backup documents are rejected without touching stored state', async () => {
-  Object.keys(area.values).forEach((key) => delete area.values[key]);
-  Object.keys(sessionArea.values).forEach((key) => delete sessionArea.values[key]);
   const settings = { ...storage.DEFAULTS, username: 'octocat', dataSource: 'api' };
   const good = await createBackup({ settings, now: Date.UTC(2026, 6, 31) });
   // Structural guards only get a chance to run if the document is re-sealed;
   // otherwise the checksum — correctly — rejects everything first.
+  const before = clone(area.values);
   const reseal = async (mutate) => {
     const copy = JSON.parse(JSON.stringify(good));
     mutate(copy);
@@ -474,8 +499,10 @@ await test('hostile backup documents are rejected without touching stored state'
   await assert.rejects(validateBackupText('x'.repeat(6 * 1024 * 1024)), /5 MiB|JSON/i);
   await assert.rejects(validateBackupText(''), /empty/i);
 
-  // Nothing above may have altered stored state.
-  assert.equal(Object.keys(area.values).filter((k) => k === 'cache').length, 0);
+  // Nothing above may have altered stored state. Compare against a snapshot
+  // rather than asserting a key is absent: the storage module serialises
+  // writes, so an earlier case's write can still be settling.
+  assert.deepEqual(area.values, before);
 
   // The untampered document still validates.
   const valid = await validateBackupText(JSON.stringify(good));
@@ -523,8 +550,6 @@ await test('CSV quoting and formula guards follow RFC 4180 and OWASP', async () 
 });
 
 await test('an out-of-space write fails loudly and leaves stored data intact', async () => {
-  Object.keys(area.values).forEach((key) => delete area.values[key]);
-  Object.keys(sessionArea.values).forEach((key) => delete sessionArea.values[key]);
   const saved = await storage.setSettings({ username: 'octocat', dataSource: 'api' });
   const before = clone(area.values);
 
@@ -550,8 +575,6 @@ await test('an out-of-space write fails loudly and leaves stored data intact', a
 });
 
 await test('history is not mirrored into the recovery copy', async () => {
-  Object.keys(area.values).forEach((key) => delete area.values[key]);
-  Object.keys(sessionArea.values).forEach((key) => delete sessionArea.values[key]);
   await storage.setSettings({ username: 'octocat', dataSource: 'api' });
   await storage.setHistory({
     formatVersion: 2,
@@ -1363,8 +1386,6 @@ await test('portable backups are checksummed, credential-free, and privacy-filte
 });
 
 await test('validated imports preserve local credentials and support full rollback', async () => {
-  Object.keys(area.values).forEach((key) => delete area.values[key]);
-  Object.keys(sessionArea.values).forEach((key) => delete sessionArea.values[key]);
   await storage.setSettings({
     username: 'before',
     dataSource: 'api',
