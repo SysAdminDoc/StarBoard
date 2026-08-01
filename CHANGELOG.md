@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Backup import now has a regression proof that nested prototype-shaped JSON
+  remains inert through validation, migration, and repository object spreads;
+  the suspected pollution path was not exploitable and needed no data rewrite.
 - Token, username, access, and initial-setup failures now name the setting that
   needs attention and open Settings instead of offering a futile retry.
 - Source and ZIP checks now reject missing HTML assets, relative module imports,

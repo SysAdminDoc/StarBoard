@@ -927,6 +927,45 @@ await test('hostile backup documents are rejected without touching stored state'
   assert.equal(valid.records.settings.username, 'octocat');
 });
 
+await test('nested prototype keys stay inert through backup import and repository shaping', async () => {
+  const cache = {
+    profile: { login: 'octocat' },
+    repos: [
+      {
+        full_name: 'octocat/demo',
+        stargazers_count: 1,
+        forks_count: 0,
+        private: false,
+      },
+    ],
+    fetchedAt: Date.UTC(2026, 7, 1),
+    source: 'api',
+    confidence: 'exact',
+    lifecycleEvents: [],
+  };
+  const backup = await createBackup({
+    settings: { ...storage.DEFAULTS, username: 'octocat', dataSource: 'api' },
+    cache,
+    now: cache.fetchedAt,
+  });
+  const hostile = JSON.parse(JSON.stringify(backup));
+  Object.defineProperty(hostile.records.cache.data.repos[0], '__proto__', {
+    value: { polluted: true },
+    enumerable: true,
+  });
+  const { checksum: _checksum, ...core } = hostile;
+  hostile.checksum = { algorithm: 'SHA-256', value: await sha256Hex(stableStringify(core)) };
+
+  const preview = await validateBackupText(JSON.stringify(hostile));
+  const restored = preview.records.cache.repos[0];
+  const shaped = { ...restored };
+
+  assert.equal(Object.getPrototypeOf(restored), Object.prototype);
+  assert.equal(Object.getPrototypeOf(shaped), Object.prototype);
+  assert.equal(shaped.polluted, undefined);
+  assert.equal({}.polluted, undefined);
+});
+
 await test('backup import replaces off-origin profile, avatar, and repository URLs', async () => {
   const cache = {
     profile: {
