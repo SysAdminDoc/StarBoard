@@ -733,6 +733,201 @@ async function main() {
     await firstRunOptions.close();
 
     if (OFFLINE) {
+      // Everything above is static-state inspection. Drive the real refresh
+      // pipeline — background orchestration, the REST adapter, generation
+      // commit, history, deltas and the badge — against fixtures injected into
+      // the service worker, so CI covers it without touching the network.
+      await ctx.route('**', (route) => {
+        const url = route.request().url();
+        if (url.startsWith('chrome-extension://')) return route.continue();
+        // Nothing in offline mode may reach the network. Failing loudly here
+        // stops an accidental live fetch from silently "passing".
+        return route.abort();
+      });
+
+      const FIXTURE_PROFILE = {
+        login: 'octocat',
+        name: 'The Octocat',
+        avatar_url: '',
+        html_url: 'https://github.com/octocat',
+        public_repos: 3,
+        followers: 12,
+      };
+      const fixtureRepo = (id, name, stars, forks) => ({
+        id,
+        name,
+        full_name: `octocat/${name}`,
+        html_url: `https://github.com/octocat/${name}`,
+        description: `${name} description`,
+        language: 'JavaScript',
+        stargazers_count: stars,
+        forks_count: forks,
+        open_issues_count: 0,
+        private: false,
+        fork: false,
+        archived: false,
+        updated_at: '2026-07-30T12:00:00Z',
+        pushed_at: '2026-07-30T12:00:00Z',
+      });
+
+      const installFixtures = async (repos) => {
+        await worker.evaluate(
+          ([profile, list]) => {
+            globalThis.__starboardOriginalFetch ||= globalThis.fetch;
+            globalThis.fetch = async (input) => {
+              const url = String(input?.url || input);
+              const body = url.includes('/repos') ? list : profile;
+              return new Response(JSON.stringify(body), {
+                status: 200,
+                headers: {
+                  'content-type': 'application/json',
+                  'x-ratelimit-limit': '60',
+                  'x-ratelimit-remaining': '57',
+                  etag: `"${url.length}-${JSON.stringify(body).length}"`,
+                },
+              });
+            };
+          },
+          [FIXTURE_PROFILE, repos],
+        );
+      };
+
+      await installFixtures([
+        fixtureRepo(1, 'alpha', 30, 3),
+        fixtureRepo(2, 'bravo', 20, 2),
+        fixtureRepo(3, 'charlie', 10, 1),
+      ]);
+
+      await popup.evaluate(async () => {
+        const { setSettings } = await import('./lib/storage.js');
+        await setSettings({
+          username: 'octocat',
+          dataSource: 'api',
+          refreshMinutes: 60,
+          badgeMode: 'stars',
+        });
+      });
+      const firstRefresh = await popup.evaluate(() =>
+        chrome.runtime.sendMessage({ type: 'refresh', force: true, reason: 'fixture' }),
+      );
+      check(
+        'a full refresh commits through the background pipeline offline',
+        firstRefresh?.ok === true && firstRefresh.cache?.repos?.length === 3,
+        JSON.stringify({ ok: firstRefresh?.ok, repos: firstRefresh?.cache?.repos?.length }),
+      );
+      check(
+        'the committed snapshot is exact and complete',
+        firstRefresh?.cache?.confidence === 'exact' &&
+          firstRefresh.cache.complete === true &&
+          firstRefresh.cache.source === 'api',
+        firstRefresh?.cache?.confidence,
+      );
+      check(
+        'cache and baseline publish under one generation',
+        !!firstRefresh?.generation &&
+          firstRefresh.cache.generation === firstRefresh.generation &&
+          firstRefresh.baseline.generation === firstRefresh.generation,
+        firstRefresh?.generation,
+      );
+
+      await popup.reload();
+      await popup.waitForSelector('.row', { timeout: 15000 });
+      const rendered = await popup.$$eval('.row .name', (nodes) =>
+        nodes.map((node) => node.textContent),
+      );
+      check(
+        'the popup ranks the committed snapshot by stars',
+        rendered.length === 3 && rendered[0] === 'alpha' && rendered[2] === 'charlie',
+        rendered.join(','),
+      );
+
+      // A second generation with movement must produce visible deltas and a
+      // history point, without any network access.
+      await installFixtures([
+        fixtureRepo(1, 'alpha', 34, 3),
+        fixtureRepo(2, 'bravo', 20, 2),
+        fixtureRepo(3, 'charlie', 10, 1),
+      ]);
+      const secondRefresh = await popup.evaluate(() =>
+        chrome.runtime.sendMessage({ type: 'refresh', force: true, reason: 'fixture-2' }),
+      );
+      check(
+        'a second generation preserves the baseline so deltas appear',
+        secondRefresh?.ok === true &&
+          secondRefresh.cache.repos.find((repo) => repo.name === 'alpha').stargazers_count === 34,
+        JSON.stringify({ ok: secondRefresh?.ok }),
+      );
+      await popup.reload();
+      await popup.waitForSelector('.row', { timeout: 15000 });
+      const delta = await popup.textContent('.row .stat.stars .delta');
+      check('star gains render as a delta on the ranked row', /\+4/.test(delta || ''), delta);
+
+      const offlineState = await popup.evaluate(async () => {
+        const { getHistory, getCache } = await import('./lib/storage.js');
+        const [history, cache] = await Promise.all([getHistory(), getCache()]);
+        return {
+          formatVersion: history.formatVersion,
+          dictionary: history.repos.length,
+          days: history.snapshots.length,
+          stars: history.snapshots.at(-1)?.stars,
+          repos: cache.repos.length,
+        };
+      });
+      check(
+        'history records the generation in the compact format',
+        offlineState.formatVersion === 2 &&
+          offlineState.dictionary === 3 &&
+          offlineState.days === 1 &&
+          offlineState.stars.every((value) => value !== null),
+        JSON.stringify(offlineState),
+      );
+
+      const badge = await worker.evaluate(() => chrome.action.getBadgeText({}));
+      check('the toolbar badge reflects the committed totals', badge === '64', badge);
+
+      const exported = await popup.evaluate(async () => {
+        const { createBackup, validateBackupText, createCsv } = await import(
+          './lib/transfer.js'
+        );
+        const { getSettings, getCache, getBaseline, getHistory } = await import(
+          './lib/storage.js'
+        );
+        const [settings, cache, baseline, history] = await Promise.all([
+          getSettings(),
+          getCache(),
+          getBaseline(),
+          getHistory(),
+        ]);
+        const backup = await createBackup({
+          settings,
+          cache,
+          baseline,
+          history,
+          includeHistory: true,
+        });
+        const text = JSON.stringify(backup);
+        const validated = await validateBackupText(text);
+        return {
+          repositories: validated.summary.repositories,
+          historyDays: validated.summary.historyDays,
+          csvLines: createCsv({ cache, baseline, history, includeHistory: true })
+            .trim()
+            .split('\r\n').length,
+        };
+      });
+      check(
+        'backup round-trips and CSV exports the committed history',
+        exported.repositories === 3 && exported.historyDays === 1 && exported.csvLines === 4,
+        JSON.stringify(exported),
+      );
+
+      await worker.evaluate(() => {
+        if (globalThis.__starboardOriginalFetch) {
+          globalThis.fetch = globalThis.__starboardOriginalFetch;
+        }
+      });
+      await ctx.unroute('**');
+
       const failed = checks.filter((check) => !check.pass);
       console.log(`\n${checks.length - failed.length}/${checks.length} offline checks passed`);
       process.exitCode = failed.length ? 1 : 0;

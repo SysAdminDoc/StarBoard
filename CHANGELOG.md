@@ -61,6 +61,15 @@
 
 ### Changed
 
+- The offline test lane now drives the real refresh pipeline — background
+  orchestration, the REST adapter, generation commit, deltas, history, the
+  toolbar badge and backup/CSV export — against fixtures injected into the
+  service worker, with every external route aborted so an accidental live
+  fetch fails instead of passing silently. Continuous integration coverage
+  goes from 14 checks to 28.
+- Continuous integration pins its actions to commit SHAs, cancels superseded
+  runs, audits production dependencies only, and no longer publishes an
+  installable archive as a build artifact.
 - Headed browser runs honor `STARBOARD_WINDOW_POSITION="x,y"` so the suite can
   be placed on a chosen display instead of taking over the active desktop.
 
