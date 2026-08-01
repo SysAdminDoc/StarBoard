@@ -155,6 +155,11 @@ function resetStorage() {
   sessionArea.quotaBytes = Infinity;
 }
 
+function replaceAreaValues(storageArea, values) {
+  for (const key of Object.keys(storageArea.values)) delete storageArea.values[key];
+  Object.assign(storageArea.values, clone(values));
+}
+
 const checks = [];
 async function test(name, work) {
   resetStorage();
@@ -197,6 +202,168 @@ await test('current settings migration is idempotent', async () => {
   const migrated = storage.migrateRecord('settings', current, storage.SCHEMA_VERSION);
   assert.equal(migrated.changed, false);
   assert.deepEqual(migrated.envelope.data, current.data);
+});
+
+await test('a downgraded build explains and preserves every newer-schema record', async () => {
+  const originalLocal = clone(area.values);
+  const originalSession = clone(sessionArea.values);
+  try {
+    replaceAreaValues(area, {});
+    replaceAreaValues(sessionArea, {});
+    await storage.setSettings({ username: 'future-user', dataSource: 'api' });
+    const currentSettings = clone(area.values.settings);
+    const futureSettings = {
+      ...currentSettings,
+      schemaVersion: storage.SCHEMA_VERSION + 1,
+      data: { ...currentSettings.data, futureOnly: 'preserve-me' },
+    };
+    area.values.settings = clone(futureSettings);
+
+    await assert.rejects(storage.getSettings(), (error) => {
+      assert.equal(error.name, 'StorageVersionError');
+      assert.equal(error.code, 'STORAGE_VERSION_TOO_NEW');
+      assert.equal(error.key, storage.STORAGE_KEYS.settings);
+      assert.equal(error.detectedVersion, storage.SCHEMA_VERSION + 1);
+      assert.match(
+        error.message,
+        new RegExp(`only understands v${storage.SCHEMA_VERSION}`, 'i'),
+      );
+      assert.match(error.message, /left untouched/i);
+      return true;
+    });
+    await assert.rejects(storage.setSettings({ username: 'older-build' }), {
+      code: 'STORAGE_VERSION_TOO_NEW',
+    });
+    assert.deepEqual(area.values.settings, futureSettings);
+    assert.equal(area.values.starboardQuarantine, undefined);
+
+    const cache = {
+      profile: { login: 'future-user' },
+      repos: [],
+      fetchedAt: 100,
+      source: 'api',
+      confidence: 'exact',
+    };
+    const futureCache = {
+      schemaVersion: storage.SCHEMA_VERSION + 1,
+      savedAt: 100,
+      generation: 'future-generation',
+      data: { ...cache, futureOnly: true },
+    };
+    area.values.cache = clone(futureCache);
+    await assert.rejects(storage.setCache({ ...cache, generation: 'older-generation' }), {
+      code: 'STORAGE_VERSION_TOO_NEW',
+    });
+    assert.deepEqual(area.values.cache, futureCache);
+
+    delete area.values.cache;
+    area.values.starboardLastKnownGood.data.cache = clone(futureCache);
+    await assert.rejects(storage.setCache({ ...cache, generation: 'older-generation' }), {
+      code: 'STORAGE_VERSION_TOO_NEW',
+    });
+    assert.deepEqual(area.values.starboardLastKnownGood.data.cache, futureCache);
+
+    area.values.settings = currentSettings;
+    const futureToken = {
+      schemaVersion: storage.SCHEMA_VERSION + 1,
+      savedAt: 100,
+      generation: null,
+      data: { token: 'future-session-token', futureOnly: true },
+    };
+    sessionArea.values[storage.SESSION_TOKEN_KEY] = clone(futureToken);
+    await assert.rejects(storage.getSettings(), {
+      code: 'STORAGE_VERSION_TOO_NEW',
+      key: storage.SESSION_TOKEN_KEY,
+    });
+    assert.deepEqual(sessionArea.values[storage.SESSION_TOKEN_KEY], futureToken);
+
+    const futureUndo = {
+      schemaVersion: storage.SCHEMA_VERSION + 1,
+      savedAt: 100,
+      generation: null,
+      data: {
+        scope: 'future-action',
+        createdAt: 100,
+        expiresAt: Date.now() + 60_000,
+        snapshot: { settings: null },
+      },
+    };
+    area.values[storage.STORAGE_KEYS.undo] = clone(futureUndo);
+    await assert.rejects(storage.getUndoStatus(), {
+      code: 'STORAGE_VERSION_TOO_NEW',
+      key: storage.STORAGE_KEYS.undo,
+    });
+    assert.deepEqual(area.values[storage.STORAGE_KEYS.undo], futureUndo);
+  } finally {
+    replaceAreaValues(area, originalLocal);
+    replaceAreaValues(sessionArea, originalSession);
+  }
+});
+
+await test('a schema upgrade keeps the complete recovery copy through its first write', async () => {
+  const originalLocal = clone(area.values);
+  const originalSession = clone(sessionArea.values);
+  try {
+    replaceAreaValues(area, {});
+    replaceAreaValues(sessionArea, {});
+    await storage.setSettings({ username: 'octocat', dataSource: 'api' });
+    const baseline = {
+      at: 100,
+      generation: 'baseline-generation',
+      counts: { 'octocat/demo': [4, 1] },
+    };
+    await storage.setBaseline(baseline);
+    await storage.setNotificationConfig({ enabled: false });
+    await storage.getPortfolioViewState();
+
+    const preserved = clone(area.values.starboardLastKnownGood.data);
+    const requiredKeys = [
+      storage.STORAGE_KEYS.settings,
+      storage.STORAGE_KEYS.baseline,
+      storage.STORAGE_KEYS.notificationConfig,
+      storage.STORAGE_KEYS.portfolioViews,
+    ];
+    for (const key of requiredKeys) {
+      assert.ok(preserved[key], `${key} must exist before the simulated upgrade`);
+      preserved[key].schemaVersion = storage.SCHEMA_VERSION - 1;
+    }
+    area.values.starboardLastKnownGood = {
+      schemaVersion: storage.SCHEMA_VERSION - 1,
+      savedAt: 90,
+      generation: null,
+      data: clone(preserved),
+    };
+    area.values.baseline = {
+      schemaVersion: storage.SCHEMA_VERSION,
+      savedAt: 100,
+      generation: null,
+      data: { corrupt: true },
+    };
+
+    await storage.setCache({
+      profile: { login: 'octocat' },
+      repos: [],
+      fetchedAt: 110,
+      source: 'api',
+      confidence: 'exact',
+      generation: 'first-v6-write',
+    });
+
+    const upgradedRecovery = area.values.starboardLastKnownGood;
+    assert.equal(upgradedRecovery.schemaVersion, storage.SCHEMA_VERSION);
+    for (const key of requiredKeys) {
+      assert.deepEqual(
+        upgradedRecovery.data[key],
+        preserved[key],
+        `${key} recovery envelope must survive the first post-upgrade write`,
+      );
+    }
+    assert.deepEqual(await storage.getBaseline(), baseline);
+    assert.equal(area.values.baseline.schemaVersion, storage.SCHEMA_VERSION);
+  } finally {
+    replaceAreaValues(area, originalLocal);
+    replaceAreaValues(sessionArea, originalSession);
+  }
 });
 
 await test('corrupt settings restore last-known-good and record redacted quarantine metadata', async () => {

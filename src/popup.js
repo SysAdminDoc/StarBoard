@@ -1417,17 +1417,26 @@ window.addEventListener('online', () => {
   } catch (error) {
     // Without settings there is nothing to render. Say so rather than leaving
     // the static "Loading…" markup on screen with every control disabled.
+    const newerSchema = error?.code === 'STORAGE_VERSION_TOO_NEW';
     applyTheme('dark');
     el.login.textContent = 'StarBoard';
-    el.subline.textContent = 'Could not read local data';
+    el.subline.textContent = newerSchema
+      ? 'A newer StarBoard version is required'
+      : 'Could not read local data';
     showBanner(
-      `StarBoard could not read its local data. ${sentence(error?.message || '')}`.trim(),
+      newerSchema
+        ? sentence(error.message)
+        : `StarBoard could not read its local data. ${sentence(error?.message || '')}`.trim(),
       { label: 'Reload', onClick: () => location.reload() },
     );
     renderEmpty(
-      'Local data could not be read',
-      'Your stored snapshot may be corrupt. Reload to retry, or clear StarBoard data from Settings.',
-      { label: 'Open settings', onClick: () => chrome.runtime.openOptionsPage() },
+      newerSchema ? 'Newer StarBoard data detected' : 'Local data could not be read',
+      newerSchema
+        ? 'This build left your data untouched. Update or restore the newer StarBoard version, then reload.'
+        : 'Your stored snapshot may be corrupt. Reload to retry, or clear StarBoard data from Settings.',
+      newerSchema
+        ? { label: 'Reload', onClick: () => location.reload() }
+        : { label: 'Open settings', onClick: () => chrome.runtime.openOptionsPage() },
     );
     return;
   }

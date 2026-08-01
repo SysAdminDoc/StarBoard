@@ -47,6 +47,36 @@ export const STORAGE_KEYS = Object.freeze({
 export const SESSION_TOKEN_KEY = 'starboardSessionToken';
 export const UNDO_WINDOW_MS = 10 * 60_000;
 
+const RECORD_LABELS = Object.freeze({
+  [STORAGE_KEYS.settings]: 'Settings',
+  [STORAGE_KEYS.cache]: 'The repository snapshot',
+  [STORAGE_KEYS.baseline]: 'The comparison baseline',
+  [STORAGE_KEYS.history]: 'Trend history',
+  [STORAGE_KEYS.notificationConfig]: 'Notification settings',
+  [STORAGE_KEYS.notificationState]: 'Pending notifications',
+  [STORAGE_KEYS.portfolioViews]: 'Saved views',
+  [STORAGE_KEYS.lastKnownGood]: 'The recovery copy',
+  [STORAGE_KEYS.quarantine]: 'The quarantine log',
+  [STORAGE_KEYS.undo]: 'The undo snapshot',
+  [SESSION_TOKEN_KEY]: 'The session token',
+});
+
+export class StorageVersionError extends Error {
+  constructor(key, detectedVersion) {
+    const label = RECORD_LABELS[key] || `Stored record “${key}”`;
+    super(
+      `${label} was written by storage schema v${detectedVersion}, but this ` +
+        `StarBoard build only understands v${SCHEMA_VERSION}. Update or restore ` +
+        'the newer StarBoard version; the stored data was left untouched.',
+    );
+    this.name = 'StorageVersionError';
+    this.code = 'STORAGE_VERSION_TOO_NEW';
+    this.key = key;
+    this.detectedVersion = detectedVersion;
+    this.supportedVersion = SCHEMA_VERSION;
+  }
+}
+
 export const DEFAULTS = Object.freeze({
   username: '',
   token: '',
@@ -100,6 +130,20 @@ function makeEnvelope(data, { generation = null, savedAt = Date.now() } = {}) {
 
 function isObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function rejectFutureSchema(key, raw) {
+  if (
+    isObject(raw) &&
+    Number.isInteger(raw.schemaVersion) &&
+    raw.schemaVersion > SCHEMA_VERSION
+  ) {
+    throw new StorageVersionError(key, raw.schemaVersion);
+  }
+}
+
+function isVersionError(error) {
+  return error?.code === 'STORAGE_VERSION_TOO_NEW';
 }
 
 function assert(condition, message) {
@@ -323,7 +367,7 @@ export function normalizeSettings(value) {
 
 /**
  * Pure migration entry point used by runtime reads and fixture tests.
- * Legacy raw records are accepted; the returned value is always v3.
+ * Legacy raw records are accepted; the returned value is always current.
  */
 export function migrateRecord(key, raw, now = Date.now()) {
   assert(raw != null, `${key} is missing`);
@@ -331,7 +375,8 @@ export function migrateRecord(key, raw, now = Date.now()) {
     isObject(raw) && Number.isInteger(raw.schemaVersion) && Object.hasOwn(raw, 'data');
   let version = wrapped ? raw.schemaVersion : inferLegacyVersion(key, raw);
   let value = copy(wrapped ? raw.data : raw);
-  assert(version >= 1 && version <= SCHEMA_VERSION, `unsupported ${key} schema v${version}`);
+  assert(version >= 1, `unsupported ${key} schema v${version}`);
+  if (version > SCHEMA_VERSION) throw new StorageVersionError(key, version);
 
   while (version < SCHEMA_VERSION) {
     if (version === 1) value = migrateV1ToV2(key, value);
@@ -368,18 +413,26 @@ async function readLastKnownGood() {
   const raw = (await AREA.get(STORAGE_KEYS.lastKnownGood))[STORAGE_KEYS.lastKnownGood];
   if (
     !isObject(raw) ||
-    raw.schemaVersion !== SCHEMA_VERSION ||
+    !Number.isInteger(raw.schemaVersion) ||
+    raw.schemaVersion < 1 ||
     !isObject(raw.data)
   ) {
     return {};
   }
+  // This outer envelope is only a bag of independently versioned records.
+  // Preserve every inner envelope across upgrades and downgrades; each one is
+  // migrated or rejected safely when it is actually restored.
   return raw.data;
 }
 
 async function quarantine(key, raw, reason) {
   const stored = (await AREA.get(STORAGE_KEYS.quarantine))[STORAGE_KEYS.quarantine];
   const records =
-    isObject(stored) && stored.schemaVersion === SCHEMA_VERSION && Array.isArray(stored.data?.records)
+    isObject(stored) &&
+    Number.isInteger(stored.schemaVersion) &&
+    stored.schemaVersion >= 1 &&
+    stored.schemaVersion <= SCHEMA_VERSION &&
+    Array.isArray(stored.data?.records)
       ? stored.data.records
       : [];
   const next = [
@@ -448,6 +501,14 @@ async function largestConsumer() {
  * generic refresh failure.
  */
 async function commit(writes) {
+  // An older build must never replace a record whose shape it cannot know.
+  // The recovery copy is exempt because its stable outer shape is only a bag;
+  // readLastKnownGood preserves the independently versioned entries inside it.
+  const guardedKeys = Object.keys(writes).filter((key) => key !== STORAGE_KEYS.lastKnownGood);
+  if (guardedKeys.length) {
+    const current = await AREA.get(guardedKeys);
+    for (const key of guardedKeys) rejectFutureSchema(key, current[key]);
+  }
   try {
     await AREA.set(writes);
   } catch (error) {
@@ -467,6 +528,9 @@ async function writeRecords(records, generation = null) {
   const writes = {};
   const nextBackup = { ...backup };
   for (const [key, value] of Object.entries(records)) {
+    // A missing or older primary can still have a newer recovery envelope.
+    // Replacing that only surviving copy would be the same downgrade loss.
+    rejectFutureSchema(key, backup[key]);
     validateRecord(key, value);
     const wrapped = makeEnvelope(value, { generation: generation ?? value.generation ?? null });
     writes[key] = wrapped;
@@ -486,7 +550,8 @@ async function restoreRecord(key, raw, reason) {
       const { envelope } = migrateRecord(key, candidate);
       await commit({ [key]: envelope });
       return copy(envelope.data);
-    } catch {
+    } catch (error) {
+      if (isVersionError(error)) throw error;
       // The backup is also unusable; fall through to a clean record.
     }
   }
@@ -501,12 +566,14 @@ async function readRecord(key) {
   try {
     migrated = migrateRecord(key, raw);
   } catch (error) {
+    if (isVersionError(error)) throw error;
     return restoreRecord(key, raw, error.message);
   }
   if (migrated.changed) {
     try {
       await writeRecords({ [key]: migrated.envelope.data });
     } catch (error) {
+      if (isVersionError(error)) throw error;
       return restoreRecord(key, raw, `migration write failed: ${error.message}`);
     }
   }
@@ -574,9 +641,11 @@ export async function setSettings(patch) {
 async function getSessionToken() {
   const raw = (await SESSION_AREA.get(SESSION_TOKEN_KEY))[SESSION_TOKEN_KEY];
   if (raw == null) return '';
+  rejectFutureSchema(SESSION_TOKEN_KEY, raw);
   if (
     !isObject(raw) ||
-    raw.schemaVersion !== SCHEMA_VERSION ||
+    !Number.isInteger(raw.schemaVersion) ||
+    raw.schemaVersion < 1 ||
     typeof raw.data?.token !== 'string'
   ) {
     await SESSION_AREA.remove(SESSION_TOKEN_KEY);
@@ -586,6 +655,8 @@ async function getSessionToken() {
 }
 
 async function setSessionToken(token) {
+  const stored = (await SESSION_AREA.get(SESSION_TOKEN_KEY))[SESSION_TOKEN_KEY];
+  rejectFutureSchema(SESSION_TOKEN_KEY, stored);
   if (!token) {
     await SESSION_AREA.remove(SESSION_TOKEN_KEY);
     return;
@@ -888,9 +959,11 @@ export async function createUndoSnapshot(scope, keys) {
 
 async function readUndo() {
   const raw = (await AREA.get(STORAGE_KEYS.undo))[STORAGE_KEYS.undo];
+  rejectFutureSchema(STORAGE_KEYS.undo, raw);
   if (
     !isObject(raw) ||
-    raw.schemaVersion !== SCHEMA_VERSION ||
+    !Number.isInteger(raw.schemaVersion) ||
+    raw.schemaVersion < 1 ||
     !isObject(raw.data?.snapshot) ||
     !Number.isFinite(raw.data?.expiresAt)
   ) {

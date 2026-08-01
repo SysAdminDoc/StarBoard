@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, readdirSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
@@ -760,6 +761,47 @@ async function main() {
             .filter((option) => Number(option.value) > 0 && Number(option.value) < 360)
             .every((option) => option.disabled),
       ),
+    );
+
+    const versionProbe = await firstRunOptions.evaluate(async () => {
+      const { settings } = await chrome.storage.local.get('settings');
+      const future = {
+        ...settings,
+        schemaVersion: settings.schemaVersion + 1,
+        data: { ...settings.data, futureOnly: 'preserve-me' },
+      };
+      await chrome.storage.local.set({ settings: future });
+      return { current: settings, future };
+    });
+    const downgradePopup = await ctx.newPage();
+    captureErrors(downgradePopup, 'downgrade popup');
+    let downgradeResult;
+    try {
+      await downgradePopup.goto(`chrome-extension://${extId}/src/popup.html`);
+      await downgradePopup.waitForFunction(
+        () => document.querySelector('.empty h3')?.textContent === 'Newer StarBoard data detected',
+        { timeout: 10000 },
+      );
+      downgradeResult = await downgradePopup.evaluate(async () => ({
+        heading: document.querySelector('.empty h3')?.textContent || '',
+        banner: document.querySelector('#banner')?.textContent || '',
+        stored: (await chrome.storage.local.get('settings')).settings,
+      }));
+    } catch (error) {
+      downgradeResult = { error: error.message };
+    } finally {
+      await firstRunOptions.evaluate(
+        (settings) => chrome.storage.local.set({ settings }),
+        versionProbe.current,
+      );
+      await downgradePopup.close();
+    }
+    check(
+      'a downgraded build explains and preserves newer local data',
+      downgradeResult.heading === 'Newer StarBoard data detected' &&
+        /storage schema v\d+.*left untouched/i.test(downgradeResult.banner) &&
+        isDeepStrictEqual(downgradeResult.stored, versionProbe.future),
+      JSON.stringify(downgradeResult),
     );
     const webContract = await firstRunOptions.evaluate(async (fixtures) => {
       const { scrapeAccount } = await import('./lib/scrape.js');

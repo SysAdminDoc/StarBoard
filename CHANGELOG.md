@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Downgrading can no longer quarantine, reset, or overwrite records written by
+  a newer storage schema. The older build leaves them untouched and names the
+  required version in the popup and Settings, while schema upgrades retain the
+  complete last-known-good copy through their first post-upgrade write.
 - The website-source hint in Settings now states its real bandwidth tradeoff —
   one page load per 30 repositories — instead of repeating the retracted claim
   that GitHub rounds repository-tab counts above 1,000.
