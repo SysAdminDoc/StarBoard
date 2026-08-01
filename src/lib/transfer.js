@@ -253,12 +253,32 @@ export async function validateBackupText(text) {
   assert(!unknown.length, `backup contains unsupported records: ${unknown.join(', ')}`);
   assert(core.records[STORAGE_KEYS.settings], 'backup settings are missing');
 
-  const records = {};
+  // A backup file is untrusted input that overwrites settings, cache, baseline,
+  // history and saved views. Reject prototype-polluting keys before any of it
+  // is merged, and refuse a record written by a newer StarBoard rather than
+  // silently downgrading data this build cannot represent.
+  const ownKeys = Object.keys(core.records);
+  assert(
+    !ownKeys.some((key) => ['__proto__', 'constructor', 'prototype'].includes(key)),
+    'backup contains a prohibited record name',
+  );
+  assert(
+    Object.getPrototypeOf(core.records) === Object.prototype ||
+      Object.getPrototypeOf(core.records) === null,
+    'backup records have an unexpected prototype',
+  );
+
+  const records = Object.create(null);
   const versions = [];
-  for (const [key, raw] of Object.entries(core.records)) {
+  for (const key of ownKeys) {
+    const raw = core.records[key];
     assert(
-      raw && typeof raw === 'object' && Number.isInteger(raw.schemaVersion),
+      raw && typeof raw === 'object' && !Array.isArray(raw) && Number.isInteger(raw.schemaVersion),
       `invalid ${key} record`,
+    );
+    assert(
+      raw.schemaVersion >= 1 && raw.schemaVersion <= SCHEMA_VERSION,
+      `${key} was written by a newer StarBoard (schema v${raw.schemaVersion}); update first`,
     );
     versions.push(raw.schemaVersion);
     const migrated = migrateRecord(key, raw);
@@ -277,10 +297,23 @@ export async function validateBackupText(text) {
   };
 }
 
+/**
+ * RFC 4180 quoting plus the full OWASP formula-injection guard.
+ *
+ * Repository names and descriptions are attacker-influencable, and a
+ * spreadsheet treats a leading `=`, `+`, `-`, `@`, tab or carriage return as
+ * the start of a formula. The leading apostrophe is the documented mitigation.
+ * Keep the whole set here even if a given column cannot currently carry one —
+ * columns get added, and this is the only place that decides.
+ */
 function csvCell(value) {
   if (value == null) return '';
   let text = String(value);
-  if (/^[=+@]/.test(text)) text = `'${text}`;
+  // A plain number is not a formula, and the delta columns are legitimately
+  // negative — prefixing those would turn -3 into the text "'-3" and break
+  // every consumer. Guard everything else.
+  const numeric = /^-?\d+(?:\.\d+)?$/.test(text);
+  if (!numeric && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
   return `"${text.replaceAll('"', '""')}"`;
 }
 

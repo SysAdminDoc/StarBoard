@@ -15,6 +15,17 @@
 
 ### Fixed
 
+- Backup restore rejects hostile documents explicitly: a missing or forged
+  checksum, prototype-polluting record names, arrays where records belong,
+  unknown records, and files written by a newer StarBoard are all refused with
+  a specific message and leave stored data untouched.
+- CSV export applies the complete spreadsheet formula guard (`=`, `+`, `-`,
+  `@`, tab and carriage return) while leaving genuinely numeric cells — such as
+  negative deltas — untouched.
+- The release build verifies that every file the manifest references is
+  actually inside the archive. Renaming the popup, options page, service worker
+  or an icon previously produced a package Chrome refuses to load while every
+  check still passed.
 - Raised contrast to meet WCAG 2.2 AA where it was failing. The first-run
   onboarding button carried white text at 3.16:1 in the dark theme, the second
   and third rank medals used dark-theme literals that were never overridden and

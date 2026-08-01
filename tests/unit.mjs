@@ -99,6 +99,8 @@ const {
 const {
   createBackup,
   createCsv,
+  sha256Hex,
+  stableStringify,
   validateBackupText,
 } = await import('../src/lib/transfer.js');
 const { buildDiagnostics } = await import('../src/lib/diagnostics.js');
@@ -383,6 +385,141 @@ await test('REST adapter follows Link pagination and reuses ETag snapshots', asy
   assert.deepEqual(second.repos, first.repos);
   assert.equal(second.pagesFetched, 2);
   assert.deepEqual(conditionalHeaders, ['"profile"', '"page-1"', '"page-2"']);
+});
+
+await test('hostile backup documents are rejected without touching stored state', async () => {
+  Object.keys(area.values).forEach((key) => delete area.values[key]);
+  Object.keys(sessionArea.values).forEach((key) => delete sessionArea.values[key]);
+  const settings = { ...storage.DEFAULTS, username: 'octocat', dataSource: 'api' };
+  const good = await createBackup({ settings, now: Date.UTC(2026, 6, 31) });
+  // Structural guards only get a chance to run if the document is re-sealed;
+  // otherwise the checksum — correctly — rejects everything first.
+  const reseal = async (mutate) => {
+    const copy = JSON.parse(JSON.stringify(good));
+    mutate(copy);
+    const { checksum, ...core } = copy;
+    copy.checksum = { algorithm: 'SHA-256', value: await sha256Hex(stableStringify(core)) };
+    return JSON.stringify(copy);
+  };
+  const rebuild = async (mutate) => {
+    const copy = JSON.parse(JSON.stringify(good));
+    mutate(copy);
+    return JSON.stringify(copy);
+  };
+
+  // Tampering that the checksum alone must catch.
+  const tampered = [
+    ['absent checksum', (doc) => delete doc.checksum, /checksum/i],
+    ['wrong algorithm', (doc) => { doc.checksum.algorithm = 'MD5'; }, /checksum/i],
+    ['forged checksum value', (doc) => { doc.checksum.value = 'f'.repeat(64); }, /checksum/i],
+    ['edited record with the original checksum', (doc) => {
+      doc.records.settings.data.username = 'attacker';
+    }, /checksum/i],
+  ];
+  for (const [name, mutate, pattern] of tampered) {
+    const text = await rebuild(mutate);
+    await assert.rejects(
+      validateBackupText(text),
+      (error) => {
+        assert.match(error.message, pattern, `${name}: unexpected message ${error.message}`);
+        return true;
+      },
+      `${name} must be rejected`,
+    );
+  }
+
+  // Structurally hostile documents that carry a valid checksum.
+  const cases = [
+    ['unknown record', (doc) => { doc.records.evil = { schemaVersion: 1, data: {} }; }, /unsupported/i],
+    ['missing settings', (doc) => delete doc.records.settings, /settings/i],
+    ['non-object records', (doc) => { doc.records = ['settings']; }, /records/i],
+    ['array record', (doc) => { doc.records.settings = []; }, /invalid|settings/i],
+    ['wrong format', (doc) => { doc.format = 'not-starboard'; }, /not a StarBoard backup/i],
+    ['wrong format version', (doc) => { doc.formatVersion = 99; }, /unsupported backup format/i],
+    ['bad timestamp', (doc) => { doc.exportedAt = 'never'; }, /timestamp/i],
+    [
+      'record from a newer StarBoard',
+      (doc) => { doc.records.settings.schemaVersion = storage.SCHEMA_VERSION + 1; },
+      /newer StarBoard/i,
+    ],
+    [
+      'credential smuggled into settings',
+      (doc) => { doc.records.settings.data.token = 'stolen'; },
+      /credential/i,
+    ],
+  ];
+
+  for (const [name, mutate, pattern] of cases) {
+    const text = await reseal(mutate);
+    await assert.rejects(
+      validateBackupText(text),
+      (error) => {
+        assert.match(error.message, pattern, `${name}: unexpected message ${error.message}`);
+        return true;
+      },
+      `${name} must be rejected`,
+    );
+  }
+
+  // Prototype pollution through a record name.
+  const polluted = JSON.parse(JSON.stringify(good));
+  const raw = JSON.stringify(polluted).replace(
+    '"records":{',
+    '"records":{"__proto__":{"schemaVersion":1,"data":{}},',
+  );
+  await assert.rejects(validateBackupText(raw));
+  assert.equal({}.schemaVersion, undefined, 'Object.prototype must be untouched');
+
+  // Oversized payloads are refused before parsing work is done.
+  await assert.rejects(validateBackupText('x'.repeat(6 * 1024 * 1024)), /5 MiB|JSON/i);
+  await assert.rejects(validateBackupText(''), /empty/i);
+
+  // Nothing above may have altered stored state.
+  assert.equal(Object.keys(area.values).filter((k) => k === 'cache').length, 0);
+
+  // The untampered document still validates.
+  const valid = await validateBackupText(JSON.stringify(good));
+  assert.equal(valid.records.settings.username, 'octocat');
+});
+
+await test('CSV quoting and formula guards follow RFC 4180 and OWASP', async () => {
+  const cache = {
+    profile: { login: 'octocat' },
+    fetchedAt: Date.UTC(2026, 6, 31, 12),
+    source: 'api',
+    confidence: 'exact',
+    repos: [
+      // Names a spreadsheet would otherwise execute or mis-split.
+      // GitHub logins cannot start with these, so full_name never does today —
+      // the guard exists for the columns this export will grow.
+      { full_name: '=cmd|calc/x', stargazers_count: 1, forks_count: 0, private: false },
+      { full_name: '+add/x', stargazers_count: 2, forks_count: 0, private: false },
+      { full_name: '-minus/x', stargazers_count: 3, forks_count: 0, private: false },
+      { full_name: '@at/x', stargazers_count: 4, forks_count: 0, private: false },
+      { full_name: 'octocat/a,comma', stargazers_count: 5, forks_count: 0, private: false },
+      { full_name: 'octocat/a"quote', stargazers_count: 6, forks_count: 0, private: false },
+      { full_name: 'octocat/a\r\nnewline', stargazers_count: 7, forks_count: 0, private: false },
+    ],
+  };
+  const baseline = {
+    at: 1,
+    counts: { '=cmd|calc/x': [4, 0] },
+  };
+  const csv = createCsv({ cache, baseline, includePrivate: true });
+
+  for (const dangerous of ['"\'=cmd|calc', '"\'+add', '"\'-minus', '"\'@at']) {
+    assert.ok(csv.includes(dangerous), `formula prefix missing for ${dangerous}`);
+  }
+  // RFC 4180: quotes double, and commas/CRLF survive inside a quoted field.
+  assert.ok(csv.includes('"octocat/a""quote"'));
+  assert.ok(csv.includes('"octocat/a,comma"'));
+  assert.ok(csv.includes('octocat/a\r\nnewline'));
+  assert.ok(csv.startsWith('﻿'), 'Excel needs the UTF-8 BOM');
+  assert.ok(csv.endsWith('\r\n'), 'RFC 4180 line endings');
+
+  // A negative delta is a number, not a formula: it must not gain a prefix.
+  assert.ok(csv.includes('"-3"'), 'negative deltas must stay numeric');
+  assert.ok(!csv.includes("\"'-3\""));
 });
 
 await test('an out-of-space write fails loudly and leaves stored data intact', async () => {

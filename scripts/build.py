@@ -164,6 +164,41 @@ def build_spdx(
     return dest
 
 
+def manifest_references(manifest: dict) -> set[str]:
+    """Every packaged path the manifest points at.
+
+    Comparing the archive against the list that produced it is a tautology, so
+    it cannot catch a renamed popup or a missing icon. Chrome refuses to load
+    such a package while the build, the checks and the release test all pass.
+    """
+    referenced: set[str] = set()
+
+    def add(value) -> None:
+        if isinstance(value, str) and value and not value.startswith(("http://", "https://")):
+            referenced.add(value.lstrip("/"))
+
+    add(manifest.get("action", {}).get("default_popup"))
+    add(manifest.get("options_ui", {}).get("page"))
+    add(manifest.get("options_page"))
+    add(manifest.get("background", {}).get("service_worker"))
+    for script in manifest.get("background", {}).get("scripts", []) or []:
+        add(script)
+    for icons in (manifest.get("icons", {}), manifest.get("action", {}).get("default_icon", {})):
+        if isinstance(icons, dict):
+            for path in icons.values():
+                add(path)
+        else:
+            add(icons)
+    for entry in manifest.get("web_accessible_resources", []) or []:
+        for path in entry.get("resources", []) or []:
+            if "*" not in path:
+                add(path)
+    for entry in manifest.get("content_scripts", []) or []:
+        for path in (entry.get("js", []) or []) + (entry.get("css", []) or []):
+            add(path)
+    return referenced
+
+
 def verify_zip(zip_path: Path, files: list[tuple[Path, str]]) -> None:
     expected = [name for _, name in files]
     with zipfile.ZipFile(zip_path) as archive:
@@ -175,6 +210,12 @@ def verify_zip(zip_path: Path, files: list[tuple[Path, str]]) -> None:
         manifest = json.loads(archive.read("manifest.json"))
         if manifest.get("version") != version():
             raise SystemExit("ZIP manifest version does not match the source manifest")
+        packaged = set(actual)
+        missing = sorted(manifest_references(manifest) - packaged)
+        if missing:
+            raise SystemExit(
+                "manifest references files the ZIP does not contain: " + ", ".join(missing)
+            )
 
 
 def clean_dist() -> None:
