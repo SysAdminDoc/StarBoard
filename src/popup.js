@@ -599,6 +599,7 @@ function renderBanner() {
     const reason = {
       cap: `the ${state.cache.cap?.maxRepositories || 1500}-repository safety cap was reached`,
       'parser-drift': 'a later GitHub page could not be parsed',
+      shortfall: 'GitHub listed fewer repositories than the account reports owning',
       'rate-limited': 'GitHub asked StarBoard to slow down',
       timeout: 'a later GitHub page timed out',
       network: 'a later GitHub page could not be loaded',

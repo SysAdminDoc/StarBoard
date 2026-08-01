@@ -346,6 +346,131 @@ await test('REST adapter follows Link pagination and reuses ETag snapshots', asy
   assert.deepEqual(conditionalHeaders, ['"profile"', '"page-1"', '"page-2"']);
 });
 
+await test('website adapter pages over an immutable ordering', async () => {
+  const { reposUrl } = await import('../src/lib/scrape.js');
+  const url = reposUrl('octocat', 2);
+  assert.match(url, /sort=name/);
+  assert.doesNotMatch(url, /sort=stargazers/);
+  assert.match(url, /[?&]page=2\b/);
+  assert.match(url, /tab=repositories/);
+});
+
+await test('REST adapter pages over an immutable ordering', async () => {
+  const listUrls = [];
+  const profile = {
+    login: 'octocat',
+    name: 'The Octocat',
+    avatar_url: '',
+    html_url: 'https://github.com/octocat',
+    public_repos: 1,
+    followers: 0,
+  };
+  await fetchAccount(
+    { username: 'octocat', token: '' },
+    {
+      fetchImpl: async (url) => {
+        const parsed = new URL(url);
+        if (parsed.pathname === '/users/octocat') {
+          return new Response(JSON.stringify(profile), { status: 200 });
+        }
+        listUrls.push(url);
+        return new Response(
+          JSON.stringify([
+            {
+              id: 1,
+              name: 'a',
+              full_name: 'octocat/a',
+              stargazers_count: 5,
+              forks_count: 0,
+            },
+          ]),
+          { status: 200 },
+        );
+      },
+      sleep: async () => {},
+      now: () => 1000,
+    },
+  );
+  // Ranking is applied client-side; the wire order must not depend on a value
+  // that changes while pagination is in flight.
+  assert.equal(listUrls.length, 1);
+  assert.match(listUrls[0], /sort=full_name/);
+  assert.doesNotMatch(listUrls[0], /sort=(updated|stargazers|pushed)/);
+});
+
+await test('REST adapter flags repositories dropped between pages', async () => {
+  // GitHub says the account owns three; pagination hands back two. That gap is
+  // exactly what a mutating sort key used to produce silently, and what
+  // lifecycle derivation would otherwise report as a removal.
+  const profile = {
+    login: 'octocat',
+    name: 'The Octocat',
+    avatar_url: '',
+    html_url: 'https://github.com/octocat',
+    public_repos: 3,
+    followers: 0,
+  };
+  const result = await fetchAccount(
+    { username: 'octocat', token: '' },
+    {
+      fetchImpl: async (url) => {
+        const parsed = new URL(url);
+        if (parsed.pathname === '/users/octocat') {
+          return new Response(JSON.stringify(profile), { status: 200 });
+        }
+        return new Response(
+          JSON.stringify([
+            { id: 1, name: 'a', full_name: 'octocat/a', stargazers_count: 1, forks_count: 0 },
+            { id: 2, name: 'b', full_name: 'octocat/b', stargazers_count: 2, forks_count: 0 },
+          ]),
+          { status: 200 },
+        );
+      },
+      sleep: async () => {},
+      now: () => 1000,
+    },
+  );
+  assert.equal(result.repos.length, 2);
+  assert.equal(result.complete, false);
+  assert.equal(result.partialReason, 'shortfall');
+  assert.equal(result.shortfall, 1);
+  assert.equal(result.confidence, 'partial');
+});
+
+await test('REST adapter reports a full listing as complete', async () => {
+  const profile = {
+    login: 'octocat',
+    name: 'The Octocat',
+    avatar_url: '',
+    html_url: 'https://github.com/octocat',
+    public_repos: 2,
+    followers: 0,
+  };
+  const result = await fetchAccount(
+    { username: 'octocat', token: '' },
+    {
+      fetchImpl: async (url) => {
+        const parsed = new URL(url);
+        if (parsed.pathname === '/users/octocat') {
+          return new Response(JSON.stringify(profile), { status: 200 });
+        }
+        return new Response(
+          JSON.stringify([
+            { id: 1, name: 'a', full_name: 'octocat/a', stargazers_count: 1, forks_count: 0 },
+            { id: 2, name: 'b', full_name: 'octocat/b', stargazers_count: 2, forks_count: 0 },
+          ]),
+          { status: 200 },
+        );
+      },
+      sleep: async () => {},
+      now: () => 1000,
+    },
+  );
+  assert.equal(result.complete, true);
+  assert.equal(result.partialReason, null);
+  assert.equal(result.shortfall, 0);
+});
+
 await test('REST adapter normalizes exhausted retry responses', async () => {
   await assert.rejects(
     fetchAccount(

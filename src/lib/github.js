@@ -390,9 +390,14 @@ export async function fetchAccount({ username, token }, options = {}) {
     });
   }
 
+  // Page over an immutable ordering. Sorting by `updated` or `stargazers`
+  // means a repository can move backwards across a page boundary between two
+  // page requests and never be fetched at all — an omission nothing downstream
+  // can detect, which `deriveLifecycleEvents` then reports as a removal.
+  // Ranking is applied client-side anyway.
   const listPath = isSelf
-    ? '/user/repos?affiliation=owner&sort=updated'
-    : `/users/${encodeURIComponent(profile.login)}/repos?type=owner&sort=updated`;
+    ? '/user/repos?affiliation=owner&sort=full_name&direction=asc'
+    : `/users/${encodeURIComponent(profile.login)}/repos?type=owner&sort=full_name&direction=asc`;
   const listed = await fetchAllPages(listPath, token, {
     ...requestOptions,
     validators,
@@ -401,15 +406,33 @@ export async function fetchAccount({ username, token }, options = {}) {
   Object.assign(nextValidators, listed.validators);
   attempts += listed.attempts;
 
+  // GitHub states how many repositories the account owns. If pagination
+  // returned fewer, something was dropped between pages and the snapshot is
+  // not a complete picture — say so rather than letting the difference surface
+  // later as phantom repository removals.
+  //
+  // The comparison is deliberately one-directional. `public_repos` counts only
+  // public repositories while the owner listing also carries forks and private
+  // repositories, so `declared` routinely *undercounts* (measured 2026-07-31:
+  // 209 declared against 343 listed). Only a genuine shortfall is meaningful;
+  // a surplus is normal and must never mark the snapshot partial.
+  const declared =
+    (Number(profile.public_repos) || 0) +
+    (Number(profile.owned_private_repos ?? profile.total_private_repos) || 0);
+  const shortfall = declared > 0 ? declared - listed.repos.length : 0;
+  const complete = listed.complete && shortfall <= 0;
+  const partialReason = listed.partialReason || (shortfall > 0 ? 'shortfall' : null);
+
   return {
     profile: trimProfile(profile),
     authProfile: tokenProfile ? trimProfile(tokenProfile) : null,
     repos: listed.repos,
     rate: listed.rate,
     source: 'api',
-    complete: listed.complete,
-    partialReason: listed.partialReason,
-    confidence: listed.complete ? 'exact' : 'partial',
+    complete,
+    partialReason,
+    shortfall: shortfall > 0 ? shortfall : 0,
+    confidence: complete ? 'exact' : 'partial',
     cap: listed.cap,
     pagesFetched: listed.pagesFetched,
     requestAttempts: attempts,

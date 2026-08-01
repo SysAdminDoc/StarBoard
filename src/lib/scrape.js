@@ -36,9 +36,16 @@ export class WebSourceError extends Error {
   }
 }
 
+/**
+ * Page over name order, which does not change while the walk is in progress.
+ * Sorting by stars means a repository can move backwards across a page
+ * boundary between two page loads and never be fetched — an omission the
+ * dedupe map cannot see, and which then reads downstream as a deletion.
+ * Ranking by stars happens client-side after every page is in.
+ */
 export function reposUrl(username, page = 1) {
   const u = encodeURIComponent(username);
-  return `https://github.com/${u}?tab=repositories&sort=stargazers&direction=desc&page=${page}`;
+  return `https://github.com/${u}?tab=repositories&sort=name&direction=asc&page=${page}`;
 }
 
 /**

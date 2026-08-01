@@ -12,6 +12,13 @@
 
 ### Fixed
 
+- Repository listings now page over a fixed name order instead of a live
+  ranking. Sorting by stars or last-updated meant a repository could move
+  backwards across a page boundary mid-walk and never be fetched — an omission
+  that was then reported as the repository having been deleted. Ranking still
+  happens locally, so the displayed order is unchanged.
+- A listing that returns fewer repositories than the account reports owning is
+  labeled partial rather than silently treated as a complete snapshot.
 - An account that owns no repositories is now told so, instead of being advised
   to reset a search and filters it never set.
 - The popup footer — including the undo control — is reachable again. The
