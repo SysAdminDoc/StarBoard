@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Source and ZIP checks now reject missing HTML assets, relative module imports,
+  and the offscreen page with the exact referring file and line.
 - Browser regressions now print named failures and continue through the
   remaining checks, with state-backed waits replacing fixed settle delays.
 - The complete deterministic browser suite now runs headlessly in CI against

@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import posixpath
+import re
 import shutil
 import zipfile
 from pathlib import Path
@@ -229,6 +231,93 @@ def verify_zip(zip_path: Path, files: list[tuple[Path, str]]) -> None:
             raise SystemExit(
                 "manifest references files the ZIP does not contain: " + ", ".join(missing)
             )
+
+        broken: list[str] = []
+
+        def line_number(text: str, index: int) -> int:
+            return text.count("\n", 0, index) + 1
+
+        def check_reference(
+            referrer: str,
+            text: str,
+            index: int,
+            specifier: str,
+            kind: str,
+            *,
+            root_relative: bool = False,
+        ) -> None:
+            if re.match(r"^(?:[a-z][a-z\d+.-]*:|//|#)", specifier, re.IGNORECASE):
+                return
+            path = re.split(r"[?#]", specifier, maxsplit=1)[0]
+            if not path:
+                return
+            if root_relative or path.startswith("/"):
+                target = posixpath.normpath(path.lstrip("/"))
+            else:
+                target = posixpath.normpath(posixpath.join(posixpath.dirname(referrer), path))
+            if target in packaged:
+                return
+            broken.append(
+                f'{referrer}:{line_number(text, index)}: {kind} references missing file "{specifier}"'
+            )
+
+        html_reference = {
+            "script": "src",
+            "link": "href",
+            "img": "src",
+        }
+        for name in sorted(path for path in packaged if path.startswith("src/") and path.endswith(".html")):
+            text = archive.read(name).decode("utf-8")
+            for tag, attribute in html_reference.items():
+                pattern = re.compile(
+                    rf"<{tag}\b[^>]*\b{attribute}\s*=\s*(?:[\"']([^\"']+)[\"']|([^\s>]+))",
+                    re.IGNORECASE,
+                )
+                for match in pattern.finditer(text):
+                    check_reference(
+                        name,
+                        text,
+                        match.start(),
+                        match.group(1) or match.group(2),
+                        f"<{tag}> {attribute}",
+                    )
+
+        import_patterns = (
+            re.compile(r"\b(?:import|export)\s+(?:[^;]*?\s+from\s+)?[\"'](\.[^\"']+)[\"']"),
+            re.compile(r"\bimport\s*\(\s*[\"'](\.[^\"']+)[\"']\s*\)"),
+        )
+        for name in sorted(path for path in packaged if path.startswith("src/") and path.endswith(".js")):
+            text = archive.read(name).decode("utf-8")
+            for pattern in import_patterns:
+                for match in pattern.finditer(text):
+                    check_reference(
+                        name,
+                        text,
+                        match.start(),
+                        match.group(1),
+                        "ES module import",
+                    )
+
+        background_name = "src/background.js"
+        background_text = archive.read(background_name).decode("utf-8")
+        offscreen_path = re.search(
+            r"\bconst\s+OFFSCREEN_PATH\s*=\s*[\"']([^\"']+)[\"']",
+            background_text,
+        )
+        if offscreen_path is None:
+            broken.append(f"{background_name}:1: OFFSCREEN_PATH declaration not found")
+        else:
+            check_reference(
+                background_name,
+                background_text,
+                offscreen_path.start(),
+                offscreen_path.group(1),
+                "OFFSCREEN_PATH",
+                root_relative=True,
+            )
+
+        if broken:
+            raise SystemExit("ZIP contains broken source references:\n" + "\n".join(broken))
 
 
 def clean_dist() -> None:

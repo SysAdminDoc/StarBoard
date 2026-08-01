@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const SOURCE_ROOTS = ['src', 'scripts', 'tests'];
@@ -18,7 +18,8 @@ function walk(path) {
 }
 
 const failures = [];
-for (const file of SOURCE_ROOTS.flatMap((path) => walk(resolve(ROOT, path)))) {
+const scriptFiles = SOURCE_ROOTS.flatMap((path) => walk(resolve(ROOT, path)));
+for (const file of scriptFiles) {
   const checked = spawnSync(process.execPath, ['--check', file], {
     encoding: 'utf8',
   });
@@ -36,6 +37,75 @@ for (const file of SOURCE_ROOTS.flatMap((path) => walk(resolve(ROOT, path)))) {
       `${file}:${line}: control byte 0x${bytes[control].toString(16).padStart(2, '0')} in source`,
     );
   }
+}
+
+function sourceLocation(file, text, index) {
+  const path = relative(ROOT, file).replaceAll('\\', '/');
+  const line = text.slice(0, index).split('\n').length;
+  return `${path}:${line}`;
+}
+
+function referencesLocalFile(file, text, index, specifier, kind, { rootRelative = false } = {}) {
+  if (/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(specifier)) return;
+  const path = specifier.split(/[?#]/, 1)[0];
+  if (!path) return;
+  const target = rootRelative || path.startsWith('/')
+    ? resolve(ROOT, path.replace(/^\/+/, ''))
+    : resolve(dirname(file), path);
+  try {
+    if (statSync(target).isFile()) return;
+  } catch {
+    // Report the referring source below.
+  }
+  failures.push(`${sourceLocation(file, text, index)}: ${kind} references missing file "${specifier}"`);
+}
+
+for (const name of readdirSync(resolve(ROOT, 'src')).filter((entry) => entry.endsWith('.html'))) {
+  const file = resolve(ROOT, 'src', name);
+  const text = readFileSync(file, 'utf8');
+  for (const [tag, attribute] of [
+    ['script', 'src'],
+    ['link', 'href'],
+    ['img', 'src'],
+  ]) {
+    const reference = new RegExp(
+      `<${tag}\\b[^>]*\\b${attribute}\\s*=\\s*(?:["']([^"']+)["']|([^\\s>]+))`,
+      'gi',
+    );
+    for (const match of text.matchAll(reference)) {
+      referencesLocalFile(file, text, match.index, match[1] || match[2], `<${tag}> ${attribute}`);
+    }
+  }
+}
+
+const sourceScripts = scriptFiles.filter((file) => relative(ROOT, file).startsWith('src'));
+const importPatterns = [
+  /\b(?:import|export)\s+(?:[^;]*?\s+from\s+)?["'](\.[^"']+)["']/g,
+  /\bimport\s*\(\s*["'](\.[^"']+)["']\s*\)/g,
+];
+for (const file of sourceScripts) {
+  const text = readFileSync(file, 'utf8');
+  for (const pattern of importPatterns) {
+    for (const match of text.matchAll(pattern)) {
+      referencesLocalFile(file, text, match.index, match[1], 'ES module import');
+    }
+  }
+}
+
+const backgroundFile = resolve(ROOT, 'src', 'background.js');
+const backgroundText = readFileSync(backgroundFile, 'utf8');
+const offscreenPath = backgroundText.match(/\bconst\s+OFFSCREEN_PATH\s*=\s*["']([^"']+)["']/);
+if (!offscreenPath) {
+  failures.push('src/background.js:1: OFFSCREEN_PATH declaration not found');
+} else {
+  referencesLocalFile(
+    backgroundFile,
+    backgroundText,
+    offscreenPath.index,
+    offscreenPath[1],
+    'OFFSCREEN_PATH',
+    { rootRelative: true },
+  );
 }
 
 for (const file of [
@@ -192,4 +262,4 @@ if (failures.length) {
   console.error(failures.join('\n\n'));
   process.exit(1);
 }
-console.log('PASS  syntax, JSON, version, and screenshot freshness checks');
+console.log('PASS  syntax, references, JSON, version, and screenshot freshness checks');
