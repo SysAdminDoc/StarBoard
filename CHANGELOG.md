@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Browser updates no longer trigger a portfolio refresh. Extension installs
+  and updates keep their own branch, including the prior extension version for
+  future version-gated migration work.
 - Linux and Windows now build the unsigned extension independently in CI and
   must publish the same ZIP checksum; only checksum text crosses between jobs.
   ZIP entries use deterministic stored payloads because platform zlib builds

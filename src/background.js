@@ -35,6 +35,7 @@ import { createRetryWait } from './lib/request.js';
 import { deriveLifecycleEvents, mergeLifecycleEvents } from './lib/lifecycle.js';
 import { historyStats } from './lib/history.js';
 import { buildDiagnostics } from './lib/diagnostics.js';
+import { installationPlan } from './lib/install.js';
 import {
   acknowledgeNotifications,
   evaluateNotificationEvents,
@@ -440,12 +441,19 @@ async function diagnosticsBundle() {
   });
 }
 
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
+  const install = installationPlan(details);
   await syncAlarm();
   await updateBadge();
+  // Chrome itself updating is not an extension lifecycle change and must not
+  // spend network budget. `previousVersion` remains available on `install`
+  // for version-gated work when an extension update actually needs it.
+  if (!install.shouldRefresh) return;
   const settings = await getSettings();
   if (settings.username || settings.token) {
-    void refresh({ reason: 'installed' }).catch((error) => recordRefreshFailure(error, settings));
+    void refresh({ reason: install.reason }).catch((error) =>
+      recordRefreshFailure(error, settings),
+    );
   }
 });
 

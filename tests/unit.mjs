@@ -139,6 +139,7 @@ const {
   validateBackupText,
 } = await import('../src/lib/transfer.js');
 const { buildDiagnostics } = await import('../src/lib/diagnostics.js');
+const { installationPlan } = await import('../src/lib/install.js');
 const {
   acknowledgeNotifications,
   DEFAULT_NOTIFICATION_CONFIG,
@@ -184,6 +185,25 @@ async function test(name, work) {
     console.error(`FAIL  ${name}\n${error.stack || error}`);
   }
 }
+
+await test('extension installs and updates refresh while Chrome updates do not', async () => {
+  assert.deepEqual(installationPlan({ reason: 'install' }), {
+    reason: 'install',
+    shouldRefresh: true,
+    previousVersion: null,
+  });
+  assert.deepEqual(installationPlan({ reason: 'update', previousVersion: '1.3.0' }), {
+    reason: 'update',
+    shouldRefresh: true,
+    previousVersion: '1.3.0',
+  });
+  assert.deepEqual(installationPlan({ reason: 'chrome_update', previousVersion: '151.0' }), {
+    reason: 'chrome_update',
+    shouldRefresh: false,
+    previousVersion: null,
+  });
+  assert.equal(installationPlan({ reason: 'shared_module_update' }).shouldRefresh, false);
+});
 
 await test('v1.0 settings migrate sequentially and preserve API behavior', async () => {
   const migrated = storage.migrateRecord('settings', await fixture('v1.0.0-settings.json'), 1);
