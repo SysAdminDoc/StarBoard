@@ -27,6 +27,46 @@ function backoffDelay(attempt, { baseDelayMs, maxDelayMs, jitterMs, random }) {
   return exponential + Math.floor(random() * jitterMs);
 }
 
+/**
+ * Build a retry wait that persists its wake-up before yielding and periodically
+ * touches an extension API so an MV3 worker can survive long Retry-After waits.
+ */
+export function createRetryWait(
+  {
+    schedule,
+    keepAlive = async () => {},
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now = Date.now,
+    keepAliveMs = 20_000,
+  } = {},
+) {
+  if (typeof schedule !== 'function') throw new TypeError('retry wait needs a scheduler');
+  if (!Number.isFinite(keepAliveMs) || keepAliveMs <= 0) {
+    throw new TypeError('retry keep-alive interval must be positive');
+  }
+  return async (delay, { retryAt = null } = {}) => {
+    const remainingDelay = Math.max(0, Number(delay) || 0);
+    const wakeAt = Number.isFinite(retryAt) ? retryAt : now() + remainingDelay;
+    // This must finish before the first timer yield. If the worker is killed
+    // during the wait, the alarm owns recovery instead of the lost promise.
+    await schedule(wakeAt);
+    let remaining = remainingDelay;
+    while (remaining > 0) {
+      const slice = Math.min(remaining, keepAliveMs);
+      await sleep(slice);
+      remaining -= slice;
+      // Chrome 110+ resets the service-worker idle timer when an extension API
+      // call is made. Touch after the final slice too, immediately before the
+      // next fetch can consume another timeout window.
+      try {
+        await keepAlive();
+      } catch {
+        // The persisted alarm remains the fail-closed recovery path.
+      }
+    }
+  };
+}
+
 export async function requestWithRetry(
   url,
   {
@@ -59,7 +99,7 @@ export async function requestWithRetry(
     const forwardAbort = () => controller.abort(signal.reason);
     signal?.addEventListener('abort', forwardAbort, { once: true });
     const timeout = setTimeout(() => controller.abort('timeout'), timeoutMs);
-
+    let retryError = null;
     try {
       const response = await fetchImpl(url, {
         ...fetchOptions,
@@ -70,44 +110,54 @@ export async function requestWithRetry(
         const delay = serverRetryAt
           ? Math.max(0, serverRetryAt - now())
           : backoffDelay(attempt, { baseDelayMs, maxDelayMs, jitterMs, random });
-        const error = new RequestPolicyError(`Request returned ${response.status}.`, {
+        retryError = new RequestPolicyError(`Request returned ${response.status}.`, {
           code: response.status === 429 ? 'RATE_LIMITED' : 'UPSTREAM_UNAVAILABLE',
           status: response.status,
           retryAt: now() + delay,
           attempts: attempt + 1,
         });
-        if (attempt >= retries) throw error;
-        lastError = error;
-        await sleep(delay);
-        continue;
+      } else {
+        return {
+          response,
+          value: await parse(response),
+          attempts: attempt + 1,
+        };
       }
-      return {
-        response,
-        value: await parse(response),
-        attempts: attempt + 1,
-      };
     } catch (error) {
       if (error instanceof RequestPolicyError) {
-        if (attempt >= retries) throw error;
-        lastError = error;
+        retryError = error;
       } else {
         const timedOut = controller.signal.aborted && !signal?.aborted;
-        const wrapped = new RequestPolicyError(
+        const delay = backoffDelay(attempt, { baseDelayMs, maxDelayMs, jitterMs, random });
+        retryError = new RequestPolicyError(
           timedOut ? 'Request timed out.' : 'Network request failed.',
           {
             code: timedOut ? 'TIMEOUT' : signal?.aborted ? 'CANCELLED' : 'NETWORK',
+            retryAt: signal?.aborted ? null : now() + delay,
             attempts: attempt + 1,
           },
         );
-        if (signal?.aborted || attempt >= retries) throw wrapped;
-        lastError = wrapped;
       }
-      const delay = backoffDelay(attempt, { baseDelayMs, maxDelayMs, jitterMs, random });
-      await sleep(delay);
     } finally {
       clearTimeout(timeout);
       signal?.removeEventListener('abort', forwardAbort);
     }
+
+    if (signal?.aborted || retryError?.code === 'CANCELLED') throw retryError;
+    if (attempt >= retries) throw retryError;
+    lastError = retryError;
+    const delay = Number.isFinite(lastError.retryAt)
+      ? Math.max(0, lastError.retryAt - now())
+      : backoffDelay(attempt, { baseDelayMs, maxDelayMs, jitterMs, random });
+    if (!Number.isFinite(lastError.retryAt)) lastError.retryAt = now() + delay;
+    // All fetch timers/listeners are gone before yielding to a backoff. The
+    // injected worker wait can now persist an alarm without its own rejection
+    // being mistaken for a network failure.
+    await sleep(delay, {
+      attempt: attempt + 1,
+      error: lastError,
+      retryAt: lastError.retryAt,
+    });
   }
 
   throw lastError || new RequestPolicyError('Request failed.');

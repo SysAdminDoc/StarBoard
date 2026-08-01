@@ -1622,6 +1622,88 @@ async function main() {
         await chrome.runtime.sendMessage({ type: 'undo-status' });
       });
       rebaseCdp.detach().catch(() => {});
+
+      // A retry wait must persist its recovery alarm before yielding. Force a
+      // real API backoff, terminate the worker inside it, and prove the alarm
+      // both survives and wakes a fresh worker to resume recovery.
+      worker = ctx.serviceWorkers().find((candidate) => candidate.url() === workerUrl);
+      if (!worker) worker = await ctx.waitForEvent('serviceworker', { timeout: 5000 });
+      await worker.evaluate(() => {
+        globalThis.fetch = async () =>
+          new Response(JSON.stringify({ message: 'temporarily unavailable' }), {
+            status: 503,
+            headers: { 'retry-after': '20' },
+          });
+      });
+      await popup.evaluate(() => {
+        chrome.runtime
+          .sendMessage({ type: 'refresh', force: true, reason: 'smoke-retry-teardown' })
+          .catch(() => {});
+      });
+      await popup.waitForFunction(
+        async () => {
+          const alarm = await chrome.alarms.get('starboard-retry');
+          return !!alarm && alarm.scheduledTime > Date.now();
+        },
+        undefined,
+        { timeout: 5000 },
+      );
+      const alarmBeforeStop = await popup.evaluate(() => chrome.alarms.get('starboard-retry'));
+      const retryCdp = await ctx.newCDPSession(popup);
+      await retryCdp.send('ServiceWorker.enable');
+      const retryStopped = new Promise((resolveStop) => {
+        const timeout = setTimeout(() => resolveStop(false), 5000);
+        const onUpdate = ({ versions }) => {
+          if (
+            versions.some(
+              (version) =>
+                version.scriptURL === workerUrl && version.runningStatus === 'stopped',
+            )
+          ) {
+            clearTimeout(timeout);
+            retryCdp.off('ServiceWorker.workerVersionUpdated', onUpdate);
+            resolveStop(true);
+          }
+        };
+        retryCdp.on('ServiceWorker.workerVersionUpdated', onUpdate);
+      });
+      await retryCdp.send('ServiceWorker.stopAllWorkers');
+      const stoppedInsideBackoff = await retryStopped;
+      const alarmAfterStop = await popup.evaluate(() => chrome.alarms.get('starboard-retry'));
+      let restartedFromAlarm = false;
+      if (alarmAfterStop) {
+        const retryRestarted = new Promise((resolveStart) => {
+          const timeout = setTimeout(() => resolveStart(false), 30000);
+          const onUpdate = ({ versions }) => {
+            if (
+              versions.some(
+                (version) =>
+                  version.scriptURL === workerUrl && version.runningStatus === 'running',
+              )
+            ) {
+              clearTimeout(timeout);
+              retryCdp.off('ServiceWorker.workerVersionUpdated', onUpdate);
+              resolveStart(true);
+            }
+          };
+          retryCdp.on('ServiceWorker.workerVersionUpdated', onUpdate);
+        });
+        restartedFromAlarm = await retryRestarted;
+      }
+      await popup.evaluate(() => chrome.alarms.clear('starboard-retry'));
+      check(
+        'a retry alarm survives worker teardown and wakes recovery',
+        stoppedInsideBackoff &&
+          !!alarmAfterStop?.scheduledTime &&
+          restartedFromAlarm,
+        JSON.stringify({
+          stoppedInsideBackoff,
+          alarmBeforeStop,
+          alarmAfterStop,
+          restartedFromAlarm,
+        }),
+      );
+      await retryCdp.detach();
       await ctx.unroute('**');
 
       const failed = checks.filter((check) => !check.pass);

@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Refresh retries now survive Manifest V3 worker teardown. Recovery alarms are
+  persisted before backoff, long waits keep the worker alive, and event-driven
+  failures no longer escape as unhandled rejections.
 - Baseline rollover, history identity, request retry, and stored-event limits
   now have direct regression coverage at their policy boundaries.
 - Popup error handling now survives a Manifest V3 worker restart. A completed

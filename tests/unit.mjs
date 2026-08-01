@@ -100,6 +100,7 @@ const storage = await import('../src/lib/storage.js');
 const { createRefreshCoordinator } = await import('../src/lib/refresh-coordinator.js');
 const {
   parseRetryAfter,
+  createRetryWait,
   requestText,
   requestWithRetry,
   RequestPolicyError,
@@ -679,6 +680,59 @@ await test('request retries are bounded and give up with the final policy error'
   );
   assert.equal(calls, 3);
   assert.deepEqual(sleeps, [10, 20]);
+});
+
+await test('retry recovery is scheduled before an abandoned backoff can strand the run', async () => {
+  let scheduledAt = null;
+  let signalScheduled;
+  const scheduled = new Promise((resolveScheduled) => {
+    signalScheduled = resolveScheduled;
+  });
+  const retryWait = createRetryWait({
+    schedule: async (retryAt) => {
+      scheduledAt = retryAt;
+      signalScheduled();
+    },
+    // Model a worker disappearing after the timer yield: this promise never
+    // settles, so only the already-persisted alarm can own recovery.
+    sleep: async () => new Promise(() => {}),
+    now: () => 1000,
+  });
+  let calls = 0;
+  void requestWithRetry('https://example.invalid', {
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response('unavailable', { status: 503 });
+    },
+    sleep: retryWait,
+    retries: 1,
+    baseDelayMs: 50,
+    maxDelayMs: 50,
+    jitterMs: 0,
+    random: () => 0,
+    now: () => 1000,
+  });
+  await scheduled;
+  assert.equal(calls, 1);
+  assert.equal(scheduledAt, 1050);
+});
+
+await test('long retry waits keep the worker alive at bounded intervals', async () => {
+  const scheduled = [];
+  const sleeps = [];
+  let keepAlives = 0;
+  const retryWait = createRetryWait({
+    schedule: async (retryAt) => scheduled.push(retryAt),
+    sleep: async (ms) => sleeps.push(ms),
+    keepAlive: async () => {
+      keepAlives += 1;
+    },
+    keepAliveMs: 20,
+  });
+  await retryWait(45, { retryAt: 1045 });
+  assert.deepEqual(scheduled, [1045]);
+  assert.deepEqual(sleeps, [20, 20, 5]);
+  assert.equal(keepAlives, 3);
 });
 
 await test('missing REST quota headers stay nullable and Link relations parse', async () => {

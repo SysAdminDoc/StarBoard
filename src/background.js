@@ -31,6 +31,7 @@ import {
   setNotificationState,
 } from './lib/storage.js';
 import { createRefreshCoordinator } from './lib/refresh-coordinator.js';
+import { createRetryWait } from './lib/request.js';
 import { deriveLifecycleEvents, mergeLifecycleEvents } from './lib/lifecycle.js';
 import { historyStats } from './lib/history.js';
 import { buildDiagnostics } from './lib/diagnostics.js';
@@ -189,6 +190,11 @@ async function scheduleRetry(retryAt) {
   }
 }
 
+const waitForRetry = createRetryWait({
+  schedule: scheduleRetry,
+  keepAlive: () => chrome.runtime.getPlatformInfo(),
+});
+
 async function hasNotificationPermission() {
   return chrome.permissions.contains({ permissions: ['notifications'] });
 }
@@ -263,7 +269,7 @@ async function runRefresh(intent) {
     const result =
       settings.dataSource === 'web'
         ? await fetchAccountViaWeb(settings.username)
-        : await fetchAccount(settings, { previous: stored });
+        : await fetchAccount(settings, { previous: stored, sleep: waitForRetry });
 
     // Comparing one account's live counts against another account's snapshot
     // produces confident nonsense, and blending both into one history series
@@ -320,49 +326,74 @@ async function runRefresh(intent) {
       generation,
     };
   } catch (err) {
-    const detail = {
-      message: err.message,
-      code: err.code || 'REFRESH_FAILED',
-      status: err.status || 0,
-      rateLimited:
-        (err instanceof GitHubError && err.rateLimited) || err.code === 'RATE_LIMITED',
-      resetAt: err instanceof GitHubError ? err.resetAt : err.retryAt || null,
-      retryAt: err.retryAt || (err instanceof GitHubError ? err.resetAt : null),
-      at: Date.now(),
-      requestedSource: settings.dataSource,
-    };
-    const [previous, baseline] = await Promise.all([getCache(), getBaseline()]);
-    let cache = previous;
-    if (previous) {
-      cache = {
-        ...previous,
-        stale: true,
-        confidence: 'stale',
-        pendingSource:
-          previous.source !== settings.dataSource ? settings.dataSource : null,
-        error: detail,
-      };
-      await setCache(cache);
-      await updateBadge({ settings, cache, baseline });
-    }
-    await scheduleRetry(detail.retryAt);
-    return { ok: false, error: detail, cache, baseline };
+    return recordRefreshFailure(err, settings);
   }
 }
 
 const refreshCoordinator = createRefreshCoordinator(runRefresh);
 
+/** Normalize every refresh rejection without letting error reporting reject too. */
+async function recordRefreshFailure(err, settings = null) {
+  const detail = {
+    message: err?.message || 'StarBoard could not refresh this account.',
+    code: err?.code || 'REFRESH_FAILED',
+    status: err?.status || 0,
+    rateLimited:
+      (err instanceof GitHubError && err.rateLimited) || err?.code === 'RATE_LIMITED',
+    resetAt: err instanceof GitHubError ? err.resetAt : err?.retryAt || null,
+    retryAt: err?.retryAt || (err instanceof GitHubError ? err.resetAt : null),
+    at: Date.now(),
+    requestedSource: settings?.dataSource || null,
+  };
+  // Persist the recovery trigger before storage or badge reporting can fail.
+  await scheduleRetry(detail.retryAt).catch(() => {});
+  const [previous, baseline] = await Promise.all([
+    getCache().catch(() => null),
+    getBaseline().catch(() => null),
+  ]);
+  let cache = previous;
+  if (previous) {
+    cache = {
+      ...previous,
+      stale: true,
+      confidence: 'stale',
+      pendingSource:
+        settings?.dataSource && previous.source !== settings.dataSource
+          ? settings.dataSource
+          : null,
+      error: detail,
+    };
+    try {
+      await setCache(cache);
+    } catch (storageError) {
+      if (storageError?.code === 'STORAGE_QUOTA_EXCEEDED' && cache.validators) {
+        // Validators are only bandwidth hints. Drop them before giving up on
+        // the much more important persisted failure state.
+        cache = { ...cache, validators: {} };
+        await setCache(cache).catch(() => {});
+      }
+    }
+    if (settings) await updateBadge({ settings, cache, baseline }).catch(() => {});
+  }
+  return { ok: false, error: detail, cache, baseline };
+}
+
 async function refresh({ rebase = false, force = false, reason = 'manual', source = null } = {}) {
-  const settings = await getSettings();
-  const selectedSource = source || settings.dataSource;
-  return refreshCoordinator.request({
-    rebase,
-    force,
-    source: selectedSource,
-    accountKey: `${selectedSource}:${settings.username}:${settings.token ? 'authenticated' : 'public'}`,
-    settings: { ...settings, dataSource: selectedSource },
-    reasons: [reason],
-  });
+  let settings = null;
+  try {
+    settings = await getSettings();
+    const selectedSource = source || settings.dataSource;
+    return await refreshCoordinator.request({
+      rebase,
+      force,
+      source: selectedSource,
+      accountKey: `${selectedSource}:${settings.username}:${settings.token ? 'authenticated' : 'public'}`,
+      settings: { ...settings, dataSource: selectedSource },
+      reasons: [reason],
+    });
+  } catch (error) {
+    return recordRefreshFailure(error, settings || { dataSource: source || null });
+  }
 }
 
 async function syncAlarm() {
@@ -413,7 +444,9 @@ chrome.runtime.onInstalled.addListener(async () => {
   await syncAlarm();
   await updateBadge();
   const settings = await getSettings();
-  if (settings.username || settings.token) refresh({ reason: 'installed' });
+  if (settings.username || settings.token) {
+    void refresh({ reason: 'installed' }).catch((error) => recordRefreshFailure(error, settings));
+  }
 });
 
 chrome.runtime.onStartup.addListener(async () => {
@@ -426,7 +459,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === NOTIFICATION_ALARM) {
     deliverPendingNotifications().catch(() => {});
   } else if (alarm.name === ALARM || alarm.name === RETRY_ALARM) {
-    refresh({ reason: alarm.name === RETRY_ALARM ? 'retry' : 'alarm' });
+    void refresh({ reason: alarm.name === RETRY_ALARM ? 'retry' : 'alarm' }).catch((error) =>
+      recordRefreshFailure(error),
+    );
   }
 });
 
