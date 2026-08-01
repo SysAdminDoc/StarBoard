@@ -859,11 +859,16 @@ async function main() {
         cacheGeneration: stored.cache?.generation,
         baselineGeneration: stored.baseline?.generation,
         historyGeneration: stored.history?.generation,
+        // Assert against the shipped constant, not a literal, so a schema bump
+        // does not require editing this test.
+        expected: (await import('./lib/storage.js')).SCHEMA_VERSION,
       };
     });
     check(
       'settings, cache, baseline, and history use versioned envelopes',
-      committedGeneration.versions.every((version) => version === 4),
+      committedGeneration.versions.every(
+        (version) => version === committedGeneration.expected,
+      ),
       JSON.stringify(committedGeneration),
     );
     check(
@@ -1789,11 +1794,14 @@ async function main() {
     await options.waitForSelector('#diagnosticsOutput:not([hidden])');
     const diagnosticsText = await options.textContent('#diagnosticsOutput');
     const diagnostics = JSON.parse(diagnosticsText);
+    const expectedSchema = await options.evaluate(
+      async () => (await import('./lib/storage.js')).SCHEMA_VERSION,
+    );
     check(
       'local diagnostics expose version, permission, storage, refresh, and alarm health',
       diagnostics.extension.minimumChromeVersion === '110' &&
         typeof diagnostics.permissions.githubWebsite === 'boolean' &&
-        diagnostics.storage.schemaVersion === 4 &&
+        diagnostics.storage.schemaVersion === expectedSchema &&
         diagnostics.refresh.lastSuccessfulAt &&
         diagnostics.alarms.refresh?.periodMinutes === 60,
     );

@@ -91,6 +91,9 @@ const {
   HISTORY_MAX_BYTES,
   historyByteSize,
   historyPointForRepo,
+  historyRetainedDays,
+  historyRows,
+  migrateHistoryToV2,
   recordDailyHistory,
 } = await import('../src/lib/history.js');
 const {
@@ -158,7 +161,7 @@ await test('v1.2 settings migrate to session-aware schema v4', async () => {
 
 await test('current settings migration is idempotent', async () => {
   const current = await fixture('current-settings.json');
-  const migrated = storage.migrateRecord('settings', current, 4);
+  const migrated = storage.migrateRecord('settings', current, 5);
   assert.equal(migrated.changed, false);
   assert.deepEqual(migrated.envelope.data, current.data);
 });
@@ -414,23 +417,17 @@ await test('history is not mirrored into the recovery copy', async () => {
   Object.keys(sessionArea.values).forEach((key) => delete sessionArea.values[key]);
   await storage.setSettings({ username: 'octocat', dataSource: 'api' });
   await storage.setHistory({
-    formatVersion: 1,
+    formatVersion: 2,
+    repos: [['id:1', 'octocat/a', 0]],
     snapshots: [
       {
         day: '2026-07-30',
         at: Date.parse('2026-07-30T00:00:00.000Z'),
         source: 'api',
         confidence: 'exact',
-        repos: [
-          {
-            key: 'id:1',
-            fullName: 'octocat/a',
-            stars: 5,
-            forks: 1,
-            private: false,
-            approximate: false,
-          },
-        ],
+        stars: [5],
+        forks: [1],
+        approx: [],
       },
     ],
   });
@@ -909,7 +906,8 @@ await test('daily history replaces same-day points and follows API IDs across re
     { now: firstAt + 3_600_000 },
   );
   assert.equal(history.snapshots.length, 1);
-  assert.equal(history.snapshots[0].repos[0].stars, 11);
+  assert.equal(history.repos.length, 1);
+  assert.equal(history.snapshots[0].stars[0], 11);
 
   const renamed = {
     ...first.repos[0],
@@ -924,13 +922,109 @@ await test('daily history replaces same-day points and follows API IDs across re
   const comparison = historyPointForRepo(history, renamed, 7, {
     now: firstAt + 7 * 86_400_000,
   });
-  assert.equal(comparison.fullName, 'octocat/old-name');
+  // Identity follows the numeric API id, so the delta spans the rename. The
+  // dictionary holds one name per identity and keeps it current, so a
+  // historical point reports the repository's present name rather than the one
+  // it carried that day — the series stays one continuous line instead of
+  // appearing to change subject halfway through.
+  assert.equal(comparison.fullName, 'octocat/new-name');
+  assert.equal(comparison.stars, 11);
   assert.equal(renamed.stargazers_count - comparison.stars, 7);
 });
 
+await test('history keeps gaps distinct from measured zeros', async () => {
+  const day = Date.UTC(2026, 0, 1, 12);
+  const base = { source: 'api', confidence: 'exact' };
+  // Day one sees both repositories; day two sees only the first.
+  let history = recordDailyHistory(
+    null,
+    {
+      ...base,
+      repos: [
+        { id: 1, full_name: 'octocat/a', stargazers_count: 5, forks_count: 0, private: false },
+        { id: 2, full_name: 'octocat/b', stargazers_count: 0, forks_count: 0, private: false },
+      ],
+    },
+    { now: day },
+  );
+  history = recordDailyHistory(
+    history,
+    {
+      ...base,
+      repos: [
+        { id: 1, full_name: 'octocat/a', stargazers_count: 6, forks_count: 0, private: false },
+      ],
+    },
+    { now: day + 86_400_000 },
+  );
+
+  const second = history.snapshots[1];
+  const indexOfB = history.repos.findIndex((entry) => entry[0] === 'id:2');
+  // A measured zero on day one, an explicit gap on day two. Conflating them
+  // would invent a fake -0 delta and a phantom data point.
+  assert.equal(history.snapshots[0].stars[indexOfB], 0);
+  assert.equal(second.stars[indexOfB], null);
+
+  const rows = historyRows(history);
+  assert.equal(rows.filter((row) => row.fullName === 'octocat/b').length, 1);
+  assert.equal(rows.filter((row) => row.fullName === 'octocat/a').length, 2);
+});
+
+await test('a full year of a large portfolio fits inside the storage cap', async () => {
+  // The previous format cost ~26 KB/day at 206 repositories, so the 2 MiB cap
+  // held about 78 days and the shipped 90-day trend could never resolve.
+  const start = Date.UTC(2026, 0, 1, 12);
+  const repos = Array.from({ length: 500 }, (_, index) => ({
+    id: index,
+    full_name: `octocat/repository-with-a-realistic-name-${index}`,
+    stargazers_count: 1000 + index,
+    forks_count: 25,
+    private: false,
+  }));
+  let history = null;
+  for (let day = 0; day < 365; day += 1) {
+    history = recordDailyHistory(
+      history,
+      { source: 'api', confidence: 'exact', repos },
+      { now: start + day * 86_400_000 },
+    );
+  }
+  assert.equal(history.snapshots.length, 365);
+  assert.equal(history.repos.length, 500);
+  assert.ok(
+    historyByteSize(history) <= HISTORY_MAX_BYTES,
+    `365 days x 500 repositories must fit in 2 MiB, used ${historyByteSize(history)}`,
+  );
+  assert.equal(historyRetainedDays(history, { now: start + 364 * 86_400_000 }), 364);
+});
+
+await test('history reports the range it can actually serve', async () => {
+  const start = Date.UTC(2026, 0, 1, 12);
+  let history = null;
+  for (const offset of [0, 1, 2]) {
+    history = recordDailyHistory(
+      history,
+      {
+        source: 'api',
+        confidence: 'exact',
+        repos: [
+          { id: 1, full_name: 'octocat/a', stargazers_count: offset, forks_count: 0, private: false },
+        ],
+      },
+      { now: start + offset * 86_400_000 },
+    );
+  }
+  assert.equal(historyRetainedDays(history, { now: start + 2 * 86_400_000 }), 2);
+  assert.equal(historyRetainedDays(emptyHistoryForTest()), 0);
+});
+
+function emptyHistoryForTest() {
+  return { formatVersion: 2, repos: [], snapshots: [] };
+}
+
 await test('history enforces 365 UTC days and the two-megabyte hard cap', async () => {
   const start = Date.UTC(2025, 0, 1, 12);
-  const historySeed = {
+  const legacySeed = {
     formatVersion: 1,
     snapshots: Array.from({ length: 369 }, (_, day) => ({
       day: new Date(start + day * 86_400_000).toISOString().slice(0, 10),
@@ -949,6 +1043,7 @@ await test('history enforces 365 UTC days and the two-megabyte hard cap', async 
       ],
     })),
   };
+  const historySeed = migrateHistoryToV2(legacySeed);
   const history = recordDailyHistory(
     historySeed,
     {

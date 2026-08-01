@@ -12,7 +12,13 @@ import {
   migrateRecord,
   normalizeSettings,
 } from './storage.js';
-import { emptyHistory, historyStats, validateHistory } from './history.js';
+import {
+  emptyHistory,
+  filterHistoryRepositories,
+  historyRows,
+  historyStats,
+  validateHistory,
+} from './history.js';
 
 export const BACKUP_FORMAT = 'starboard-backup';
 export const BACKUP_FORMAT_VERSION = 1;
@@ -63,10 +69,9 @@ function classifiedNames(cache, history) {
   for (const repo of cache?.repos || []) {
     (repo.private ? privateNames : publicNames).add(repo.full_name);
   }
-  for (const snapshot of history?.snapshots || []) {
-    for (const repo of snapshot.repos) {
-      (repo.private ? privateNames : publicNames).add(repo.fullName);
-    }
+  for (const entry of history?.repos || []) {
+    const [, fullName, isPrivate] = entry;
+    (isPrivate === 1 ? privateNames : publicNames).add(fullName);
   }
   const safePublicNames = new Set(
     [...publicNames].filter((name) => !privateNames.has(name)),
@@ -98,18 +103,13 @@ function sanitizeBaseline(baseline, includePrivate, names) {
 function sanitizeHistory(history, includePrivate, names) {
   const source = history || emptyHistory();
   validateHistory(source);
-  return {
-    ...copy(source),
-    snapshots: source.snapshots.map((snapshot) => ({
-      ...copy(snapshot),
-      repos: snapshot.repos
-        .filter(
-          (repo) =>
-            includePrivate || (!repo.private && !names.privateNames.has(repo.fullName)),
-        )
-        .map(copy),
-    })),
-  };
+  if (includePrivate) return copy(source);
+  return copy(
+    filterHistoryRepositories(
+      source,
+      (repo) => !repo.private && !names.privateNames.has(repo.fullName),
+    ),
+  );
 }
 
 function sanitizePortfolioViews(state, includePrivate, names) {
@@ -209,10 +209,8 @@ function summarize(records, versions) {
   const privateNames = new Set(
     (cache?.repos || []).filter((repo) => repo.private).map((repo) => repo.full_name),
   );
-  for (const snapshot of history.snapshots) {
-    for (const repo of snapshot.repos) {
-      if (repo.private) privateNames.add(repo.fullName);
-    }
+  for (const [, fullName, isPrivate] of history.repos || []) {
+    if (isPrivate === 1) privateNames.add(fullName);
   }
   return {
     settings: !!records[STORAGE_KEYS.settings],
@@ -312,26 +310,25 @@ function currentCsvRows(cache, baseline, includePrivate) {
 }
 
 function historyCsvRows(history, includePrivate) {
-  validateHistory(history);
   const previous = new Map();
   const rows = [];
-  for (const snapshot of history.snapshots) {
-    for (const repo of snapshot.repos) {
-      if (!includePrivate && repo.private) continue;
-      const before = previous.get(repo.key);
-      rows.push([
-        new Date(snapshot.at).toISOString(),
-        repo.fullName,
-        repo.private ? 'private' : 'public',
-        repo.stars,
-        repo.forks,
-        before ? repo.stars - before.stars : '',
-        before ? repo.forks - before.forks : '',
-        snapshot.source,
-        repo.approximate ? 'approximate' : snapshot.confidence,
-      ]);
-      previous.set(repo.key, repo);
-    }
+  for (const row of historyRows(history)) {
+    if (!includePrivate && row.private) continue;
+    const before = previous.get(row.key);
+    rows.push([
+      new Date(row.at).toISOString(),
+      row.fullName,
+      row.private ? 'private' : 'public',
+      row.stars,
+      row.forks,
+      // A delta is only meaningful between two observed points. A gap must
+      // leave the cell empty rather than imply a change from zero.
+      before ? row.stars - before.stars : '',
+      before ? row.forks - before.forks : '',
+      row.source,
+      row.approximate ? 'approximate' : row.confidence,
+    ]);
+    previous.set(row.key, row);
   }
   return rows;
 }

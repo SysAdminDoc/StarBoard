@@ -8,6 +8,7 @@
 
 import {
   emptyHistory,
+  migrateHistoryToV2,
   pruneHistory,
   recordDailyHistory,
   validateHistory,
@@ -29,7 +30,7 @@ import {
   validatePortfolioViewState,
 } from './portfolio-views.js';
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 export const STORAGE_KEYS = Object.freeze({
   settings: 'settings',
   cache: 'cache',
@@ -152,6 +153,15 @@ function migrateV3ToV4(key, value) {
   };
 }
 
+function migrateV4ToV5(key, value) {
+  if (key !== STORAGE_KEYS.history) return value;
+  // Format 1 repeated every repository's name and flags in every daily
+  // snapshot. Rebuild it into the dictionary form so retained history is not
+  // silently capped at ~78 days.
+  if (value?.formatVersion === 1) return migrateHistoryToV2(value);
+  return value;
+}
+
 function validateSettings(value) {
   assert(isObject(value), 'settings must be an object');
   assert(typeof value.username === 'string' && value.username.length <= 100, 'invalid username');
@@ -265,6 +275,7 @@ export function migrateRecord(key, raw, now = Date.now()) {
     if (version === 1) value = migrateV1ToV2(key, value);
     else if (version === 2) value = migrateV2ToV3(key, value);
     else if (version === 3) value = migrateV3ToV4(key, value);
+    else if (version === 4) value = migrateV4ToV5(key, value);
     version += 1;
   }
 

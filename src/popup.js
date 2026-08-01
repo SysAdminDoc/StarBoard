@@ -20,7 +20,11 @@ import {
   STORAGE_KEYS,
   applyTheme,
 } from './lib/storage.js';
-import { historyPointsForRepos, repositoryHistoryKey } from './lib/history.js';
+import {
+  historyPointsForRepos,
+  historyRetainedDays,
+  repositoryHistoryKey,
+} from './lib/history.js';
 import {
   DEFAULT_PORTFOLIO_FILTERS,
   NO_LANGUAGE,
@@ -136,6 +140,16 @@ function syncControls() {
   el.search.disabled = !hasRows || viewBusy;
   el.sort.disabled = !hasRows || viewBusy;
   el.trendRange.disabled = !hasRows;
+  // Offering a range longer than the retained window returned a column of
+  // dashes with no explanation. Say how far back the data actually goes.
+  const retained = historyRetainedDays(state.history);
+  for (const option of el.trendRange.options) {
+    if (option.value === 'baseline') continue;
+    const days = Number(option.value);
+    const unavailable = hasRows && retained < days;
+    option.disabled = unavailable;
+    option.textContent = unavailable ? `${days} days — not retained yet` : `${days} days`;
+  }
   el.viewSelect.disabled = !hasRows || viewBusy;
   el.saveView.disabled = !hasRows || viewBusy;
   el.toggleFilters.disabled = !hasRows || viewBusy;

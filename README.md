@@ -241,7 +241,11 @@ renames connected across time; website-only changes remain explicit
 additions/removals. A dash means no retained point exists for that repository
 and range—StarBoard does not interpolate it as exact. History keeps at most one
 point per repository per UTC day for 365 days, prunes oldest days first, and
-never exceeds 2 MiB. Settings can prune it to a shorter window with undo.
+never exceeds 2 MiB. A repository dictionary is stored once and each day holds
+only counts, so a 500-repository portfolio keeps the full year in about 1.5 MB
+and a 200-repository one in well under a megabyte. Ranges longer than the data
+actually retained are shown as unavailable rather than returning a column of
+dashes. Settings can prune it to a shorter window with undo.
 
 ## Development
 

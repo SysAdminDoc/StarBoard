@@ -15,6 +15,15 @@
 
 ### Fixed
 
+- Trend history now actually keeps the documented 365 days. Each day used to
+  repeat every repository's name and flags, costing about 26 KB per day for a
+  200-repository portfolio — so the 2 MiB cap held roughly 78 days and the
+  90-day trend option could never resolve, pruning silently. A repository
+  dictionary is now stored once and each day holds only counts: the same
+  portfolio costs about 1.8 KB per day, and 500 repositories keep a full year
+  within the cap. Existing history migrates automatically, and ranges longer
+  than the data retained are offered as unavailable instead of returning
+  dashes.
 - Trend history is no longer duplicated into the recovery copy on every write,
   roughly halving peak local-storage use. History is append-only and derived,
   so a shadow copy bought nothing against a budget that is only 5 MiB on
