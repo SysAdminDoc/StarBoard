@@ -42,7 +42,8 @@ jobs:
       - run: npm run test:release
       - run: npm run build
       - run: npx playwright install chromium
-      # The offline lane drives a full refresh, generation commit, delta,
-      # history, badge and export cycle against fixtures injected into the
-      # service worker, with every external route aborted.
+      # The headless offline lane runs the full deterministic browser workflow
+      # against the shipped ZIP: refresh, themes/contrast, credentials,
+      # diagnostics, backup/restore, destructive recovery and notifications.
+      # API traffic is fixture-backed and every other external route is aborted.
       - run: node tests/smoke.mjs --zip --offline
