@@ -143,6 +143,35 @@ let state = {
 let refreshing = false;
 let bootReady = false;
 let viewEditorMode = null;
+/** The control that opened the view editor, so closing it can return focus. */
+let viewEditorOpener = null;
+/** Set by `syncControls` when it had to abandon an unavailable trend range. */
+let trendRangeFellBack = false;
+/**
+ * A control the view editor owes focus to. Closing the editor from inside a
+ * queued portfolio update hides it while every control is still disabled, so
+ * the focus call has to wait for `syncControls` to re-enable the target.
+ */
+let pendingFocusReturn = null;
+
+function flushFocusReturn() {
+  if (!pendingFocusReturn) return;
+  const target = pendingFocusReturn;
+  // Only reclaim focus that was actually stranded — nothing focused, or focus
+  // still sitting inside the editor that is being hidden out from under it. If
+  // the user has moved on, stealing it back would be worse than the drop.
+  const stranded =
+    !document.activeElement ||
+    document.activeElement === document.body ||
+    el.viewEditor.contains(document.activeElement);
+  if (!target.isConnected || !stranded) {
+    pendingFocusReturn = null;
+    return;
+  }
+  if (target.disabled) return;
+  pendingFocusReturn = null;
+  target.focus();
+}
 // Which repositories the list currently shows, so a re-render can tell an
 // unchanged result set from a genuinely different one.
 let lastRenderedIdentity = null;
@@ -162,12 +191,37 @@ function syncControls() {
   // Offering a range longer than the retained window returned a column of
   // dashes with no explanation. Say how far back the data actually goes.
   const retained = historyRetainedDays(state.history);
+  let longestAvailable = 'baseline';
   for (const option of el.trendRange.options) {
     if (option.value === 'baseline') continue;
     const days = Number(option.value);
     const unavailable = hasRows && retained < days;
     option.disabled = unavailable;
     option.textContent = unavailable ? `${days} days — not retained yet` : `${days} days`;
+    if (!unavailable) longestAvailable = option.value;
+  }
+  // A pruned or newly-capped window can disable the range that is currently
+  // selected. Leaving it selected left every delta as a dash with no
+  // explanation, so fall back to the longest range the history can serve.
+  const selectedOption = [...el.trendRange.options].find(
+    (option) => option.value === state.trendRange,
+  );
+  if (hasRows && selectedOption?.disabled) {
+    const previous = state.trendRange;
+    state.trendRange = longestAvailable;
+    el.trendRange.value = longestAvailable;
+    trendRangeFellBack = true;
+    // Later stages of this same render announce the confidence sentence, and
+    // `announce` keeps only the newest message. Queue past them.
+    queueMicrotask(() =>
+      announce(
+        `${previous}-day trend is no longer retained. Showing ${
+          longestAvailable === 'baseline' ? 'the baseline comparison' : `${longestAvailable} days`
+        } instead.`,
+      ),
+    );
+  } else {
+    el.trendRange.value = state.trendRange;
   }
   el.viewSelect.disabled = !hasRows || viewBusy;
   el.saveView.disabled = !hasRows || viewBusy;
@@ -191,6 +245,7 @@ function syncControls() {
     'aria-busy',
     String(refreshing || (hasSetup() && !state.cache?.repos && !state.cache?.error)),
   );
+  flushFocusReturn();
 }
 
 // Typing in the search box settles the debounce repeatedly, and each settle
@@ -601,6 +656,23 @@ function renderSkeleton() {
     s.append(a, b);
     el.list.appendChild(s);
   }
+}
+
+/** Shared by the Reset filters control and the no-match empty state. */
+function resetAllFilters() {
+  return queueFilterPatch(
+    {
+      query: '',
+      language: DEFAULT_PORTFOLIO_FILTERS.language,
+      visibility: DEFAULT_PORTFOLIO_FILTERS.visibility,
+      forkStatus: DEFAULT_PORTFOLIO_FILTERS.forkStatus,
+      archivedStatus: DEFAULT_PORTFOLIO_FILTERS.archivedStatus,
+      precision: DEFAULT_PORTFOLIO_FILTERS.precision,
+      lifecycle: DEFAULT_PORTFOLIO_FILTERS.lifecycle,
+      activity: DEFAULT_PORTFOLIO_FILTERS.activity,
+    },
+    'Repository filters reset.',
+  ).catch((error) => announce(error.message || 'Could not reset the filters.'));
 }
 
 function renderEmpty(title, message, action) {
@@ -1126,7 +1198,13 @@ function render() {
   }
 
   if (!rows.length) {
-    renderEmpty('Nothing matches', 'Reset the search or open Filters to broaden this view.');
+    // Every other empty state offers a way out. This one hid its only escape
+    // inside the collapsed filter panel.
+    renderEmpty(
+      'Nothing matches',
+      'The current search and filters exclude every repository in this snapshot.',
+      { label: 'Reset filters', onClick: resetAllFilters },
+    );
     return;
   }
 
@@ -1228,14 +1306,21 @@ async function applyFilterPatch(changes, message = 'Filters updated.', { defer =
 }
 
 function closeViewEditor() {
+  // Hiding a container while focus is inside it drops focus to <body>, which
+  // strands a keyboard user at the top of the document.
+  const returnTo = viewEditorOpener;
+  viewEditorOpener = null;
   viewEditorMode = null;
   el.viewEditor.hidden = true;
   el.viewName.value = '';
   el.viewName.setCustomValidity('');
+  pendingFocusReturn = returnTo?.isConnected ? returnTo : el.viewSelect;
+  flushFocusReturn();
 }
 
 function openViewEditor(mode) {
   resetDeleteConfirmation();
+  viewEditorOpener = mode === 'rename' ? el.renameView : el.saveView;
   viewEditorMode = mode;
   const selected = state.portfolioViews.views.find(
     (view) => view.id === state.portfolioViews.activeViewId,
@@ -1378,21 +1463,7 @@ el.toggleFilters.addEventListener('click', () => {
   el.toggleFilters.setAttribute('aria-expanded', String(opening));
 });
 
-el.resetFilters.addEventListener('click', () => {
-  queueFilterPatch(
-    {
-      query: '',
-      language: DEFAULT_PORTFOLIO_FILTERS.language,
-      visibility: DEFAULT_PORTFOLIO_FILTERS.visibility,
-      forkStatus: DEFAULT_PORTFOLIO_FILTERS.forkStatus,
-      archivedStatus: DEFAULT_PORTFOLIO_FILTERS.archivedStatus,
-      precision: DEFAULT_PORTFOLIO_FILTERS.precision,
-      lifecycle: DEFAULT_PORTFOLIO_FILTERS.lifecycle,
-      activity: DEFAULT_PORTFOLIO_FILTERS.activity,
-    },
-    'Repository filters reset.',
-  ).catch((error) => announce(error.message || 'Could not reset the filters.'));
-});
+el.resetFilters.addEventListener('click', resetAllFilters);
 
 el.viewSelect.addEventListener('change', () => {
   resetDeleteConfirmation();
@@ -1484,7 +1555,12 @@ el.deleteView.addEventListener('click', () => {
 
 el.trendRange.addEventListener('change', () => {
   state.trendRange = el.trendRange.value;
+  trendRangeFellBack = false;
   render();
+  // The range the user picked is no longer retained; `syncControls` already
+  // moved the control and said so. Repeating the ordinary sentence over it
+  // would claim a comparison that is not what is on screen.
+  if (trendRangeFellBack) return;
   const label =
     state.trendRange === 'baseline' ? 'the comparison baseline' : `${state.trendRange} days`;
   // The quality notes already carry the coverage sentence; reuse it so the

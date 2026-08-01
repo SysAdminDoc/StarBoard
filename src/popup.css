@@ -112,6 +112,35 @@ html {
   white-space: nowrap;
 }
 
+/* Hidden until focused, then a real control above the list. Without it the
+   only route to the footer's Undo is tabbing through every repository row. */
+.skip-link {
+  position: absolute;
+  z-index: 5;
+  top: 4px;
+  left: 4px;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  margin: 0;
+  background: var(--surface-raised);
+  clip: rect(0, 0, 0, 0);
+  color: var(--text);
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.skip-link:focus-visible {
+  width: auto;
+  height: auto;
+  padding: 7px 11px;
+  border: 1px solid var(--accent);
+  clip: auto;
+}
+
 .theme-switching *,
 .theme-switching *::before,
 .theme-switching *::after {

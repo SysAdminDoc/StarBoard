@@ -2447,6 +2447,145 @@ async function main() {
         n.some((node) => /comparison point/.test(node.textContent)),
       )),
     );
+    // A shrinking retained window can disable the range that is selected. The
+    // select kept that value, so every delta rendered as an unexplained dash.
+    const fullHistory = await popup.evaluate(async () => {
+      const { getHistory, setHistory } = await import('./lib/storage.js');
+      const history = await getHistory();
+      // The fixture's snapshots are sparse, so dropping the oldest — not a
+      // count of days — is what shrinks the window the ranges can serve.
+      await setHistory({ ...history, snapshots: history.snapshots.slice(-2) });
+      return history;
+    });
+    await popup.reload();
+    await popup.waitForFunction(() => document.querySelectorAll('.row').length > 0);
+    const rangeFallback = await popup.evaluate(async () => {
+      const select = document.querySelector('#trendRange');
+      // Exactly the state a prune leaves behind: the control still holds a
+      // range the history can no longer serve.
+      select.value = '90';
+      select.dispatchEvent(new Event('change'));
+      await new Promise((settle) => setTimeout(settle, 1000));
+      return {
+        value: select.value,
+        unavailable: [...select.options].filter((o) => o.disabled).map((o) => o.value),
+        spoken: document.querySelector('#live-status').textContent,
+        selectedDisabled: select.selectedOptions[0]?.disabled ?? true,
+      };
+    });
+    check(
+      'a trend range that stops being retained falls back and announces the change',
+      rangeFallback.value !== '90' &&
+        rangeFallback.unavailable.includes('90') &&
+        rangeFallback.unavailable.includes('30') &&
+        /no longer retained/i.test(rangeFallback.spoken) &&
+        rangeFallback.selectedDisabled === false,
+      JSON.stringify(rangeFallback),
+    );
+    await popup.evaluate(async (history) => {
+      const { setHistory } = await import('./lib/storage.js');
+      await setHistory(history);
+    }, fullHistory);
+    await popup.reload();
+    await popup.waitForFunction(() => document.querySelectorAll('.row').length > 0);
+
+    // The footer's Undo sits after one focusable row per repository — 343 on
+    // the reference account — and keyboard shortcuts are out by project rule.
+    const skipLink = await popup.evaluate(async () => {
+      const link = document.querySelector('#skipList');
+      const list = document.querySelector('#list');
+      const before = link.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING;
+      const hiddenBox = link.getBoundingClientRect();
+      link.focus();
+      const focusedBox = link.getBoundingClientRect();
+      link.click();
+      await new Promise((settle) => requestAnimationFrame(settle));
+      return {
+        precedesList: !!before,
+        hiddenWidth: hiddenBox.width,
+        focusedWidth: focusedBox.width,
+        landed: document.activeElement?.id,
+      };
+    });
+    check(
+      'a skip affordance reaches the footer without traversing the repository list',
+      skipLink.precedesList &&
+        skipLink.hiddenWidth <= 1 &&
+        skipLink.focusedWidth > 40 &&
+        skipLink.landed === 'footer',
+      JSON.stringify(skipLink),
+    );
+
+    // Hiding the view editor while focus was inside it dropped focus to <body>.
+    await popup.click('#saveView');
+    await popup.waitForSelector('#viewEditor:not([hidden])');
+    const cancelledFocus = await popup.evaluate(async () => {
+      const inEditor = document.activeElement?.id;
+      document.querySelector('#cancelView').click();
+      await new Promise((settle) => requestAnimationFrame(settle));
+      return { inEditor, afterCancel: document.activeElement?.id };
+    });
+    check(
+      'cancelling the view editor returns focus to the control that opened it',
+      cancelledFocus.inEditor === 'viewName' && cancelledFocus.afterCancel === 'saveView',
+      JSON.stringify(cancelledFocus),
+    );
+    await popup.click('#saveView');
+    await popup.waitForSelector('#viewEditor:not([hidden])');
+    await popup.fill('#viewName', 'Focus return check');
+    await popup.click('#confirmView');
+    const submittedFocus = await popup
+      .waitForFunction(
+        () =>
+          document.querySelector('#viewEditor').hidden && {
+            focused: document.activeElement?.id,
+          },
+        { timeout: 15000 },
+      )
+      .then((handle) => handle.jsonValue())
+      .catch(async () => ({
+        focused: await popup.evaluate(() => document.activeElement?.id),
+        validity: await popup.evaluate(() => document.querySelector('#viewName').validationMessage),
+      }));
+    check(
+      'submitting the view editor returns focus to the control that opened it',
+      submittedFocus.focused === 'saveView',
+      JSON.stringify(submittedFocus),
+    );
+    const savedFocusViewId = await popup.evaluate(async () => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      const state = await getPortfolioViewState();
+      return state.views.find((view) => view.name === 'Focus return check')?.id || null;
+    });
+    if (savedFocusViewId) {
+      await popup.evaluate(async (id) => {
+        const { deleteSavedPortfolioView } = await import('./lib/storage.js');
+        await deleteSavedPortfolioView(id);
+      }, savedFocusViewId);
+      await popup.reload();
+      await popup.waitForFunction(() => document.querySelectorAll('.row').length > 0);
+    }
+
+    // "Nothing matches" was the one empty state with no way out — its only
+    // escape, Reset filters, lives inside the collapsed filter panel.
+    await popup.fill('#search', 'zzz-no-repository-matches-this-zzz');
+    await popup.waitForFunction(
+      () => document.querySelector('#list .empty h3')?.textContent === 'Nothing matches',
+    );
+    const noMatch = await popup.evaluate(() => ({
+      action: document.querySelector('#list .empty button')?.textContent || '',
+      panelHidden: document.querySelector('#filterPanel').hidden,
+    }));
+    await popup.click('#list .empty button');
+    await popup.waitForFunction(() => document.querySelectorAll('.row').length > 0);
+    check(
+      'the no-match empty state offers a reachable way back',
+      noMatch.action === 'Reset filters' &&
+        noMatch.panelHidden &&
+        (await popup.inputValue('#search')) === '',
+      JSON.stringify(noMatch),
+    );
+
     // The confidence badge was anchored to the panel's top-right corner and
     // sat on top of the first secondary tile's heading at the 440px width.
     const badgePlacement = await popup.evaluate(async () => {

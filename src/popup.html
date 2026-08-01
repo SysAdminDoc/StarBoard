@@ -257,9 +257,14 @@
       <ul id="lifecycle-list"></ul>
     </section>
 
+    <!-- The list holds one focusable row per repository — 343 on the reference
+         account — and the footer's Undo control sits after it. Keyboard
+         shortcuts are out by project rule, so this is the escape hatch. -->
+    <a id="skipList" class="skip-link" href="#footer">Skip the repository list</a>
+
     <main id="list" class="list" aria-busy="true"></main>
 
-    <footer id="footer" class="footer">
+    <footer id="footer" class="footer" tabindex="-1">
       <span id="updated">—</span>
       <button id="undo" class="footer-action" type="button" hidden>Undo last action</button>
       <span class="spacer"></span>
