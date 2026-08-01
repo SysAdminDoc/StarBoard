@@ -921,6 +921,54 @@ async function main() {
         JSON.stringify(exported),
       );
 
+      // A portfolio large enough that the list genuinely scrolls, so the
+      // scroll-preservation assertion below is not vacuous.
+      await installFixtures(
+        Array.from({ length: 40 }, (_, index) =>
+          fixtureRepo(100 + index, `repo-${String(index).padStart(2, '0')}`, 500 - index, 1),
+        ),
+      );
+      await popup.evaluate(() =>
+        chrome.runtime.sendMessage({ type: 'refresh', force: true, reason: 'fixture-scroll' }),
+      );
+      await popup.reload();
+      await popup.waitForSelector('.row', { timeout: 15000 });
+
+      // Typing must survive the awaited storage write that drives each render.
+      await popup.click('#search');
+      await popup.type('#search', 'repo-1', { delay: 25 });
+      await popup.waitForFunction(
+        () => document.body.dataset.portfolioState === 'saved',
+        { timeout: 10000 },
+      );
+      const typed = await popup.inputValue('#search');
+      check('typing survives the render round trip', typed === 'repo-1', typed);
+
+      await popup.fill('#search', '');
+      await popup.waitForFunction(
+        () =>
+          document.body.dataset.portfolioState === 'saved' &&
+          document.querySelectorAll('.row').length === 40,
+        { timeout: 10000 },
+      );
+      const scrollKept = await popup.evaluate(async () => {
+        const list = document.getElementById('list');
+        const scrollable = list.scrollHeight > list.clientHeight;
+        list.scrollTop = 120;
+        const before = list.scrollTop;
+        // Force a re-render with an identical result set.
+        const { getPortfolioViewState } = await import('./lib/storage.js');
+        await getPortfolioViewState();
+        window.dispatchEvent(new Event('resize'));
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return { scrollable, before, after: list.scrollTop };
+      });
+      check(
+        'a re-render of the same results keeps scroll position',
+        scrollKept.scrollable && scrollKept.before > 0 && scrollKept.before === scrollKept.after,
+        JSON.stringify(scrollKept),
+      );
+
       await worker.evaluate(() => {
         if (globalThis.__starboardOriginalFetch) {
           globalThis.fetch = globalThis.__starboardOriginalFetch;

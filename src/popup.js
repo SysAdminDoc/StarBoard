@@ -127,6 +127,9 @@ let state = {
 };
 let refreshing = false;
 let viewEditorMode = null;
+// Which repositories the list currently shows, so a re-render can tell an
+// unchanged result set from a genuinely different one.
+let lastRenderedIdentity = null;
 
 function hasSetup() {
   return !!(state.settings?.username || state.settings?.token);
@@ -651,8 +654,15 @@ function setSelectOptions(select, options, selected) {
 function syncPortfolioViewControls() {
   if (!state.portfolioViews) return;
   const { active, activeViewId, views } = state.portfolioViews;
-  el.search.value = active.query;
-  el.sort.value = active.sortKey;
+  // Renders are driven by an awaited storage write, so anything typed during
+  // that round trip would be overwritten and the caret thrown to the end.
+  // Only correct a control the user is not currently using.
+  if (document.activeElement !== el.search && el.search.value !== active.query) {
+    el.search.value = active.query;
+  }
+  if (document.activeElement !== el.sort && el.sort.value !== active.sortKey) {
+    el.sort.value = active.sortKey;
+  }
 
   setSelectOptions(
     el.viewSelect,
@@ -791,10 +801,18 @@ function render() {
     return;
   }
 
+  // Scrolling back to the top is only correct when the user is looking at a
+  // different set of repositories. A background refresh landing while they
+  // read row 40 must not yank them away from it.
+  const identity = rows.map((repo) => repo.full_name).join(' ');
+  const sameResults = identity === lastRenderedIdentity;
+  const previousScroll = el.list.scrollTop;
+
   const frag = document.createDocumentFragment();
   rows.forEach((repo, i) => frag.appendChild(rowNode(repo, i + 1)));
   el.list.replaceChildren(frag);
-  el.list.scrollTop = 0;
+  el.list.scrollTop = sameResults ? previousScroll : 0;
+  lastRenderedIdentity = identity;
 }
 
 /* ---------- actions ---------- */

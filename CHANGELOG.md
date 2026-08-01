@@ -15,6 +15,12 @@
 
 ### Fixed
 
+- Typing in the repository filter is no longer clobbered mid-keystroke. Each
+  render followed an awaited storage write and then overwrote the field,
+  discarding characters typed in between and throwing the caret to the end.
+- The list no longer jumps back to the top when a background refresh lands
+  while you are reading it. Scroll position is now kept whenever the visible
+  set of repositories is unchanged.
 - Trend history now actually keeps the documented 365 days. Each day used to
   repeat every repository's name and flags, costing about 26 KB per day for a
   200-repository portfolio — so the 2 MiB cap held roughly 78 days and the
