@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Linux and Windows now build the unsigned extension independently in CI and
+  must publish the same ZIP checksum; only checksum text crosses between jobs.
 - Backup import now has a regression proof that nested prototype-shaped JSON
   remains inert through validation, migration, and repository object spreads;
   the suspected pollution path was not exploitable and needed no data rewrite.
