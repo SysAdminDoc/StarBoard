@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.4.0 — 2026-07-31
+
+### Fixed
+
+- Data-quality caveats are no longer hidden in tooltips. The reason a change
+  column shows a dash, and the fact that some counts are approximate or come
+  from the last snapshot rather than a live read, now appear as visible text
+  under the totals and travel with the row for screen-reader users. Tooltips
+  were unreachable by keyboard and never appeared on touch at all.
+- Filter and sort changes are announced by name and say how many repositories
+  still match. Every one of the seven filters previously announced the same
+  "Filters updated.", and the visible count, banner and snapshot-quality badge
+  changed silently.
+- Typing in the search box announces once, after typing stops. Each 120 ms
+  debounce settle used to restart the same sentence mid-utterance.
+
 ## v1.3.0 — 2026-07-31
 
 ### Added

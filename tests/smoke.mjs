@@ -502,7 +502,7 @@ async function main() {
     // it. A fixed-height list silently pushed it out of the popup entirely.
     const CEILING = 600;
     const panelReach = await popup.evaluate((ceiling) => {
-      const panels = ['lifecycle', 'filterPanel', 'viewEditor', 'banner'];
+      const panels = ['lifecycle', 'filterPanel', 'viewEditor', 'banner', 'quality'];
       const original = panels.map((id) => document.getElementById(id)?.hidden);
       const results = [];
       for (let mask = 0; mask < 1 << panels.length; mask += 1) {
@@ -1397,13 +1397,42 @@ async function main() {
     );
     await popup.selectOption('#trendRange', '90');
     await popup.waitForFunction(
-      () => document.querySelector('.row .stat.stars .delta')?.textContent === '—',
+      () =>
+        document.querySelector('.row .stat.stars .delta')?.firstChild?.textContent === '—',
     );
+    // The dash is the entire visible message, so the reason for it has to be
+    // readable without a pointer: in the row's accessible name, and as visible
+    // text in the quality notes.
+    const missingPoint = await popup.evaluate(() => {
+      const delta = document.querySelector('.row .stat.stars .delta');
+      return {
+        visible: delta.firstChild?.textContent || '',
+        spoken: delta.querySelector('.sr-only')?.textContent.trim() || '',
+        notes: [...document.querySelectorAll('#quality li')].map((n) => n.textContent),
+        qualityHidden: document.getElementById('quality').hidden,
+      };
+    });
     check(
-      'missing history points stay visibly discontinuous',
-      (await popup.textContent('.row .stat.stars .delta')) === '—',
+      'missing history points stay visibly discontinuous and explain themselves',
+      missingPoint.visible === '—' &&
+        /no comparison point was retained/i.test(missingPoint.spoken) &&
+        !missingPoint.qualityHidden &&
+        missingPoint.notes.some((note) => /retained 90-day comparison point/.test(note)),
+      JSON.stringify(missingPoint),
     );
     await popup.selectOption('#trendRange', 'baseline');
+    await popup.waitForFunction(
+      () =>
+        ![...document.querySelectorAll('#quality li')].some((n) =>
+          /comparison point/.test(n.textContent),
+        ),
+    );
+    check(
+      'the coverage note retracts with the range that produced it',
+      !(await popup.$$eval('#quality li', (n) =>
+        n.some((node) => /comparison point/.test(node.textContent)),
+      )),
+    );
     await popup.screenshot({ path: `${SHOTS}/02-popup.png` });
 
     // Filtering narrows the list.
@@ -1419,12 +1448,44 @@ async function main() {
     }, searchTerm);
     const filtered = await popup.$$eval('.row', (n) => n.length);
     check('search filters the list', filtered > 0 && filtered <= rows.length, `${filtered} rows`);
+
+    // Typing settles the persistence debounce once per keystroke burst. Each
+    // settle used to restart the same spoken sentence mid-word.
     await popup.fill('#search', '');
+    await popup.evaluate(() => {
+      window.__spoken = [];
+      const node = document.getElementById('live-status');
+      new MutationObserver(() => {
+        const text = node.textContent.trim();
+        if (text) window.__spoken.push(text);
+      }).observe(node, { childList: true, characterData: true, subtree: true });
+    });
+    await popup.locator('#search').pressSequentially(searchTerm, { delay: 40 });
+    await popup.waitForFunction(
+      (term) =>
+        window.__spoken.some((text) =>
+          new RegExp(`Filtering repositories by "${term}"`).test(text),
+        ),
+      searchTerm,
+      { timeout: 10000 },
+    );
+    const spoken = await popup.evaluate(() => window.__spoken.slice());
+    check(
+      'typing announces once it settles instead of on every debounce',
+      spoken.filter((text) => text.startsWith('Filtering repositories by')).length === 1 &&
+        spoken.some((text) => /repositories match/.test(text)),
+      JSON.stringify(spoken),
+    );
+    await popup.fill('#search', '');
+    // Storage settling is not enough on its own: the write lands before the
+    // popup re-renders, so waiting only on the stored query samples a list
+    // that is still filtered. Wait for the list the user actually sees.
     await popup.waitForFunction(async () => {
       const { getPortfolioViewState } = await import('./lib/storage.js');
       return (
         document.body.dataset.portfolioState === 'saved' &&
-        (await getPortfolioViewState()).active.query === ''
+        (await getPortfolioViewState()).active.query === '' &&
+        document.querySelectorAll('.row').length > 20
       );
     });
 
@@ -1457,6 +1518,7 @@ async function main() {
           (value, index) => index === 0 || names[index - 1].localeCompare(value) <= 0,
         ),
         first: names[0] || null,
+        rendered: names.length,
         status: document.querySelector('#live-status').textContent,
         error: document.body.dataset.portfolioError || null,
       };
@@ -1467,6 +1529,13 @@ async function main() {
         nameSortState.selected === 'name' &&
         nameSortState.sorted,
       JSON.stringify(nameSortState),
+    );
+    // "Filters updated." named neither the control nor the outcome.
+    check(
+      'a control change is announced by name and by how many repositories match',
+      /sorted by name/i.test(nameSortState.status) &&
+        /\d+ repositories match/i.test(nameSortState.status),
+      nameSortState.status,
     );
     await popup.selectOption('#sort', 'stars');
     await popup.waitForFunction(async () => {

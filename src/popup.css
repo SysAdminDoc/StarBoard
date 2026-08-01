@@ -884,6 +884,24 @@ select:disabled {
   align-self: end;
 }
 
+/* ---------- data-quality notes ---------- */
+
+.quality {
+  margin: 6px 11px 0;
+  padding: 6px 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--faint);
+  font-size: 10.5px;
+  line-height: 1.45;
+  list-style: none;
+}
+
+.quality li + li {
+  margin-top: 3px;
+}
+
 /* ---------- banner ---------- */
 
 .banner {

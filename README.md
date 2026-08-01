@@ -1,6 +1,6 @@
 # StarBoard
 
-[![Version](https://img.shields.io/badge/version-1.3.0-7aa2ff)](https://github.com/SysAdminDoc/StarBoard/releases)
+[![Version](https://img.shields.io/badge/version-1.4.0-7aa2ff)](https://github.com/SysAdminDoc/StarBoard/releases)
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Brave-e3b341)](#install)
 [![Manifest](https://img.shields.io/badge/manifest-v3-8b949e)](manifest.json)

@@ -51,7 +51,7 @@
       </button>
     </header>
 
-    <section id="totals" class="totals" hidden>
+    <section id="totals" class="totals" aria-describedby="quality" hidden>
       <div class="orbit" aria-hidden="true"></div>
       <span id="confidence" class="confidence-badge"></span>
       <div class="total total-hero">
@@ -150,7 +150,12 @@
       </button>
       <label class="trend-control">
         <span>Trend</span>
-        <select id="trendRange" aria-label="Comparison range" disabled>
+        <select
+          id="trendRange"
+          aria-label="Comparison range"
+          aria-describedby="quality"
+          disabled
+        >
           <option value="baseline">Baseline</option>
           <option value="7">7 days</option>
           <option value="30">30 days</option>
@@ -225,6 +230,10 @@
         Reset filters
       </button>
     </section>
+
+    <!-- Data-quality disclosures used to live only in `title` attributes, so
+         keyboard, touch and assistive-technology users never saw them. -->
+    <ul id="quality" class="quality" hidden></ul>
 
     <div id="banner" class="banner" role="alert" hidden></div>
 

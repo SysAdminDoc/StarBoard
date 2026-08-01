@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "StarBoard",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Your entire GitHub repo list, sorted most stars to least, with star/fork deltas since your last check.",
   "author": "SysAdminDoc",
   "minimum_chrome_version": "110",

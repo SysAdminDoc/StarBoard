@@ -105,6 +105,7 @@ const el = {
   resetFilters: $('resetFilters'),
   trendRange: $('trendRange'),
   count: $('count'),
+  quality: $('quality'),
   banner: $('banner'),
   lifecycle: $('lifecycle'),
   lifecycleList: $('lifecycle-list'),
@@ -177,11 +178,61 @@ function syncControls() {
   );
 }
 
+// Typing in the search box settles the debounce repeatedly, and each settle
+// used to restart the same sentence in the middle of the previous utterance.
+// Identical text inside this window is dropped instead.
+const REPEAT_WINDOW_MS = 1200;
+let lastAnnouncement = { text: '', at: 0 };
+let announceFrame = 0;
+let quietAnnounceTimer = 0;
+
+/**
+ * Update the polite live region.
+ *
+ * `role="status"` only re-announces when the text actually changes, hence the
+ * clear-then-set. Queuing through one animation frame also means that when a
+ * render and the action that caused it both want to speak, the more specific
+ * message wins instead of the two overlapping.
+ */
 function announce(message) {
+  const text = sentence(message);
+  if (!text) return;
+  clearTimeout(quietAnnounceTimer);
+  if (
+    text === lastAnnouncement.text &&
+    Date.now() - lastAnnouncement.at < REPEAT_WINDOW_MS
+  ) {
+    return;
+  }
   el.liveStatus.textContent = '';
-  requestAnimationFrame(() => {
-    el.liveStatus.textContent = message;
+  cancelAnimationFrame(announceFrame);
+  announceFrame = requestAnimationFrame(() => {
+    lastAnnouncement = { text, at: Date.now() };
+    el.liveStatus.textContent = text;
   });
+}
+
+/**
+ * Announce only once the user stops typing.
+ *
+ * The search box persists on a 120 ms debounce, which is right for storage but
+ * wrong for speech: every settle restarted the sentence mid-word. Anything more
+ * urgent that arrives first cancels the pending message.
+ */
+function announceWhenIdle(message, delay = 700) {
+  clearTimeout(quietAnnounceTimer);
+  quietAnnounceTimer = setTimeout(() => announce(message), delay);
+}
+
+/** How many repositories the current filters keep, phrased for a listener. */
+function matchSummary() {
+  if (!state.cache?.repos?.length) return '';
+  const total = state.cache.repos.length;
+  const shown = visibleRepos().length;
+  if (shown === total) {
+    return `All ${nf.format(total)} repositories match.`;
+  }
+  return `${nf.format(shown)} of ${nf.format(total)} repositories match.`;
 }
 
 async function updateUndoAvailability() {
@@ -240,13 +291,26 @@ const STAR_PATH =
 const FORK_PATH =
   'M5 5.372v.878c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-.878a2.25 2.25 0 1 1 1.5 0v.878a2.25 2.25 0 0 1-2.25 2.25h-1.5v2.128a2.251 2.251 0 1 1-1.5 0V8.5h-1.5A2.25 2.25 0 0 1 3.5 6.25v-.878a2.25 2.25 0 1 1 1.5 0ZM5 3.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Zm6.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm-3 8.75a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Z';
 
+/** A note carried in the accessible name but not on screen. */
+function srOnly(text) {
+  const node = document.createElement('span');
+  node.className = 'sr-only';
+  node.textContent = ` ${text}`;
+  return node;
+}
+
+const MISSING_POINT_NOTE = 'no comparison point was retained for this range';
+const APPROXIMATE_NOTE = 'approximate count';
+
 function deltaNode(value, cls = 'delta', missing = false) {
   const span = document.createElement('span');
   span.className = cls;
   if (missing) {
     span.classList.add('missing');
-    span.textContent = '—';
-    span.title = 'No retained point exists for this range';
+    // The dash is the whole visible message, so the reason travels with it in
+    // the accessible name rather than in a pointer-only tooltip.
+    span.append('—', srOnly(MISSING_POINT_NOTE));
+    span.title = 'No comparison point was retained for this range';
   } else if (value > 0) {
     span.classList.add('up');
     span.textContent = `+${nf.format(value)}`;
@@ -315,8 +379,13 @@ function statNode(kind, value, delta, approx = false, comparisonMissing = false)
   // GitHub's own pages abbreviate past 1,000, so web mode can only report a
   // rounded figure there. Say so rather than implying false precision.
   b.textContent = approx ? `~${nf.format(value)}` : nf.format(value);
-  if (approx) b.title = 'Approximate — github.com abbreviates counts above 1,000';
   wrap.appendChild(b);
+  // The note is a sibling of `b`, never a child: the smoke suite parses that
+  // element as a bare number.
+  if (approx) {
+    b.title = 'Approximate — github.com abbreviates counts above 1,000';
+    wrap.appendChild(srOnly(APPROXIMATE_NOTE));
+  }
   wrap.appendChild(deltaNode(delta, 'delta', comparisonMissing));
   return wrap;
 }
@@ -505,12 +574,55 @@ function renderTotals(rows) {
   el.confidence.textContent = confidenceLabel;
   el.confidence.className = `confidence-badge ${confidence}`;
 
+  const notes = renderQuality(rows, comparable, trendDays, confidence);
+  // The badge names the state; the notes say what it means for the numbers on
+  // screen. Neither is announced by itself, so a change in either speaks once.
+  const signature = `${confidenceLabel} ${notes.join(' ')}`;
+  if (lastQualitySignature !== null && signature !== lastQualitySignature) {
+    announce([confidenceLabel, ...notes].join('. '));
+  }
+  lastQualitySignature = signature;
+
   const at = state.baseline?.at;
   el.since.textContent = at ? `Δ since ${relative(at)}` : 'Δ since —';
   el.rebase.title = at
     ? `Baseline set ${relative(at)}. Click to reset it to now.`
     : 'Click to set the comparison baseline to now.';
   el.totals.hidden = false;
+}
+
+let lastQualitySignature = null;
+
+/**
+ * Spell out the data-quality caveats that apply to the numbers on screen.
+ *
+ * The partial case is deliberately absent: the banner already states it and
+ * names the reason, and saying it twice on one screen reads as two problems.
+ */
+function renderQuality(rows, comparable, trendDays, confidence) {
+  const notes = [];
+  if (rows.some((repo) => repo.approx)) {
+    notes.push('Some counts are approximate — github.com abbreviates counts above 1,000.');
+  }
+  if (confidence === 'stale' || state.cache?.stale) {
+    notes.push('These counts are from the last snapshot that loaded, not a live read.');
+  }
+  if (trendDays) {
+    notes.push(
+      comparable === 0
+        ? `No visible repository has a retained ${trendDays}-day comparison point yet, so every change column shows a dash.`
+        : `${nf.format(comparable)} of ${nf.format(rows.length)} visible repositories have a retained ${trendDays}-day comparison point; the rest show a dash.`,
+    );
+  }
+  const fragment = document.createDocumentFragment();
+  for (const note of notes) {
+    const item = document.createElement('li');
+    item.textContent = note;
+    fragment.appendChild(item);
+  }
+  el.quality.replaceChildren(fragment);
+  el.quality.hidden = notes.length === 0;
+  return notes;
 }
 
 function renderLifecycle() {
@@ -546,8 +658,15 @@ function withId(node, id) {
   return node;
 }
 
+// What the banner currently says, so a change can be announced once. `null`
+// before the first render suppresses an announcement for a banner the user is
+// already looking at when the popup opens.
+let bannerMessage = null;
+let announcedBanner; // undefined until the first render completes
+
 /** Fill the banner with a message and, when recovery is possible, one action. */
 function showBanner(message, action) {
+  bannerMessage = message;
   el.banner.hidden = false;
   const text = document.createElement('span');
   text.className = 'banner-text';
@@ -576,7 +695,24 @@ async function requestWebPermission() {
   }
 }
 
+/**
+ * `role="alert"` covers the case where the banner is already on screen and its
+ * text changes. It does not reliably cover the first appearance, because the
+ * unhide and the content insertion happen in the same task. Mirroring the
+ * message into the polite region closes that gap; when the action that caused
+ * the banner announces something more specific in the same frame, `announce`
+ * collapses to that instead.
+ */
 function renderBanner() {
+  bannerMessage = null;
+  renderBannerContent();
+  if (announcedBanner !== undefined && bannerMessage && bannerMessage !== announcedBanner) {
+    announce(bannerMessage);
+  }
+  announcedBanner = bannerMessage;
+}
+
+function renderBannerContent() {
   if (!navigator.onLine) {
     showBanner(
       state.cache?.repos
@@ -715,6 +851,10 @@ function syncPortfolioViewControls() {
 
 function render() {
   const { settings, cache } = state;
+  // Every early return below leaves the totals hidden, and the quality notes
+  // describe those totals. `renderTotals` refills them on the normal path.
+  el.quality.replaceChildren();
+  el.quality.hidden = true;
   const healthy = !!cache?.fetchedAt && !cache.error;
   el.footer.classList.toggle('is-healthy', healthy);
   syncControls();
@@ -872,7 +1012,7 @@ async function syncLegacyFilterSettings(filters) {
   });
 }
 
-async function applyFilterPatch(changes, message = 'Filters updated.') {
+async function applyFilterPatch(changes, message = 'Filters updated.', { defer = false } = {}) {
   state.portfolioViews = await setActivePortfolioFilters(changes);
   render();
   if (
@@ -882,7 +1022,11 @@ async function applyFilterPatch(changes, message = 'Filters updated.') {
   ) {
     await syncLegacyFilterSettings(state.portfolioViews.active);
   }
-  announce(message);
+  // "Filters updated" told a listener nothing: not which filter, and not
+  // whether the result set still contains anything.
+  const spoken = `${sentence(message)} ${matchSummary()}`.trim();
+  if (defer) announceWhenIdle(spoken);
+  else announce(spoken);
 }
 
 function closeViewEditor() {
@@ -966,31 +1110,43 @@ el.rebase.addEventListener('click', () => {
 });
 const persistSearch = debounce((value) => {
     queuePortfolioUpdate(() =>
-      applyFilterPatch({ query: value }, 'Repository search updated.'),
+      applyFilterPatch(
+        { query: value },
+        value.trim() ? `Filtering repositories by "${value.trim()}".` : 'Repository search cleared.',
+        { defer: true },
+      ),
     ).catch((error) => announce(error.message || 'Could not save the repository search.'));
   }, 120);
 el.search.addEventListener('input', () => persistSearch(el.search.value));
+
+/** The visible label of a select's current option, for spoken feedback. */
+function chosenLabel(select) {
+  return select.selectedOptions[0]?.textContent?.trim() || select.value;
+}
+
 el.sort.addEventListener('change', () => {
   const value = el.sort.value;
+  const label = chosenLabel(el.sort);
   queuePortfolioUpdate(() =>
-    applyFilterPatch({ sortKey: value }, 'Repository sort updated.'),
+    applyFilterPatch({ sortKey: value }, `Sorted by ${label}.`),
   ).catch((error) => announce(error.message || 'Could not save the repository sort.'));
 });
 
-for (const [control, key] of [
-  [el.filterLanguage, 'language'],
-  [el.filterVisibility, 'visibility'],
-  [el.filterForks, 'forkStatus'],
-  [el.filterArchived, 'archivedStatus'],
-  [el.filterPrecision, 'precision'],
-  [el.filterLifecycle, 'lifecycle'],
-  [el.filterActivity, 'activity'],
+for (const [control, key, name] of [
+  [el.filterLanguage, 'language', 'Language'],
+  [el.filterVisibility, 'visibility', 'Visibility'],
+  [el.filterForks, 'forkStatus', 'Repository type'],
+  [el.filterArchived, 'archivedStatus', 'Archive state'],
+  [el.filterPrecision, 'precision', 'Count precision'],
+  [el.filterLifecycle, 'lifecycle', 'Lifecycle'],
+  [el.filterActivity, 'activity', 'Last push'],
 ]) {
   control.addEventListener('change', () => {
     const value = control.value;
-    queuePortfolioUpdate(() => applyFilterPatch({ [key]: value })).catch((error) =>
-      announce(error.message || 'Could not save that filter.'),
-    );
+    const label = chosenLabel(control);
+    queuePortfolioUpdate(() =>
+      applyFilterPatch({ [key]: value }, `${name} filter set to ${label}.`),
+    ).catch((error) => announce(error.message || 'Could not save that filter.'));
   });
 }
 
@@ -1083,7 +1239,14 @@ el.trendRange.addEventListener('change', () => {
   render();
   const label =
     state.trendRange === 'baseline' ? 'the comparison baseline' : `${state.trendRange} days`;
-  announce(`Repository changes now compare against ${label}.`);
+  // The quality notes already carry the coverage sentence; reuse it so the
+  // spoken and visible explanations cannot drift apart.
+  // The coverage sentence is appended last and only exists for a day range.
+  const coverage =
+    state.trendRange === 'baseline'
+      ? ''
+      : [...el.quality.children].at(-1)?.textContent || '';
+  announce(`Repository changes now compare against ${label}. ${coverage}`.trim());
 });
 el.acknowledgeLifecycle.addEventListener('click', async () => {
   const ids = (state.cache?.lifecycleEvents || []).map((event) => event.id);
