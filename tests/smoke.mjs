@@ -146,9 +146,48 @@ async function minimumTextContrast(page, theme) {
     const values = [
       ratio(read('--faint'), read('--bg')),
       ratio(read('--faint'), read('--surface')),
+      ratio(read('--faint'), read('--surface-soft')),
       ratio(read('--muted'), read('--bg')),
       ratio(read('--muted'), read('--surface')),
+      // The onboarding call to action carries white text; it failed AA in dark
+      // theme while every other pair passed, so it has to be enumerated.
+      ratio('#ffffff', read('--accent-strong')),
+      // Rank medals were dark-theme literals with no light-theme override.
+      ratio(read('--rank-silver-text'), read('--surface-raised')),
+      ratio(read('--rank-bronze-text'), read('--surface-raised')),
     ];
+    root.dataset.theme = previous;
+    return Math.min(...values);
+  }, theme);
+}
+
+/** Boundaries that identify a control need 3:1 under WCAG 1.4.11. */
+async function minimumControlContrast(page, theme) {
+  return page.evaluate((nextTheme) => {
+    const root = document.documentElement;
+    const previous = root.dataset.theme;
+    root.dataset.theme = nextTheme;
+    const styles = getComputedStyle(root);
+    const read = (name) => styles.getPropertyValue(name).trim();
+    const rgb = (value) => {
+      const hex = value.replace('#', '');
+      return [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255);
+    };
+    const luminance = (value) => {
+      const channels = rgb(value).map((channel) =>
+        channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+      );
+      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    };
+    const ratio = (foreground, background) => {
+      const first = luminance(foreground);
+      const second = luminance(background);
+      return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+    };
+    const control = read('--border-control');
+    const values = ['--bg', '--surface', '--surface-raised', '--surface-soft'].map((surface) =>
+      ratio(control, read(surface)),
+    );
     root.dataset.theme = previous;
     return Math.min(...values);
   }, theme);
@@ -507,6 +546,21 @@ async function main() {
         CEILING,
       ),
     );
+
+    for (const theme of ['dark', 'light']) {
+      const text = await minimumTextContrast(popup, theme);
+      check(
+        `${theme}-theme text pairs all reach 4.5:1`,
+        text >= 4.5,
+        text.toFixed(2),
+      );
+      const control = await minimumControlContrast(popup, theme);
+      check(
+        `${theme}-theme control boundaries reach 3:1`,
+        control >= 3,
+        control.toFixed(2),
+      );
+    }
 
     // A synced account owning nothing is not a filtering problem. `repos: []`
     // is truthy, so this used to fall through to "Nothing matches — reset the

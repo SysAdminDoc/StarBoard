@@ -15,6 +15,13 @@
 
 ### Fixed
 
+- Raised contrast to meet WCAG 2.2 AA where it was failing. The first-run
+  onboarding button carried white text at 3.16:1 in the dark theme, the second
+  and third rank medals used dark-theme literals that were never overridden and
+  fell to 1.57:1 and 1.89:1 in daylight, and no control border reached the 3:1
+  needed to identify an input. Rank colors are now theme tokens, and a dedicated
+  control-boundary token applies to inputs and selects while decorative
+  dividers keep their lighter weight. Both themes are gated in the test suite.
 - Changing the tracked GitHub username no longer produces silently wrong
   numbers. The previous account's baseline was kept, so deltas were computed as
   the new account's live counts minus the old account's snapshot, and both

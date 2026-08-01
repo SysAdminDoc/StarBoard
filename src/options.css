@@ -9,11 +9,12 @@
   --surface-soft: #0d1728;
   --border: #2a3b5d;
   --border-soft: #1d2c46;
+  --border-control: #5f73a1;
   --text: #f3f6ff;
   --muted: #9aa9c4;
   --faint: #8291ad;
   --accent: #7aa2ff;
-  --accent-strong: #5b8cff;
+  --accent-strong: #3f6fe0;
   --gold: #ffc857;
   --green: #5dde83;
   --red: #ff6b78;
@@ -27,10 +28,11 @@
   --surface-raised: #f8faff;
   --surface-soft: #eef3fa;
   --border: #cbd6e7;
+  --border-control: #78899f;
   --border-soft: #e1e8f2;
   --text: #17233a;
   --muted: #566681;
-  --faint: #62718a;
+  --faint: #5c6a82;
   --accent: #315ecb;
   --accent-strong: #244eaf;
   --gold: #b87900;
@@ -47,10 +49,11 @@
     --surface-raised: #f8faff;
     --surface-soft: #eef3fa;
     --border: #cbd6e7;
+    --border-control: #78899f;
     --border-soft: #e1e8f2;
     --text: #17233a;
     --muted: #566681;
-    --faint: #62718a;
+    --faint: #5c6a82;
     --accent: #315ecb;
     --accent-strong: #244eaf;
     --gold: #b87900;
@@ -323,7 +326,8 @@ input[type='password'],
 select {
   height: 38px;
   outline: none;
-  border: 1px solid var(--border);
+  /* WCAG 1.4.11: a control's boundary must reach 3:1 against its surround. */
+  border: 1px solid var(--border-control);
   border-radius: 8px;
   background: var(--surface-soft);
   color: var(--text);
