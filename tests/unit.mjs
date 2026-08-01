@@ -98,7 +98,12 @@ globalThis.chrome = { storage: { local: area, session: sessionArea } };
 
 const storage = await import('../src/lib/storage.js');
 const { createRefreshCoordinator } = await import('../src/lib/refresh-coordinator.js');
-const { parseRetryAfter, requestText, RequestPolicyError } = await import('../src/lib/request.js');
+const {
+  parseRetryAfter,
+  requestText,
+  requestWithRetry,
+  RequestPolicyError,
+} = await import('../src/lib/request.js');
 const {
   fetchAccount,
   readRate,
@@ -109,6 +114,7 @@ const {
   deriveLifecycleEvents,
   mergeLifecycleEvents,
   acknowledgeLifecycleEvents,
+  MAX_EVENTS,
 } = await import('../src/lib/lifecycle.js');
 const {
   HISTORY_MAX_BYTES,
@@ -119,6 +125,7 @@ const {
   migrateHistoryToV2,
   recordDailyHistory,
   rekeyHistoryByName,
+  validateHistory,
 } = await import('../src/lib/history.js');
 const {
   BACKUP_MAX_BYTES,
@@ -206,6 +213,72 @@ await test('current settings migration is idempotent', async () => {
   const migrated = storage.migrateRecord('settings', current, storage.SCHEMA_VERSION);
   assert.equal(migrated.changed, false);
   assert.deepEqual(migrated.envelope.data, current.data);
+});
+
+await test('baseline resolution covers lifetime, age threshold, and explicit rebase', async () => {
+  const originalLocal = clone(area.values);
+  const originalSession = clone(sessionArea.values);
+  const realDateNow = Date.now;
+  let now = Date.UTC(2026, 7, 1, 12);
+  Date.now = () => now;
+  try {
+    replaceAreaValues(area, {});
+    replaceAreaValues(sessionArea, {});
+    const initialRepos = [
+      { full_name: 'octocat/alpha', stargazers_count: 10, forks_count: 2 },
+    ];
+    const changedRepos = [
+      { full_name: 'octocat/alpha', stargazers_count: 15, forks_count: 3 },
+    ];
+
+    const initial = await storage.resolveBaseline(initialRepos, 0);
+    assert.equal(initial.at, now);
+    assert.deepEqual(initial.counts, { 'octocat/alpha': [10, 2] });
+
+    now += 6 * 3600_000;
+    const lifetime = await storage.resolveBaseline(changedRepos, 0);
+    assert.equal(lifetime.at, initial.at);
+    assert.deepEqual(lifetime.counts, initial.counts);
+
+    const belowThreshold = {
+      at: now - 24 * 3600_000 + 1,
+      counts: { 'octocat/alpha': [11, 2] },
+    };
+    await storage.setBaseline(belowThreshold);
+    const preserved = await storage.resolveBaseline(changedRepos, 24);
+    assert.equal(preserved.at, belowThreshold.at, 'a baseline below the threshold is preserved');
+    assert.deepEqual(preserved.counts, belowThreshold.counts);
+
+    const aboveThreshold = {
+      at: now - 24 * 3600_000 - 1,
+      counts: { 'octocat/alpha': [12, 2] },
+    };
+    await storage.setBaseline(aboveThreshold);
+    const rolled = await storage.resolveBaseline(changedRepos, 24);
+    assert.equal(rolled.at, now);
+    assert.deepEqual(rolled.counts, { 'octocat/alpha': [15, 3] });
+
+    now += 1;
+    const rebased = await storage.resetBaseline(initialRepos);
+    assert.equal(rebased.at, now);
+    assert.deepEqual(rebased.counts, { 'octocat/alpha': [10, 2] });
+  } finally {
+    Date.now = realDateNow;
+    replaceAreaValues(area, originalLocal);
+    replaceAreaValues(sessionArea, originalSession);
+  }
+});
+
+await test('history validation rejects a repository key that disagrees with its name', async () => {
+  assert.throws(
+    () =>
+      validateHistory({
+        formatVersion: 3,
+        repos: [['name:octocat/old-name', 'octocat/new-name', 0]],
+        snapshots: [],
+      }),
+    /history repository key must match its name/,
+  );
 });
 
 await test('a downgraded build explains and preserves every newer-schema record', async () => {
@@ -549,7 +622,7 @@ await test('Retry-After is honored before a bounded retry', async () => {
     headers: { get: (name) => headers[name.toLowerCase()] || null },
     text: async () => body,
   });
-  const result = await requestText('https://example.invalid', {
+  const result = await requestWithRetry('https://example.invalid', {
     fetchImpl: async () => {
       attempt += 1;
       return attempt === 1
@@ -559,6 +632,7 @@ await test('Retry-After is honored before a bounded retry', async () => {
     sleep: async (ms) => sleeps.push(ms),
     now: () => 1000,
     random: () => 0,
+    parse: async (retryResponse) => retryResponse.text(),
   });
   assert.equal(result.value, 'ok');
   assert.equal(result.attempts, 2);
@@ -568,7 +642,7 @@ await test('Retry-After is honored before a bounded retry', async () => {
 
 await test('request timeout aborts and reports a normalized code', async () => {
   await assert.rejects(
-    requestText('https://example.invalid', {
+    requestWithRetry('https://example.invalid', {
       fetchImpl: async (_url, { signal }) =>
         new Promise((_resolve, reject) => {
           signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
@@ -578,6 +652,33 @@ await test('request timeout aborts and reports a normalized code', async () => {
     }),
     (error) => error instanceof RequestPolicyError && error.code === 'TIMEOUT',
   );
+});
+
+await test('request retries are bounded and give up with the final policy error', async () => {
+  let calls = 0;
+  const sleeps = [];
+  await assert.rejects(
+    requestWithRetry('https://example.invalid', {
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response('unavailable', { status: 503 });
+      },
+      sleep: async (ms) => sleeps.push(ms),
+      retries: 2,
+      baseDelayMs: 10,
+      maxDelayMs: 100,
+      jitterMs: 0,
+      random: () => 0,
+      now: () => 1000,
+    }),
+    (error) =>
+      error instanceof RequestPolicyError &&
+      error.code === 'UPSTREAM_UNAVAILABLE' &&
+      error.status === 503 &&
+      error.attempts === 3,
+  );
+  assert.equal(calls, 3);
+  assert.deepEqual(sleeps, [10, 20]);
 });
 
 await test('missing REST quota headers stay nullable and Link relations parse', async () => {
@@ -1251,6 +1352,18 @@ await test('stable API IDs distinguish rename, addition, and removal', async () 
   );
   assert.equal(mergeLifecycleEvents(events, events).length, 3);
   assert.equal(acknowledgeLifecycleEvents(events, [events[0].id]).length, 2);
+});
+
+await test('lifecycle history keeps exactly MAX_EVENTS at its boundary', async () => {
+  const events = Array.from({ length: MAX_EVENTS + 1 }, (_, index) => ({
+    id: `event-${index}`,
+    at: index,
+  }));
+  assert.equal(mergeLifecycleEvents([], events.slice(0, MAX_EVENTS)).length, MAX_EVENTS);
+  const overflow = mergeLifecycleEvents([], events);
+  assert.equal(overflow.length, MAX_EVENTS);
+  assert.equal(overflow[0].id, `event-${MAX_EVENTS}`);
+  assert.equal(overflow.at(-1).id, 'event-1');
 });
 
 await test('website-only unmatched names remain explicit add/remove events', async () => {
@@ -2176,11 +2289,17 @@ await test('large history backups stay compact enough to restore', async () => {
   assert.equal(preview.summary.repositories, repositoryCount);
   assert.equal(preview.summary.historyDays, dayCount);
   assert.equal(preview.summary.historyPoints, repositoryCount * dayCount);
+});
 
+await test('backup restore size accepts its exact boundary and rejects one byte more', async () => {
   assert.doesNotThrow(() => assertBackupSize(BACKUP_MAX_BYTES));
   assert.throws(
     () => assertBackupSize(BACKUP_MAX_BYTES + 1, { historyIncluded: true }),
-    (error) => error.code === 'BACKUP_TOO_LARGE' && error.historyIncluded,
+    (error) =>
+      error.code === 'BACKUP_TOO_LARGE' &&
+      error.bytes === BACKUP_MAX_BYTES + 1 &&
+      error.maxBytes === BACKUP_MAX_BYTES &&
+      error.historyIncluded,
   );
 });
 

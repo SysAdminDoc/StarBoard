@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Baseline rollover, history identity, request retry, and stored-event limits
+  now have direct regression coverage at their policy boundaries.
 - Popup error handling now survives a Manifest V3 worker restart. A completed
   refresh or baseline reset remains a success if a follow-up port closes,
   boot failures survive connectivity events, and Undo reports transport
