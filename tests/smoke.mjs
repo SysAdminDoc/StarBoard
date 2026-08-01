@@ -339,6 +339,33 @@ async function testWebMode(source) {
     check('options reflects web mode', (await options.inputValue('#dataSource')) === 'web');
     const tokenHidden = await options.$eval('#tokenField', (n) => n.style.display === 'none');
     check('token field hidden in web mode', tokenHidden);
+    await options.evaluate(() => {
+      window.__connectionRequests = 0;
+      window.__connectionFetch = globalThis.fetch;
+      globalThis.fetch = (...args) => {
+        window.__connectionRequests += 1;
+        return window.__connectionFetch(...args);
+      };
+    });
+    await options.click('#test');
+    await options.waitForFunction(
+      () => /^OK/.test(document.querySelector('#status')?.textContent || ''),
+      { timeout: 45000 },
+    );
+    const websiteConnection = await options.evaluate(() => {
+      const result = {
+        requests: window.__connectionRequests,
+        status: document.querySelector('#status')?.textContent || '',
+      };
+      globalThis.fetch = window.__connectionFetch;
+      delete window.__connectionFetch;
+      return result;
+    });
+    check(
+      'website connection test reads exactly one page',
+      websiteConnection.requests === 1 && /first page has/i.test(websiteConnection.status),
+      JSON.stringify(websiteConnection),
+    );
     await options.screenshot({ path: `${SHOTS}/07-options-web.png`, fullPage: true });
   } finally {
     await closeContext(ctx);
@@ -921,6 +948,56 @@ async function main() {
             .every((option) => option.disabled),
       ),
     );
+
+    const apiConnectionOptions = await ctx.newPage();
+    captureErrors(apiConnectionOptions, 'API connection test');
+    await apiConnectionOptions.goto(`chrome-extension://${extId}/src/options.html`);
+    await apiConnectionOptions.waitForSelector('#test');
+    await apiConnectionOptions.evaluate(() => {
+      document.querySelector('#dataSource').value = 'api';
+      document.querySelector('#username').value = 'octocat';
+      window.__connectionRequests = 0;
+      globalThis.fetch = async () => {
+        window.__connectionRequests += 1;
+        return new Response(
+          JSON.stringify({
+            login: 'octocat',
+            name: 'The Octocat',
+            avatar_url: '',
+            html_url: 'https://github.com/octocat',
+            public_repos: 3,
+            followers: 12,
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+              'x-ratelimit-limit': '60',
+              'x-ratelimit-remaining': '59',
+            },
+          },
+        );
+      };
+    });
+    await apiConnectionOptions.click('#test');
+    await apiConnectionOptions.waitForFunction(
+      () => /^OK/.test(document.querySelector('#status')?.textContent || ''),
+    );
+    const apiConnection = await apiConnectionOptions.evaluate(() => ({
+      requests: window.__connectionRequests,
+      status: document.querySelector('#status')?.textContent || '',
+      label: document.querySelector('#test')?.textContent || '',
+      busy: document.querySelector('#test')?.hasAttribute('aria-busy'),
+    }));
+    check(
+      'API connection test costs exactly one request',
+      apiConnection.requests === 1 &&
+        /API reachable with one request/i.test(apiConnection.status) &&
+        apiConnection.label === 'Test connection' &&
+        !apiConnection.busy,
+      JSON.stringify(apiConnection),
+    );
+    await apiConnectionOptions.close();
 
     const versionProbe = await firstRunOptions.evaluate(async () => {
       const { settings } = await chrome.storage.local.get('settings');

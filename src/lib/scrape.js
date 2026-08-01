@@ -185,6 +185,7 @@ export async function scrapeAccount(username, parseHTML, options = {}) {
     retries = REQUEST_RETRIES,
     maxPages = MAX_PAGES,
     pageDelayMs = PAGE_DELAY_MS,
+    signal = null,
   } = options;
 
   if (!username) {
@@ -202,6 +203,7 @@ export async function scrapeAccount(username, parseHTML, options = {}) {
         now,
         timeoutMs,
         retries,
+        signal,
         credentials: 'include',
         headers: { Accept: 'text/html' },
         redirect: 'follow',
@@ -325,6 +327,16 @@ export async function scrapeAccount(username, parseHTML, options = {}) {
     retryAt,
     fetchedAt: now(),
   };
+}
+
+/** Validate website access by parsing only the first repositories page. */
+export function testWebsiteConnection(username, parseHTML, options = {}) {
+  return scrapeAccount(username, parseHTML, {
+    ...options,
+    maxPages: 1,
+    pageDelayMs: 0,
+    retries: options.retries ?? 0,
+  });
 }
 
 export {

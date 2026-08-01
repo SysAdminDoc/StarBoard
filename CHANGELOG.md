@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- **Test connection** now costs one request: the website source parses only its
+  first page and the API source reads one profile. Re-activation cancels the
+  prior probe, and navigation aborts in-flight work.
 - Browser updates no longer trigger a portfolio refresh. Extension installs
   and updates keep their own branch, including the prior extension version for
   future version-gated migration work.

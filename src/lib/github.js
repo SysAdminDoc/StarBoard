@@ -132,6 +132,7 @@ async function request(
     now,
     timeoutMs = REQUEST_TIMEOUT_MS,
     retries = REQUEST_RETRIES,
+    signal = null,
   } = {},
 ) {
   let requested;
@@ -143,6 +144,7 @@ async function request(
       now,
       timeoutMs,
       retries,
+      signal,
       headers: headers(token, validator?.etag),
       parse: parseJson,
     });
@@ -203,6 +205,30 @@ async function request(
     link: response.headers.get('link') || validator?.link || null,
     notModified: response.status === 304,
     attempts: requested.attempts,
+  };
+}
+
+/** Validate API access with exactly one profile request. */
+export async function testApiConnection({ username, token }, options = {}) {
+  if (!username && !token) {
+    throw new GitHubError('Set a GitHub username or token first.', {
+      code: 'SETUP_REQUIRED',
+    });
+  }
+  const path = username ? `/users/${encodeURIComponent(username)}` : '/user';
+  const result = await request(path, token, {
+    ...options,
+    retries: options.retries ?? 0,
+  });
+  if (!result.body?.login) {
+    throw new GitHubError('GitHub returned an invalid profile.', {
+      code: 'INVALID_RESPONSE',
+    });
+  }
+  return {
+    profile: trimProfile(result.body),
+    rate: result.rate,
+    requestAttempts: result.attempts,
   };
 }
 

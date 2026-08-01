@@ -18,8 +18,8 @@ import {
   serializeBackup,
   validateBackupText,
 } from './lib/transfer.js';
-import { fetchAccount } from './lib/github.js';
-import { scrapeAccount } from './lib/scrape.js';
+import { testApiConnection } from './lib/github.js';
+import { testWebsiteConnection } from './lib/scrape.js';
 
 const GITHUB_ORIGIN = 'https://github.com/*';
 const WEB_MIN_REFRESH_MINUTES = 360;
@@ -319,37 +319,56 @@ $('save').addEventListener('click', async () => {
   }).catch((err) => say(err.message || 'Could not save settings.', 'err'));
 });
 
+let connectionController = null;
+window.addEventListener('pagehide', () => connectionController?.abort('pagehide'));
+
 $('test').addEventListener('click', async () => {
-  await withBusy($('test'), 'Testing…', async () => {
-    const { username, token, dataSource } = collect();
-    say('Testing…');
-    try {
-      if (dataSource === 'web') {
-        if (!(await ensureWebPermission())) {
-          say('Permission for github.com denied.', 'err');
-          return;
-        }
-        const res = await scrapeAccount(username, parseHTML);
-        const stars = res.repos.reduce((s, r) => s + r.stargazers_count, 0);
-        say(
-          `OK — @${res.profile.login}: ${res.repos.length} repos, ${stars} stars, ` +
-            `read from ${res.pagesFetched} page${res.pagesFetched === 1 ? '' : 's'}` +
-            `${res.approximate ? ' (some counts abbreviated by GitHub)' : ''}.`,
-          'ok',
-        );
+  connectionController?.abort('restarted');
+  const controller = new AbortController();
+  connectionController = controller;
+  const button = $('test');
+  button.setAttribute('aria-busy', 'true');
+  button.textContent = 'Cancel & retest';
+  const { username, token, dataSource } = collect();
+  say('Testing…');
+  try {
+    if (dataSource === 'web') {
+      if (!(await ensureWebPermission())) {
+        if (connectionController === controller) say('Permission for github.com denied.', 'err');
         return;
       }
-      const res = await fetchAccount({ username, token });
-      const stars = res.repos.reduce((s, r) => s + r.stargazers_count, 0);
+      const res = await testWebsiteConnection(username, parseHTML, {
+        signal: controller.signal,
+      });
+      if (connectionController !== controller) return;
+      const stars = res.repos.reduce((sum, repo) => sum + repo.stargazers_count, 0);
       say(
-        `OK — @${res.profile.login}: ${res.repos.length} repos, ${stars} stars. ` +
-          `${res.rate?.remaining ?? '?'}/${res.rate?.limit ?? '?'} API calls left.`,
+        `OK — @${res.profile.login}: first page has ${res.repos.length} repositories and ` +
+          `${stars} stars${res.approximate ? ' (some counts abbreviated by GitHub)' : ''}.`,
         'ok',
       );
-    } catch (err) {
-      say(err.message, 'err');
+      return;
     }
-  });
+    const res = await testApiConnection(
+      { username, token },
+      { signal: controller.signal },
+    );
+    if (connectionController !== controller) return;
+    say(
+      `OK — @${res.profile.login}: API reachable with one request. ` +
+        `${res.rate?.remaining ?? '?'}/${res.rate?.limit ?? '?'} API calls left.`,
+      'ok',
+    );
+  } catch (err) {
+    if (connectionController !== controller) return;
+    say(err.code === 'CANCELLED' ? 'Connection test cancelled.' : err.message, 'err');
+  } finally {
+    if (connectionController === controller) {
+      connectionController = null;
+      button.removeAttribute('aria-busy');
+      button.textContent = 'Test connection';
+    }
+  }
 });
 
 let clearArmedUntil = 0;
