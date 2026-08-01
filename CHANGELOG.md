@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Rapid search and sort/filter changes now persist in the same order the user
+  made them. A delayed search debounce can no longer render an older result set
+  after a newer control change, and browser coverage compares the painted row
+  count with the authoritative stored filters.
 - A partial, stale, or empty refresh can no longer erase a richer history point
   recorded earlier on the same UTC day. Same-confidence refreshes merge at the
   repository level, while lower-confidence generations leave the retained

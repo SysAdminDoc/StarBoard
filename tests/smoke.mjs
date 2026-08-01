@@ -1018,11 +1018,39 @@ async function main() {
       check('typing survives the render round trip', typed === 'repo-1', typed);
 
       await popup.fill('#search', '');
+      await popup.selectOption('#sort', 'name');
       await popup.waitForFunction(
-        () =>
-          document.body.dataset.portfolioState === 'saved' &&
-          document.querySelectorAll('.row').length === 40,
+        async () => {
+          const { getPortfolioViewState } = await import('./lib/storage.js');
+          const views = await getPortfolioViewState();
+          return (
+            document.body.dataset.portfolioState === 'saved' &&
+            document.body.dataset.listState === 'painted' &&
+            views.active.query === '' &&
+            views.active.sortKey === 'name'
+          );
+        },
         { timeout: 10000 },
+      );
+      const filterReconciliation = await popup.evaluate(async () => {
+        const [{ getCache, getPortfolioViewState }, { filterRepositories }] = await Promise.all([
+          import('./lib/storage.js'),
+          import('./lib/portfolio-views.js'),
+        ]);
+        const [cache, views] = await Promise.all([getCache(), getPortfolioViewState()]);
+        return {
+          rendered: document.querySelectorAll('.row').length,
+          expected: filterRepositories(
+            cache.repos,
+            views.active,
+            cache.lifecycleEvents || [],
+          ).length,
+        };
+      });
+      check(
+        'rapid search and sort reconcile the rendered list with stored filters',
+        filterReconciliation.rendered === filterReconciliation.expected,
+        JSON.stringify(filterReconciliation),
       );
       const scrollKept = await popup.evaluate(async () => {
         const list = document.getElementById('list');
@@ -1638,18 +1666,27 @@ async function main() {
     });
     const nameSortState = await popup.evaluate(async () => {
       await new Promise((resolveWait) => setTimeout(resolveWait, 100));
-      const { getPortfolioViewState } = await import('./lib/storage.js');
+      const [{ getCache, getPortfolioViewState }, { filterRepositories }] = await Promise.all([
+        import('./lib/storage.js'),
+        import('./lib/portfolio-views.js'),
+      ]);
+      const [cache, views] = await Promise.all([getCache(), getPortfolioViewState()]);
       const names = [...document.querySelectorAll('.row .name')].map(
         (node) => node.textContent,
       );
       return {
-        stored: (await getPortfolioViewState()).active.sortKey,
+        stored: views.active.sortKey,
         selected: document.querySelector('#sort').value,
         sorted: names.every(
           (value, index) => index === 0 || names[index - 1].localeCompare(value) <= 0,
         ),
         first: names[0] || null,
         rendered: names.length,
+        expected: filterRepositories(
+          cache.repos,
+          views.active,
+          cache.lifecycleEvents || [],
+        ).length,
         status: document.querySelector('#live-status').textContent,
         error: document.body.dataset.portfolioError || null,
       };
@@ -1660,6 +1697,11 @@ async function main() {
         nameSortState.selected === 'name' &&
         nameSortState.sorted,
       JSON.stringify(nameSortState),
+    );
+    check(
+      'the rendered list always matches the stored active filters',
+      nameSortState.rendered === nameSortState.expected,
+      JSON.stringify({ rendered: nameSortState.rendered, expected: nameSortState.expected }),
     );
     // "Filters updated." named neither the control nor the outcome.
     check(

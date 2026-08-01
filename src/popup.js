@@ -1134,6 +1134,7 @@ function debounce(fn, ms) {
 
 let portfolioUpdateQueue = Promise.resolve();
 let pendingPortfolioUpdates = 0;
+let latestFilterIntent = 0;
 // `data-portfolio-state` / `data-portfolio-error` are settle signals the
 // browser suite synchronises on. Keep writing them.
 document.body.dataset.portfolioState = 'saved';
@@ -1155,6 +1156,27 @@ function queuePortfolioUpdate(work) {
     pendingPortfolioUpdates -= 1;
     if (pendingPortfolioUpdates === 0) document.body.dataset.portfolioState = 'saved';
     syncControls();
+  });
+}
+
+function nextFilterIntent() {
+  latestFilterIntent += 1;
+  return latestFilterIntent;
+}
+
+/**
+ * Persist filter intents in user-event order, not debounce-expiry order.
+ *
+ * Search writes deliberately wait 120 ms. A sort or select change that happens
+ * during that window is the newer intent even though it reaches the queue
+ * first. The newer action includes the search control's current value, so the
+ * delayed write is both redundant and unsafe to apply afterwards.
+ */
+function queueFilterPatch(changes, message, options, intent = nextFilterIntent()) {
+  if (intent !== latestFilterIntent) return Promise.resolve();
+  return queuePortfolioUpdate(() => {
+    if (intent !== latestFilterIntent) return undefined;
+    return applyFilterPatch(changes, message, options);
   });
 }
 
@@ -1184,16 +1206,15 @@ el.rebase.addEventListener('click', () => {
   resetRebaseConfirmation();
   doRefresh(true);
 });
-const persistSearch = debounce((value) => {
-    queuePortfolioUpdate(() =>
-      applyFilterPatch(
-        { query: value },
-        value.trim() ? `Filtering repositories by "${value.trim()}".` : 'Repository search cleared.',
-        { defer: true },
-      ),
-    ).catch((error) => announce(error.message || 'Could not save the repository search.'));
-  }, 120);
-el.search.addEventListener('input', () => persistSearch(el.search.value));
+const persistSearch = debounce((value, intent) => {
+  queueFilterPatch(
+    { query: value },
+    value.trim() ? `Filtering repositories by "${value.trim()}".` : 'Repository search cleared.',
+    { defer: true },
+    intent,
+  ).catch((error) => announce(error.message || 'Could not save the repository search.'));
+}, 120);
+el.search.addEventListener('input', () => persistSearch(el.search.value, nextFilterIntent()));
 
 /** The visible label of a select's current option, for spoken feedback. */
 function chosenLabel(select) {
@@ -1203,8 +1224,9 @@ function chosenLabel(select) {
 el.sort.addEventListener('change', () => {
   const value = el.sort.value;
   const label = chosenLabel(el.sort);
-  queuePortfolioUpdate(() =>
-    applyFilterPatch({ sortKey: value }, `Sorted by ${label}.`),
+  queueFilterPatch(
+    { query: el.search.value, sortKey: value },
+    `Sorted by ${label}.`,
   ).catch((error) => announce(error.message || 'Could not save the repository sort.'));
 });
 
@@ -1220,8 +1242,9 @@ for (const [control, key, name] of [
   control.addEventListener('change', () => {
     const value = control.value;
     const label = chosenLabel(control);
-    queuePortfolioUpdate(() =>
-      applyFilterPatch({ [key]: value }, `${name} filter set to ${label}.`),
+    queueFilterPatch(
+      { query: el.search.value, [key]: value },
+      `${name} filter set to ${label}.`,
     ).catch((error) => announce(error.message || 'Could not save that filter.'));
   });
 }
@@ -1233,8 +1256,8 @@ el.toggleFilters.addEventListener('click', () => {
 });
 
 el.resetFilters.addEventListener('click', () => {
-  queuePortfolioUpdate(() =>
-    applyFilterPatch({
+  queueFilterPatch(
+    {
       query: '',
       language: DEFAULT_PORTFOLIO_FILTERS.language,
       visibility: DEFAULT_PORTFOLIO_FILTERS.visibility,
@@ -1243,12 +1266,16 @@ el.resetFilters.addEventListener('click', () => {
       precision: DEFAULT_PORTFOLIO_FILTERS.precision,
       lifecycle: DEFAULT_PORTFOLIO_FILTERS.lifecycle,
       activity: DEFAULT_PORTFOLIO_FILTERS.activity,
-    }, 'Repository filters reset.'),
+    },
+    'Repository filters reset.',
   ).catch((error) => announce(error.message || 'Could not reset the filters.'));
 });
 
 el.viewSelect.addEventListener('change', () => {
   const id = el.viewSelect.value || null;
+  // Loading a view is a newer, complete filter intent. It must not be followed
+  // by a search debounce that was scheduled from the view being replaced.
+  nextFilterIntent();
   queuePortfolioUpdate(async () => {
     state.portfolioViews = await activateSavedPortfolioView(id);
     closeViewEditor();
