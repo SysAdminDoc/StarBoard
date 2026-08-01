@@ -84,8 +84,8 @@ def main() -> None:
                         f"{info.filename} records create_system={info.create_system},"
                         " which varies by build host"
                     )
-                if info.compress_type != zipfile.ZIP_DEFLATED:
-                    raise SystemExit(f"{info.filename} is not deflated")
+                if info.compress_type != zipfile.ZIP_STORED:
+                    raise SystemExit(f"{info.filename} carries host-dependent compression")
                 if info.external_attr >> 16 != 0o644:
                     raise SystemExit(f"{info.filename} carries host file permissions")
             members = {info.filename: archive.read(info.filename) for info in archive.infolist()}

@@ -30,7 +30,7 @@ EXCLUDE_SUFFIXES = {".map", ".pem"}
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 # 3 = Unix. Pinned so a Windows build and a Linux build agree byte for byte.
 ZIP_CREATE_SYSTEM = 3
-ZIP_COMPRESS_LEVEL = 9
+ZIP_COMPRESSION = zipfile.ZIP_STORED
 
 
 def version() -> str:
@@ -65,19 +65,19 @@ def build_zip(dest: Path, files: list[tuple[Path, str]] | None = None) -> Path:
     """Write an archive whose bytes depend only on the files that went into it.
 
     Every field that would otherwise carry the build host has to be pinned.
-    `create_system` is the one that bites: zipfile defaults it to 0 on Windows
-    and 3 everywhere else, so the same sources produced two different published
-    checksums depending on who ran the build. The compression level matters for
-    the same reason, and supplying an explicit ZipInfo makes the ZipFile-level
-    `compresslevel` inert -- it has to be passed per entry.
+    `create_system` is the first host-dependent field: zipfile defaults it to 0
+    on Windows and 3 elsewhere. DEFLATE is another: the same Python version can
+    link different zlib implementations whose level-9 output is valid but not
+    byte-identical. Stored entries avoid that hidden dependency while keeping
+    the release standard-library-only and small enough for extension delivery.
     """
-    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED, compresslevel=ZIP_COMPRESS_LEVEL) as archive:
+    with zipfile.ZipFile(dest, "w", compression=ZIP_COMPRESSION) as archive:
         for path, name in files or collect():
             info = zipfile.ZipInfo(name, date_time=ZIP_TIMESTAMP)
-            info.compress_type = zipfile.ZIP_DEFLATED
+            info.compress_type = ZIP_COMPRESSION
             info.create_system = ZIP_CREATE_SYSTEM
             info.external_attr = 0o644 << 16
-            archive.writestr(info, path.read_bytes(), compresslevel=ZIP_COMPRESS_LEVEL)
+            archive.writestr(info, path.read_bytes())
     return dest
 
 

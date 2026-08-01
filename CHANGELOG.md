@@ -6,6 +6,8 @@
 
 - Linux and Windows now build the unsigned extension independently in CI and
   must publish the same ZIP checksum; only checksum text crosses between jobs.
+  ZIP entries use deterministic stored payloads because platform zlib builds
+  can emit different valid DEFLATE bytes even at the same compression level.
 - Backup import now has a regression proof that nested prototype-shaped JSON
   remains inert through validation, migration, and repository object spreads;
   the suspected pollution path was not exploitable and needed no data rewrite.
