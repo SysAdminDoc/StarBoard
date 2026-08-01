@@ -59,10 +59,9 @@ async function hasWebPermission() {
 /**
  * Detect the hidden document without assuming the latest offscreen API.
  *
- * `chrome.offscreen.hasDocument()` only arrived long after StarBoard's
- * declared Chrome 110 floor. Chrome 116+ exposes runtime contexts; Chrome
- * 110-115 can still discover the document through the service worker client
- * list.
+ * The Chrome 120 floor exposes both `chrome.offscreen.hasDocument()` and
+ * runtime contexts. The client-list fallback also keeps compatible test
+ * doubles and older development browsers from creating duplicate documents.
  */
 async function hasOffscreenDocument() {
   if (typeof chrome.offscreen.hasDocument === 'function') {
@@ -317,9 +316,9 @@ async function runRefresh(intent) {
     await updateBadge({ settings, ...committed });
     await scheduleRetry(result.retryAt);
     await evaluateNotifications(previous, committed.cache, settings, generation).catch(() => {});
-    // History can approach 2 MiB. Keep it in storage rather than echoing it
-    // through the MV3 response channel; the popup reads it locally after the
-    // refresh response arrives.
+    // History can consume one fifth of the local quota. Keep it in storage
+    // rather than echoing it through the MV3 response channel; the popup reads
+    // it locally after the refresh response arrives.
     return {
       ok: true,
       cache: committed.cache,

@@ -101,7 +101,7 @@ installation:
 4. Click the StarBoard icon → **Open settings** → enter your GitHub username →
    **Save & refresh**, then accept the one-time permission to read github.com.
 
-Works in Chrome, Edge, Brave and other Chromium browsers (Manifest V3, Chrome 110+).
+Works in Chrome, Edge, Brave and other Chromium browsers (Manifest V3, Chrome 120+).
 Each release also includes a SHA-256 checksum, a per-file hash manifest and an
 SPDX 2.3 JSON SBOM. StarBoard never generates a packing key or self-signed CRX.
 
@@ -270,11 +270,12 @@ renames connected across time; website-only changes remain explicit
 additions/removals. A dash means no retained point exists for that repository
 and range—StarBoard does not interpolate it as exact. History keeps at most one
 point per repository per UTC day for 365 days, prunes oldest days first, and
-never exceeds 2 MiB. A repository dictionary is stored once and each day holds
-only counts, so a 500-repository portfolio keeps the full year in about 1.5 MB
-and a 200-repository one in well under a megabyte. Ranges longer than the data
-actually retained are shown as unavailable rather than returning a column of
-dashes. Settings can prune it to a shorter window with undo.
+uses at most 20% of the local-storage quota reported by the browser (2 MiB on
+Chrome's 10 MiB quota). A repository dictionary is stored once and each day
+holds only counts, so a 500-repository portfolio keeps the full year in about
+1.5 MB and a 200-repository one in well under a megabyte. Ranges longer than the
+data actually retained are shown as unavailable rather than returning a column
+of dashes. Settings can prune it to a shorter window with undo.
 
 ## Development
 

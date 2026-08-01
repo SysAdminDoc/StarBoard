@@ -247,6 +247,10 @@
 
 ### Changed
 
+- The Chromium floor is now 120 so every supported browser has the storage and
+  alarm behavior StarBoard assumes. Trend history now uses 20% of the quota
+  reported by `storage.local` instead of relying on a fixed byte limit.
+
 - The test harness models `chrome.storage` faithfully: it enforces the byte
   quota and rejects an oversized write whole, emits change events, and resets
   between cases so tests are no longer order-coupled.

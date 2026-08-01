@@ -3306,7 +3306,7 @@ async function main() {
     );
     check(
       'local diagnostics expose version, permission, storage, refresh, and alarm health',
-      diagnostics.extension.minimumChromeVersion === '110' &&
+      diagnostics.extension.minimumChromeVersion === '120' &&
         typeof diagnostics.permissions.githubWebsite === 'boolean' &&
         diagnostics.storage.schemaVersion === expectedSchema &&
         diagnostics.refresh.lastSuccessfulAt &&

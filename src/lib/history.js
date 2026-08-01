@@ -16,7 +16,21 @@
 
 export const HISTORY_FORMAT_VERSION = 3;
 export const HISTORY_RETENTION_DAYS = 365;
-export const HISTORY_MAX_BYTES = 2 * 1024 * 1024;
+export const HISTORY_QUOTA_SHARE = 0.2;
+export const HISTORY_FALLBACK_QUOTA_BYTES = 10 * 1024 * 1024;
+
+/** Keep history proportional to the quota reported by the active storage area. */
+export function historyMaxBytesForQuota(reportedQuotaBytes) {
+  const quotaBytes =
+    Number.isFinite(reportedQuotaBytes) && reportedQuotaBytes > 0
+      ? Math.floor(reportedQuotaBytes)
+      : HISTORY_FALLBACK_QUOTA_BYTES;
+  return Math.max(1, Math.floor(quotaBytes * HISTORY_QUOTA_SHARE));
+}
+
+// Direct history helpers do not own a storage area, so they use Chrome's
+// current 10 MiB default. Persisted refreshes pass the live reported quota.
+export const HISTORY_MAX_BYTES = historyMaxBytesForQuota(HISTORY_FALLBACK_QUOTA_BYTES);
 const DAY_MS = 86_400_000;
 const CONFIDENCE = ['exact', 'approximate', 'partial', 'stale'];
 const CONFIDENCE_SCORE = Object.freeze({

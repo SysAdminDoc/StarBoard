@@ -55,9 +55,9 @@ export function createRetryWait(
       const slice = Math.min(remaining, keepAliveMs);
       await sleep(slice);
       remaining -= slice;
-      // Chrome 110+ resets the service-worker idle timer when an extension API
-      // call is made. Touch after the final slice too, immediately before the
-      // next fetch can consume another timeout window.
+      // At the declared Chrome 120+ floor, extension API calls reset the
+      // service-worker idle timer. Touch after the final slice too, immediately
+      // before the next fetch can consume another timeout window.
       try {
         await keepAlive();
       } catch {

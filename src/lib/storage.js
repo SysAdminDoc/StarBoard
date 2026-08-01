@@ -8,6 +8,7 @@
 
 import {
   emptyHistory,
+  historyMaxBytesForQuota,
   migrateHistoryToV2,
   pruneHistory,
   rekeyHistoryByName,
@@ -499,9 +500,8 @@ export async function dismissStorageRecoveryNotice(id) {
 /**
  * History is by far the largest record and is the one thing that does not need
  * a shadow copy: it is append-only, derived from refreshes, and losing a day
- * degrades a trend rather than breaking the extension. Mirroring it doubled
- * the single biggest consumer against a budget that is only 5 MiB on the
- * Chrome versions this extension still supports.
+ * degrades a trend rather than breaking the extension. Mirroring it would
+ * double the single biggest consumer and defeat the quota-proportional cap.
  */
 const LAST_KNOWN_GOOD_EXCLUDED = new Set([STORAGE_KEYS.history]);
 
@@ -956,6 +956,7 @@ export async function commitRefresh(cache, baseline, generation) {
     const currentHistory = (await readRecord(STORAGE_KEYS.history)) || emptyHistory();
     nextHistory = recordDailyHistory(currentHistory, nextCache, {
       now: nextCache.fetchedAt || Date.now(),
+      maxBytes: historyMaxBytesForQuota(AREA.QUOTA_BYTES),
     });
     await writeRecords(
       {

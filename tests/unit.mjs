@@ -26,6 +26,7 @@ function memoryArea(initial = {}, { quotaBytes = Infinity } = {}) {
   const listeners = new Set();
   const area = {
     values,
+    QUOTA_BYTES: 10 * 1024 * 1024,
     // Mutable so a test can narrow the budget around one write.
     quotaBytes,
     onChanged: {
@@ -120,6 +121,7 @@ const {
 const {
   HISTORY_MAX_BYTES,
   historyByteSize,
+  historyMaxBytesForQuota,
   historyPointForRepo,
   historyRetainedDays,
   historyRows,
@@ -165,7 +167,9 @@ async function fixture(name) {
 /** Return both areas to a pristine state so cases cannot depend on order. */
 function resetStorage() {
   area.quotaBytes = Infinity;
+  area.QUOTA_BYTES = 10 * 1024 * 1024;
   sessionArea.quotaBytes = Infinity;
+  sessionArea.QUOTA_BYTES = 10 * 1024 * 1024;
 }
 
 function replaceAreaValues(storageArea, values) {
@@ -2143,6 +2147,33 @@ await test('a full year of a large portfolio fits inside the storage cap', async
   assert.equal(historyRetainedDays(history, { now: start + 364 * 86_400_000 }), 364);
 });
 
+await test('refresh history cap follows the browser-reported local quota', async () => {
+  assert.equal(historyMaxBytesForQuota(5 * 1024 * 1024), 1024 * 1024);
+  assert.equal(historyMaxBytesForQuota(10 * 1024 * 1024), 2 * 1024 * 1024);
+  assert.equal(historyMaxBytesForQuota(undefined), HISTORY_MAX_BYTES);
+
+  replaceAreaValues(area, {});
+  area.QUOTA_BYTES = 4_000;
+  const repos = Array.from({ length: 100 }, (_, index) => ({
+    id: index,
+    full_name: `octocat/${'quota-sensitive-name-'.repeat(5)}${index}`,
+    stargazers_count: index,
+    forks_count: 0,
+    private: false,
+  }));
+  const cache = {
+    profile: { login: 'octocat' },
+    repos,
+    fetchedAt: Date.UTC(2026, 0, 1, 12),
+    source: 'api',
+    confidence: 'exact',
+  };
+  await storage.commitRefresh(cache, storage.snapshotOf(repos), 'quota-generation');
+  const persisted = area.values.history.data;
+  assert.ok(historyByteSize(persisted) <= 800);
+  assert.ok(persisted.repos.length < repos.length, 'the reported cap must drive pruning');
+});
+
 await test('history reports the range it can actually serve', async () => {
   const start = Date.UTC(2026, 0, 1, 12);
   let history = null;
@@ -2534,7 +2565,7 @@ await test('diagnostics expose allow-listed health metadata without sensitive va
   const diagnostics = buildDiagnostics({
     manifest: {
       version: '1.2.0',
-      minimum_chrome_version: '110',
+      minimum_chrome_version: '120',
       manifest_version: 3,
     },
     settings: {
@@ -2578,12 +2609,12 @@ await test('diagnostics expose allow-listed health metadata without sensitive va
       },
     ],
     storageBytes: 1200,
-    userAgent: 'Mozilla/5.0 Chrome/110.0.0.0',
+    userAgent: 'Mozilla/5.0 Chrome/120.0.0.0',
     now: Date.UTC(2026, 6, 29, 4),
   });
   const text = JSON.stringify(diagnostics);
-  assert.equal(diagnostics.extension.minimumChromeVersion, '110');
-  assert.equal(diagnostics.extension.runtimeChromeMajor, 110);
+  assert.equal(diagnostics.extension.minimumChromeVersion, '120');
+  assert.equal(diagnostics.extension.runtimeChromeMajor, 120);
   assert.equal(diagnostics.refresh.error.code, 'RATE_LIMITED');
   assert.equal(diagnostics.alarms.refresh.periodMinutes, 60);
   assert.doesNotMatch(
