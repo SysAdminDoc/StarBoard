@@ -10,6 +10,7 @@ import {
   getCache,
   getBaseline,
   getHistory,
+  getNotificationState,
   getPortfolioViewState,
   setActivePortfolioFilters,
   saveCurrentPortfolioView,
@@ -109,6 +110,11 @@ const el = {
   count: $('count'),
   quality: $('quality'),
   banner: $('banner'),
+  alerts: $('alerts'),
+  alertCount: $('alert-count'),
+  alertList: $('alert-list'),
+  alertsDropped: $('alerts-dropped'),
+  acknowledgeAlerts: $('ack-alerts'),
   lifecycle: $('lifecycle'),
   lifecycleList: $('lifecycle-list'),
   acknowledgeLifecycle: $('ack-lifecycle'),
@@ -125,6 +131,7 @@ let state = {
   cache: null,
   baseline: null,
   history: null,
+  notificationState: null,
   portfolioViews: null,
   storageRecoveryNotice: null,
   trendRange: 'baseline',
@@ -707,6 +714,31 @@ function renderLifecycle() {
   el.lifecycle.hidden = false;
 }
 
+function renderAlerts() {
+  const events = state.notificationState?.pending || [];
+  const dropped = state.notificationState?.dropped || 0;
+  if (!events.length && !dropped) {
+    el.alerts.hidden = true;
+    el.alertList.replaceChildren();
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  for (const event of events) {
+    const item = document.createElement('li');
+    item.textContent = `${event.title}: ${event.message} · ${relative(event.createdAt)}`;
+    fragment.appendChild(item);
+  }
+  el.alertCount.textContent = events.length ? `(${nf.format(events.length)})` : '';
+  el.alertList.replaceChildren(fragment);
+  el.alertList.hidden = events.length === 0;
+  el.alertsDropped.textContent = dropped
+    ? `${nf.format(dropped)} older alert${dropped === 1 ? '' : 's'} could not be retained after the local 50-alert inbox filled.`
+    : '';
+  el.alertsDropped.hidden = dropped === 0;
+  el.acknowledgeAlerts.textContent = events.length ? 'Dismiss all' : 'Dismiss notice';
+  el.alerts.hidden = false;
+}
+
 function withId(node, id) {
   node.id = id;
   return node;
@@ -977,6 +1009,7 @@ function render() {
   }
 
   renderBanner();
+  renderAlerts();
   renderLifecycle();
 
   if (!settings.username && !settings.token) {
@@ -1067,6 +1100,7 @@ async function doRefresh(rebase = false) {
     state.cache = res?.cache ?? (await getCache());
     state.baseline = res?.baseline ?? (await getBaseline());
     state.history = res?.history ?? (await getHistory());
+    state.notificationState = await getNotificationState();
     if (res && !res.ok && !state.cache) {
       state.cache = { error: res.error };
     }
@@ -1390,6 +1424,17 @@ el.acknowledgeLifecycle.addEventListener('click', async () => {
     announce(`Could not acknowledge those changes. ${sentence(error.message)}`);
   }
 });
+el.acknowledgeAlerts.addEventListener('click', async () => {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'acknowledge-notifications' });
+    if (!response?.ok) throw new Error(response?.error?.message || 'StarBoard could not update.');
+    state.notificationState = response.state;
+    render();
+    announce('Recent alerts dismissed.');
+  } catch (error) {
+    announce(`Could not dismiss recent alerts. ${sentence(error.message)}`);
+  }
+});
 el.undo.addEventListener('click', async () => {
   const response = await chrome.runtime.sendMessage({ type: 'undo' });
   if (!response?.ok) {
@@ -1400,6 +1445,7 @@ el.undo.addEventListener('click', async () => {
   state.cache = response.restored.cache;
   state.baseline = response.restored.baseline;
   state.history = response.restored.history || state.history;
+  state.notificationState = response.restored.notificationState || state.notificationState;
   state.settings = response.restored.settings || state.settings;
   state.portfolioViews =
     response.restored.portfolioViews || (await getPortfolioViewState());
@@ -1429,12 +1475,14 @@ window.addEventListener('online', () => {
       state.cache,
       state.baseline,
       state.history,
+      state.notificationState,
       state.portfolioViews,
     ] = await Promise.all([
       getSettings(),
       getCache(),
       getBaseline(),
       getHistory(),
+      getNotificationState(),
       getPortfolioViewState(),
     ]);
     // Read this after the records: one of those reads may have just restored

@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Grouped OS notifications no longer discard every detail after the first.
+  All generated alerts remain readable in a bounded popup inbox until explicit
+  dismissal, worker restarts do not repeat already-notified groups, and a
+  visible counter reports any older events displaced by the 50-alert cap.
 - Invalid local records no longer disappear silently. StarBoard records whether
   each one was restored or reset and why, shows a dismissible recovery banner
   in the popup, and retains a quarantine count with a diagnostics link in

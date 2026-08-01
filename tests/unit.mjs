@@ -132,10 +132,11 @@ const {
 } = await import('../src/lib/transfer.js');
 const { buildDiagnostics } = await import('../src/lib/diagnostics.js');
 const {
+  acknowledgeNotifications,
   DEFAULT_NOTIFICATION_CONFIG,
   emptyNotificationState,
   evaluateNotificationEvents,
-  markNotificationsDelivered,
+  markNotificationsNotified,
   notificationAvailability,
 } = await import('../src/lib/notifications.js');
 const {
@@ -2396,12 +2397,19 @@ await test('notification milestones and deltas deduplicate across worker restart
   });
   assert.deepEqual(restarted, first);
 
-  const delivered = markNotificationsDelivered(
+  const notified = markNotificationsNotified(
     first,
     first.pending.map((event) => event.id),
     3000,
   );
-  const noRepeat = evaluateNotificationEvents(previous, current, config, delivered, {
+  assert.equal(notified.pending.length, 4);
+  assert.equal(notified.pending.every((event) => event.notifiedAt === 3000), true);
+  assert.equal(Object.keys(notified.seen).length, 0);
+
+  const acknowledged = acknowledgeNotifications(notified, null, 3500);
+  assert.equal(acknowledged.pending.length, 0);
+  assert.equal(Object.keys(acknowledged.seen).length, 4);
+  const noRepeat = evaluateNotificationEvents(previous, current, config, acknowledged, {
     generation: 'notification-g2',
     now: 4000,
   });
@@ -2409,6 +2417,77 @@ await test('notification milestones and deltas deduplicate across worker restart
     noRepeat.pending.filter((event) => event.id.includes('milestone')).length,
     0,
   );
+});
+
+await test('nine notified alerts remain reachable until the user acknowledges them', async () => {
+  const pending = Array.from({ length: 9 }, (_, index) => ({
+    id: `alert-${index + 1}`,
+    title: `Alert ${index + 1}`,
+    message: `Repository event ${index + 1}.`,
+    createdAt: 1000 + index,
+  }));
+  const state = { ...emptyNotificationState(), pending };
+  const notified = markNotificationsNotified(
+    state,
+    pending.map((event) => event.id),
+    2000,
+  );
+  assert.equal(notified.pending.length, 9);
+  assert.deepEqual(
+    notified.pending.map((event) => event.message),
+    pending.map((event) => event.message),
+  );
+  assert.equal(notified.pending.every((event) => event.notifiedAt === 2000), true);
+  assert.equal(Object.keys(notified.seen).length, 0);
+
+  const acknowledged = acknowledgeNotifications(notified, null, 3000);
+  assert.equal(acknowledged.pending.length, 0);
+  assert.equal(Object.keys(acknowledged.seen).length, 9);
+});
+
+await test('notification queue overflow records every alert it cannot retain', async () => {
+  const previous = {
+    confidence: 'exact',
+    repos: [
+      {
+        id: 1,
+        name: 'demo',
+        full_name: 'octocat/demo',
+        stargazers_count: 9,
+        forks_count: 0,
+        fork: false,
+        approx: false,
+      },
+    ],
+  };
+  const current = {
+    confidence: 'exact',
+    repos: [{ ...previous.repos[0], stargazers_count: 12 }],
+  };
+  const pending = Array.from({ length: 50 }, (_, index) => ({
+    id: `existing-${index}`,
+    title: `Existing ${index}`,
+    message: `Existing alert ${index}.`,
+    createdAt: index,
+  }));
+  const next = evaluateNotificationEvents(
+    previous,
+    current,
+    {
+      ...DEFAULT_NOTIFICATION_CONFIG,
+      enabled: true,
+      portfolioMilestone: 0,
+      portfolioDelta: 0,
+      repositoryMilestone: 10,
+      repositoryDelta: 3,
+    },
+    { ...emptyNotificationState(), pending },
+    { generation: 'overflow-generation', now: 1000 },
+  );
+  assert.equal(next.pending.length, 50);
+  assert.equal(next.dropped, 2);
+  assert.equal(next.pending.some((event) => event.id === 'existing-0'), false);
+  assert.equal(next.pending.some((event) => event.id === 'existing-1'), false);
 });
 
 await test('a quiet window that wraps midnight holds on both sides of it', async () => {

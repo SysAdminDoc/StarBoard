@@ -35,8 +35,9 @@ import { deriveLifecycleEvents, mergeLifecycleEvents } from './lib/lifecycle.js'
 import { historyStats } from './lib/history.js';
 import { buildDiagnostics } from './lib/diagnostics.js';
 import {
+  acknowledgeNotifications,
   evaluateNotificationEvents,
-  markNotificationsDelivered,
+  markNotificationsNotified,
   notificationAvailability,
 } from './lib/notifications.js';
 
@@ -210,7 +211,8 @@ async function deliverPendingNotifications() {
     hasNotificationPermission(),
   ]);
   await chrome.alarms.clear(NOTIFICATION_ALARM);
-  if (!config.enabled || !permitted || !state.pending.length) return state;
+  const pending = state.pending.filter((event) => !event.notifiedAt);
+  if (!config.enabled || !permitted || !pending.length) return state;
 
   const availability = notificationAvailability(config, state);
   if (!availability.allowed) {
@@ -220,7 +222,6 @@ async function deliverPendingNotifications() {
     return state;
   }
 
-  const pending = state.pending.slice(0, 8);
   const first = pending[0];
   const more = pending.length - 1;
   await createSystemNotification({
@@ -230,20 +231,14 @@ async function deliverPendingNotifications() {
     message:
       pending.length === 1
         ? first.message
-        : `${first.message} ${more} more change${more === 1 ? '' : 's'} are ready.`,
+        : `${first.message} ${more} more alert${more === 1 ? '' : 's'} are saved in StarBoard.`,
     priority: 0,
   });
-  const next = markNotificationsDelivered(
+  const next = markNotificationsNotified(
     state,
     pending.map((event) => event.id),
   );
   await setNotificationState(next);
-  if (next.pending.length) {
-    const afterDelivery = notificationAvailability(config, next);
-    if (afterDelivery.nextAt) {
-      chrome.alarms.create(NOTIFICATION_ALARM, { when: afterDelivery.nextAt });
-    }
-  }
   return next;
 }
 
@@ -455,6 +450,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true, cache });
         break;
       }
+      case 'acknowledge-notifications': {
+        const state = acknowledgeNotifications(
+          await getNotificationState(),
+          msg.ids || null,
+        );
+        await setNotificationState(state);
+        sendResponse({ ok: true, state });
+        break;
+      }
       case 'clear-portfolio': {
         await clearPortfolioData();
         await chrome.alarms.clear(NOTIFICATION_ALARM);
@@ -504,6 +508,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           config,
           permitted,
           pending: state.pending.length,
+          dropped: state.dropped || 0,
         });
         break;
       }
@@ -511,7 +516,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const config = await setNotificationConfig(msg.changes || {});
         let state = await getNotificationState();
         if (!config.enabled) {
-          state = { ...state, pending: [] };
+          state = { ...state, pending: [], dropped: 0 };
           await setNotificationState(state);
           await chrome.alarms.clear(NOTIFICATION_ALARM);
         } else {
@@ -522,6 +527,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           config,
           permitted: await hasNotificationPermission(),
           pending: state.pending.length,
+          dropped: state.dropped || 0,
         });
         break;
       }

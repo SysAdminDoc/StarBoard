@@ -69,6 +69,7 @@ export function emptyNotificationState() {
     formatVersion: NOTIFICATION_FORMAT_VERSION,
     lastEvaluatedGeneration: null,
     pending: [],
+    dropped: 0,
     seen: {},
     lastSentAt: 0,
   };
@@ -92,7 +93,13 @@ export function validateNotificationState(state) {
     assert(typeof event.title === 'string' && event.title.length <= 120, 'invalid alert title');
     assert(typeof event.message === 'string' && event.message.length <= 500, 'invalid alert message');
     assert(Number.isFinite(event.createdAt) && event.createdAt >= 0, 'invalid alert time');
+    assert(
+      event.notifiedAt == null ||
+        (Number.isFinite(event.notifiedAt) && event.notifiedAt >= 0),
+      'invalid alert notification time',
+    );
   }
+  count(state.dropped ?? 0, 'dropped alerts');
   assert(state.seen && typeof state.seen === 'object' && !Array.isArray(state.seen), 'invalid seen alerts');
   assert(Object.keys(state.seen).length <= MAX_SEEN, 'too many seen alerts');
   for (const [id, at] of Object.entries(state.seen)) {
@@ -226,10 +233,13 @@ export function evaluateNotificationEvents(
     .filter(Boolean)
     .filter((event) => !seen[event.id] && !pendingIds.has(event.id))
     .sort((a, b) => a.id.localeCompare(b.id));
+  const combined = [...existing.pending, ...fresh];
+  const dropped = Math.max(0, combined.length - MAX_PENDING);
   const next = {
     ...existing,
     lastEvaluatedGeneration: generation,
-    pending: [...existing.pending, ...fresh].slice(-MAX_PENDING),
+    pending: combined.slice(-MAX_PENDING),
+    dropped: (existing.dropped || 0) + dropped,
     seen,
   };
   validateNotificationState(next);
@@ -268,20 +278,36 @@ export function notificationAvailability(config, state, now = Date.now()) {
   return { allowed: !quiet && cooldownEndsAt <= now, nextAt: nextAt > now ? nextAt : null };
 }
 
-export function markNotificationsDelivered(state, ids, now = Date.now()) {
+export function markNotificationsNotified(state, ids, now = Date.now()) {
   validateNotificationState(state);
-  const delivered = new Set(ids);
-  const seen = { ...state.seen };
-  for (const id of delivered) seen[id] = now;
+  const notified = new Set(ids);
   const next = {
     ...state,
-    pending: state.pending.filter((event) => !delivered.has(event.id)),
+    pending: state.pending.map((event) =>
+      notified.has(event.id) ? { ...event, notifiedAt: now } : event,
+    ),
+    lastSentAt: now,
+  };
+  validateNotificationState(next);
+  return next;
+}
+
+export function acknowledgeNotifications(state, ids = null, now = Date.now()) {
+  validateNotificationState(state);
+  const acknowledged = new Set(ids || state.pending.map((event) => event.id));
+  const seen = { ...state.seen };
+  for (const event of state.pending) {
+    if (acknowledged.has(event.id)) seen[event.id] = now;
+  }
+  const next = {
+    ...state,
+    pending: state.pending.filter((event) => !acknowledged.has(event.id)),
+    dropped: ids == null ? 0 : state.dropped || 0,
     seen: Object.fromEntries(
       Object.entries(seen)
         .sort((a, b) => b[1] - a[1])
         .slice(0, MAX_SEEN),
     ),
-    lastSentAt: now,
   };
   validateNotificationState(next);
   return next;

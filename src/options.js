@@ -208,7 +208,7 @@ function notificationPatch() {
   };
 }
 
-function syncNotificationUI(config, permitted, pending = 0) {
+function syncNotificationUI(config, permitted, pending = 0, dropped = 0) {
   $('notificationsEnabled').checked = !!config.enabled;
   for (const [key, field] of Object.entries(notificationFields)) {
     field.value = String(config[key]);
@@ -217,7 +217,9 @@ function syncNotificationUI(config, permitted, pending = 0) {
   $('notificationControls').setAttribute('aria-disabled', String(!config.enabled));
   $('notificationPermissionState').textContent =
     config.enabled && permitted
-      ? `On · ${pending} queued alert${pending === 1 ? '' : 's'}. Quiet hours and cooldown apply locally.`
+      ? `On · ${pending} unread alert${pending === 1 ? '' : 's'} saved in the popup${
+          dropped ? `; ${dropped} older alert${dropped === 1 ? '' : 's'} could not be retained` : ''
+        }. Quiet hours and cooldown apply locally.`
       : config.enabled
         ? 'Notification access was removed. Turn alerts off and on to grant it again.'
         : permitted
@@ -228,7 +230,7 @@ function syncNotificationUI(config, permitted, pending = 0) {
 async function loadNotificationConfig() {
   const response = await chrome.runtime.sendMessage({ type: 'notification-status' });
   if (!response?.ok) throw new Error(response?.error?.message || 'Could not load notifications.');
-  syncNotificationUI(response.config, response.permitted, response.pending);
+  syncNotificationUI(response.config, response.permitted, response.pending, response.dropped);
 }
 
 /**
@@ -583,7 +585,7 @@ $('notificationsEnabled').addEventListener('change', async () => {
       changes: { enabled: enabling },
     });
     if (!response?.ok) throw new Error(response?.error?.message || 'Could not save notifications.');
-    syncNotificationUI(response.config, response.permitted, response.pending);
+    syncNotificationUI(response.config, response.permitted, response.pending, response.dropped);
     say(enabling ? 'Local alerts enabled.' : 'Local alerts disabled.', 'ok');
   } catch (error) {
     await loadNotificationConfig().catch(() => {});
@@ -604,7 +606,7 @@ for (const field of Object.values(notificationFields)) {
       if (!response?.ok) {
         throw new Error(response?.error?.message || 'Could not save notification settings.');
       }
-      syncNotificationUI(response.config, response.permitted, response.pending);
+      syncNotificationUI(response.config, response.permitted, response.pending, response.dropped);
       say('Notification settings saved.', 'ok');
     } catch (error) {
       await loadNotificationConfig().catch(() => {});

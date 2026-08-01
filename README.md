@@ -241,10 +241,13 @@ Quiet hours and the cooldown are evaluated locally.
 
 Alerts are generated only from a newly committed successful refresh.
 Approximate/partial portfolio totals and approximate repositories are skipped,
-and failed refreshes never generate an alert. Pending/delivered event IDs are
+and failed refreshes never generate an alert. A grouped Chrome notification may
+summarize several events, but every event remains readable under **Recent
+alerts** in the popup until you dismiss the inbox. Notified/unread event IDs are
 bounded and persisted so a Manifest V3 worker restart cannot repeat the same
-milestone. Turning alerts off immediately clears queued events without changing
-the saved thresholds.
+group; if the 50-alert local inbox fills, the popup states how many older events
+could not be retained. Turning alerts off immediately clears the inbox without
+changing the saved thresholds.
 
 ## How the deltas work
 

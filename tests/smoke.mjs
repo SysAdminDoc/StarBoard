@@ -372,14 +372,12 @@ async function testNotificationMode(source) {
       });
       await setNotificationState({
         ...emptyNotificationState(),
-        pending: [
-          {
-            id: 'smoke-notification:milestone:100',
-            title: 'Portfolio milestone',
-            message: 'Your repositories reached 100 stars.',
-            createdAt: Date.now(),
-          },
-        ],
+        pending: Array.from({ length: 9 }, (_, index) => ({
+          id: `smoke-notification:${index + 1}`,
+          title: `Portfolio alert ${index + 1}`,
+          message: `Repository event ${index + 1} is ready.`,
+          createdAt: Date.now() + index,
+        })),
       });
     });
     const delivery = await options.evaluate(() =>
@@ -409,18 +407,51 @@ async function testNotificationMode(source) {
       );
       return {
         pending: state.pending.length,
+        notified: state.pending.filter((event) => event.notifiedAt).length,
         seen: Object.keys(state.seen).length,
         ids: Object.keys(notifications),
+        messages: Object.values(notifications).map((notification) => notification.message),
       };
     });
     check(
-      'queued alert creates one OS notification and persists delivery deduplication',
+      'a collapsed OS notification keeps all nine alert details in local state',
       delivery?.ok === true &&
-        deliveredState.pending === 0 &&
-        deliveredState.seen === 1 &&
-        deliveredState.ids.length === 1,
+        deliveredState.pending === 9 &&
+        deliveredState.notified === 9 &&
+        deliveredState.seen === 0 &&
+        deliveredState.ids.length === 1 &&
+        deliveredState.messages.some((message) => /8 more alerts are saved in StarBoard/i.test(message)),
       JSON.stringify({ delivery, ...deliveredState }),
     );
+
+    const notificationPopup = await ctx.newPage();
+    captureErrors(notificationPopup, 'notification popup');
+    await notificationPopup.goto(`chrome-extension://${extId}/src/popup.html`);
+    await notificationPopup.waitForFunction(
+      () => document.querySelectorAll('#alert-list li').length === 9,
+    );
+    const visibleAlerts = await notificationPopup.$$eval('#alert-list li', (items) =>
+      items.map((item) => item.textContent),
+    );
+    check(
+      'all collapsed alerts remain readable in the popup until dismissal',
+      visibleAlerts.length === 9 &&
+        visibleAlerts.every((message, index) => message.includes(`Repository event ${index + 1}`)),
+      JSON.stringify(visibleAlerts),
+    );
+    await notificationPopup.click('#ack-alerts');
+    await notificationPopup.waitForFunction(() => document.querySelector('#alerts')?.hidden);
+    const acknowledgedState = await notificationPopup.evaluate(async () => {
+      const { getNotificationState } = await import('./lib/storage.js');
+      const state = await getNotificationState();
+      return { pending: state.pending.length, seen: Object.keys(state.seen).length };
+    });
+    check(
+      'dismissing the popup inbox acknowledges all nine alerts',
+      acknowledgedState.pending === 0 && acknowledgedState.seen === 9,
+      JSON.stringify(acknowledgedState),
+    );
+    await notificationPopup.close();
 
     const cdp = await ctx.newCDPSession(options);
     await cdp.send('ServiceWorker.enable');
@@ -882,6 +913,76 @@ async function main() {
         recoveryLink.href === '#localDiagnostics' &&
         /local diagnostics/i.test(recoveryLink.text),
       JSON.stringify(recoveryLink),
+    );
+
+    await firstRunOptions.evaluate(async () => {
+      const { setNotificationState } = await import('./lib/storage.js');
+      const { emptyNotificationState, markNotificationsNotified } = await import(
+        './lib/notifications.js'
+      );
+      const pending = Array.from({ length: 9 }, (_, index) => ({
+        id: `offline-alert-${index + 1}`,
+        title: `Alert ${index + 1}`,
+        message: `Repository event ${index + 1}.`,
+        createdAt: Date.now() + index,
+      }));
+      await setNotificationState(
+        markNotificationsNotified(
+          { ...emptyNotificationState(), pending, dropped: 2 },
+          pending.map((event) => event.id),
+        ),
+      );
+    });
+    const alertPopup = await ctx.newPage();
+    captureErrors(alertPopup, 'alert inbox popup');
+    let alertInbox;
+    try {
+      await alertPopup.goto(`chrome-extension://${extId}/src/popup.html`);
+      await alertPopup.waitForFunction(
+        () =>
+          document.querySelectorAll('#alert-list li').length === 9 &&
+          !document.querySelector('#alerts-dropped')?.hidden,
+      );
+      alertInbox = await alertPopup.evaluate(() => ({
+        count: document.querySelectorAll('#alert-list li').length,
+        messages: [...document.querySelectorAll('#alert-list li')].map(
+          (item) => item.textContent,
+        ),
+        dropped: document.querySelector('#alerts-dropped')?.textContent || '',
+        action: document.querySelector('#ack-alerts')?.textContent || '',
+      }));
+      await alertPopup.click('#ack-alerts');
+      await alertPopup.waitForFunction(() => document.querySelector('#alerts')?.hidden);
+      alertInbox.afterDismiss = await alertPopup.evaluate(async () => {
+        const { getNotificationState } = await import('./lib/storage.js');
+        const state = await getNotificationState();
+        return {
+          pending: state.pending.length,
+          dropped: state.dropped,
+          seen: Object.keys(state.seen).length,
+        };
+      });
+    } catch (error) {
+      alertInbox = { error: error.message };
+    } finally {
+      await alertPopup.close();
+    }
+    check(
+      'all nine collapsed alerts remain readable until explicit dismissal',
+      alertInbox.count === 9 &&
+        alertInbox.messages?.every((message, index) =>
+          message.includes(`Repository event ${index + 1}`),
+        ) &&
+        alertInbox.action === 'Dismiss all' &&
+        alertInbox.afterDismiss?.pending === 0 &&
+        alertInbox.afterDismiss?.seen === 9,
+      JSON.stringify(alertInbox),
+    );
+    check(
+      'a full alert inbox surfaces how many older events were dropped',
+      /2 older alerts could not be retained/i.test(alertInbox.dropped || '') &&
+        alertInbox.afterDismiss?.dropped === 0,
+      JSON.stringify(alertInbox),
     );
 
     await firstRunOptions.check('#includeHistoryExport');

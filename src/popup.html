@@ -239,6 +239,15 @@
 
     <div id="banner" class="banner" role="alert" hidden></div>
 
+    <section id="alerts" class="lifecycle alerts" aria-labelledby="alerts-title" hidden>
+      <div class="lifecycle-heading">
+        <b id="alerts-title">Recent alerts <span id="alert-count"></span></b>
+        <button id="ack-alerts" type="button">Dismiss all</button>
+      </div>
+      <p id="alerts-dropped" class="alerts-dropped" hidden></p>
+      <ul id="alert-list"></ul>
+    </section>
+
     <section id="lifecycle" class="lifecycle" aria-labelledby="lifecycle-title" hidden>
       <div class="lifecycle-heading">
         <b id="lifecycle-title">Repository changes</b>
