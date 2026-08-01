@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- JSON backups are now compact and measured against the restore limit before
+  download. An oversized history export is stopped with a one-click retry path
+  that excludes history, and oversized imports are rejected from file metadata
+  before the browser reads the file into memory.
 - Downgrading can no longer quarantine, reset, or overwrite records written by
   a newer storage schema. The older build leaves them untouched and names the
   required version in the popup and Settings, while schema upgrades retain the

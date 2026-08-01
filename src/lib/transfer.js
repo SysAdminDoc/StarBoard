@@ -40,6 +40,30 @@ function copy(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
+export class BackupSizeError extends Error {
+  constructor(bytes, { historyIncluded = false } = {}) {
+    const excessKiB = Math.max(1, Math.ceil((bytes - BACKUP_MAX_BYTES) / 1024));
+    super(`Backup exceeds StarBoard's 5 MiB restore limit by ${excessKiB} KiB.`);
+    this.name = 'BackupSizeError';
+    this.code = 'BACKUP_TOO_LARGE';
+    this.bytes = bytes;
+    this.maxBytes = BACKUP_MAX_BYTES;
+    this.historyIncluded = historyIncluded;
+  }
+}
+
+export function assertBackupSize(bytes, { historyIncluded = false } = {}) {
+  if (bytes > BACKUP_MAX_BYTES) throw new BackupSizeError(bytes, { historyIncluded });
+}
+
+/** The on-disk representation is compact so every exported file is restorable. */
+export function serializeBackup(document) {
+  const text = `${JSON.stringify(document)}\n`;
+  const bytes = new TextEncoder().encode(text).byteLength;
+  assertBackupSize(bytes, { historyIncluded: !!document?.privacy?.historyIncluded });
+  return text;
+}
+
 export function stableStringify(value) {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   if (value && typeof value === 'object') {
@@ -227,7 +251,7 @@ function summarize(records, versions) {
 
 export async function validateBackupText(text) {
   assert(typeof text === 'string' && text.trim(), 'backup file is empty');
-  assert(new TextEncoder().encode(text).byteLength <= BACKUP_MAX_BYTES, 'backup exceeds 5 MiB');
+  assertBackupSize(new TextEncoder().encode(text).byteLength);
   let document;
   try {
     document = JSON.parse(text);

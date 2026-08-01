@@ -121,8 +121,11 @@ const {
   rekeyHistoryByName,
 } = await import('../src/lib/history.js');
 const {
+  BACKUP_MAX_BYTES,
+  assertBackupSize,
   createBackup,
   createCsv,
+  serializeBackup,
   sha256Hex,
   stableStringify,
   validateBackupText,
@@ -2057,6 +2060,70 @@ await test('portable backups are checksummed, credential-free, and privacy-filte
     includeHistory: true,
   });
   assert.match(historyCsv, /octocat\/private-demo/);
+});
+
+await test('large history backups stay compact enough to restore', async () => {
+  const repositoryCount = 650;
+  const dayCount = 365;
+  const repos = Array.from({ length: repositoryCount }, (_, index) => ({
+    id: index + 1,
+    name: `repository-${index}`,
+    full_name: `octocat/repository-${index}`,
+    stargazers_count: 1,
+    forks_count: 0,
+    private: false,
+    fork: false,
+    archived: false,
+  }));
+  const dictionary = repos.map((repo) => [`name:${repo.full_name}`, repo.full_name, 0]);
+  const history = {
+    formatVersion: 3,
+    repos: dictionary,
+    snapshots: Array.from({ length: dayCount }, (_, index) => {
+      const at = Date.UTC(2025, 7, 2 + index);
+      return {
+        day: new Date(at).toISOString().slice(0, 10),
+        at,
+        source: 'api',
+        confidence: 'exact',
+        stars: Array(repositoryCount).fill(1),
+        forks: Array(repositoryCount).fill(0),
+        approx: [],
+      };
+    }),
+  };
+  const document = await createBackup({
+    settings: { ...storage.DEFAULTS, username: 'octocat', dataSource: 'api' },
+    cache: {
+      profile: { login: 'octocat' },
+      repos,
+      fetchedAt: Date.UTC(2026, 7, 1),
+      source: 'api',
+      confidence: 'exact',
+    },
+    history,
+    includeHistory: true,
+    now: Date.UTC(2026, 7, 1),
+  });
+
+  const compact = serializeBackup(document);
+  const pretty = `${JSON.stringify(document, null, 2)}\n`;
+  const encoded = new TextEncoder();
+  assert.ok(
+    encoded.encode(pretty).byteLength > BACKUP_MAX_BYTES,
+    'the prior pretty-printed export must exceed the restore ceiling',
+  );
+  assert.ok(encoded.encode(compact).byteLength <= BACKUP_MAX_BYTES);
+  const preview = await validateBackupText(compact);
+  assert.equal(preview.summary.repositories, repositoryCount);
+  assert.equal(preview.summary.historyDays, dayCount);
+  assert.equal(preview.summary.historyPoints, repositoryCount * dayCount);
+
+  assert.doesNotThrow(() => assertBackupSize(BACKUP_MAX_BYTES));
+  assert.throws(
+    () => assertBackupSize(BACKUP_MAX_BYTES + 1, { historyIncluded: true }),
+    (error) => error.code === 'BACKUP_TOO_LARGE' && error.historyIncluded,
+  );
 });
 
 await test('validated imports preserve local credentials and support full rollback', async () => {

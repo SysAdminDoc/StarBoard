@@ -803,6 +803,44 @@ async function main() {
         isDeepStrictEqual(downgradeResult.stored, versionProbe.future),
       JSON.stringify(downgradeResult),
     );
+
+    await firstRunOptions.check('#includeHistoryExport');
+    await firstRunOptions.evaluate(() => {
+      const NativeTextEncoder = TextEncoder;
+      let encodes = 0;
+      window.__restoreTextEncoder = () => {
+        window.TextEncoder = NativeTextEncoder;
+        delete window.__restoreTextEncoder;
+      };
+      window.TextEncoder = class extends NativeTextEncoder {
+        encode(value) {
+          encodes += 1;
+          if (encodes === 1) return super.encode(value);
+          return { byteLength: 5 * 1024 * 1024 + 1 };
+        }
+      };
+    });
+    let oversizeBackupResult;
+    try {
+      await firstRunOptions.click('#backupJson');
+      await firstRunOptions.waitForFunction(() =>
+        /restorable backup without it/i.test(document.querySelector('#status')?.textContent || ''),
+      );
+      oversizeBackupResult = {
+        historySelected: await firstRunOptions.isChecked('#includeHistoryExport'),
+        status: await firstRunOptions.textContent('#status'),
+      };
+    } catch (error) {
+      oversizeBackupResult = { error: error.message };
+    } finally {
+      await firstRunOptions.evaluate(() => window.__restoreTextEncoder?.());
+    }
+    check(
+      'an oversized backup offers a second export without history before downloading',
+      oversizeBackupResult.historySelected === false &&
+        /exceeds StarBoard's 5 MiB restore limit/i.test(oversizeBackupResult.status || ''),
+      JSON.stringify(oversizeBackupResult),
+    );
     const webContract = await firstRunOptions.evaluate(async (fixtures) => {
       const { scrapeAccount } = await import('./lib/scrape.js');
       const parse = (html) => new DOMParser().parseFromString(html, 'text/html');
@@ -1019,7 +1057,7 @@ async function main() {
       check('the toolbar badge reflects the committed totals', badge === '64', badge);
 
       const exported = await popup.evaluate(async () => {
-        const { createBackup, validateBackupText, createCsv } = await import(
+        const { createBackup, serializeBackup, validateBackupText, createCsv } = await import(
           './lib/transfer.js'
         );
         const { getSettings, getCache, getBaseline, getHistory } = await import(
@@ -1038,7 +1076,7 @@ async function main() {
           history,
           includeHistory: true,
         });
-        const text = JSON.stringify(backup);
+        const text = serializeBackup(backup);
         const validated = await validateBackupText(text);
         return {
           repositories: validated.summary.repositories,

@@ -10,7 +10,13 @@ import {
   applyTheme,
 } from './lib/storage.js';
 import { historyStats } from './lib/history.js';
-import { createBackup, createCsv, validateBackupText } from './lib/transfer.js';
+import {
+  assertBackupSize,
+  createBackup,
+  createCsv,
+  serializeBackup,
+  validateBackupText,
+} from './lib/transfer.js';
 import { fetchAccount } from './lib/github.js';
 import { scrapeAccount } from './lib/scrape.js';
 
@@ -421,8 +427,22 @@ $('backupJson').addEventListener('click', async () => {
       ...(await readPortableState()),
       ...exportSelection(),
     });
+    let text;
+    try {
+      text = serializeBackup(document);
+    } catch (error) {
+      if (error?.code === 'BACKUP_TOO_LARGE' && error.historyIncluded) {
+        $('includeHistoryExport').checked = false;
+        $('includeHistoryExport').focus();
+        throw new Error(
+          `${error.message} Trend history was deselected; choose Download JSON ` +
+            'again to create a restorable backup without it.',
+        );
+      }
+      throw error;
+    }
     downloadText(
-      `${JSON.stringify(document, null, 2)}\n`,
+      text,
       `StarBoard-backup-${exportDate()}.json`,
       'application/json',
     );
@@ -457,6 +477,9 @@ $('importFile').addEventListener('change', async () => {
   const file = $('importFile').files?.[0];
   if (!file) return;
   try {
+    // File.size is already bytes, so reject before file.text() allocates an
+    // attacker-controlled document that the validator will refuse anyway.
+    assertBackupSize(file.size);
     const preview = await validateBackupText(await file.text());
     pendingImportRecords = preview.records;
     const summary = preview.summary;
