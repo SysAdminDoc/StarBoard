@@ -137,6 +137,7 @@ let state = {
   trendRange: 'baseline',
 };
 let refreshing = false;
+let bootReady = false;
 let viewEditorMode = null;
 // Which repositories the list currently shows, so a re-render can tell an
 // unchanged result set from a genuinely different one.
@@ -1096,11 +1097,28 @@ async function doRefresh(rebase = false) {
   el.refresh.setAttribute('aria-label', 'Refreshing repositories');
   syncControls();
   try {
-    const res = await chrome.runtime.sendMessage({ type: 'refresh', rebase });
-    state.cache = res?.cache ?? (await getCache());
-    state.baseline = res?.baseline ?? (await getBaseline());
-    state.history = res?.history ?? (await getHistory());
-    state.notificationState = await getNotificationState();
+    let res;
+    try {
+      res = await chrome.runtime.sendMessage({ type: 'refresh', rebase });
+    } catch (error) {
+      state.cache =
+        (await getCache().catch(() => null)) ||
+        state.cache ||
+        { error: { message: error.message || 'The background refresh did not respond.' } };
+      render();
+      announce(`Refresh failed. ${error.message || 'The background refresh did not respond.'}`);
+      return;
+    }
+
+    // The response is the authoritative outcome. Optional local reads and the
+    // undo-status probe must not turn a committed success into a reported
+    // failure if the MV3 worker disappears immediately after responding.
+    state.cache = res?.cache ?? (await getCache().catch(() => state.cache));
+    state.baseline = res?.baseline ?? (await getBaseline().catch(() => state.baseline));
+    state.history = await getHistory().catch(() => state.history);
+    state.notificationState = await getNotificationState().catch(
+      () => state.notificationState,
+    );
     if (res && !res.ok && !state.cache) {
       state.cache = { error: res.error };
     }
@@ -1111,16 +1129,10 @@ async function doRefresh(rebase = false) {
           ? `Comparison baseline reset for ${res.cache.repos.length} repositories.`
           : `Refresh complete. ${res.cache.repos.length} repositories loaded.`,
       );
-      if (rebase) await updateUndoAvailability();
+      if (rebase) updateUndoAvailability().catch(() => {});
     } else {
       announce(`Refresh failed. ${res?.error?.message || 'The cached snapshot is still shown.'}`);
     }
-  } catch (error) {
-    state.cache = (await getCache()) || {
-      error: { message: error.message || 'The background refresh did not respond.' },
-    };
-    render();
-    announce(`Refresh failed. ${error.message || 'The background refresh did not respond.'}`);
   } finally {
     refreshing = false;
     el.refresh.classList.remove('spinning');
@@ -1436,31 +1448,42 @@ el.acknowledgeAlerts.addEventListener('click', async () => {
   }
 });
 el.undo.addEventListener('click', async () => {
-  const response = await chrome.runtime.sendMessage({ type: 'undo' });
-  if (!response?.ok) {
+  el.undo.disabled = true;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'undo' });
+    if (!response?.ok) {
+      el.undo.hidden = true;
+      announce(response?.error?.message || 'Undo is no longer available.');
+      return;
+    }
+    state.cache = response.restored.cache;
+    state.baseline = response.restored.baseline;
+    state.history = response.restored.history || state.history;
+    state.notificationState = response.restored.notificationState || state.notificationState;
+    state.settings = response.restored.settings || state.settings;
+    state.portfolioViews =
+      response.restored.portfolioViews ||
+      (await getPortfolioViewState().catch(() => state.portfolioViews));
+    applyTheme(state.settings.theme);
+    render();
     el.undo.hidden = true;
-    announce(response?.error?.message || 'Undo is no longer available.');
-    return;
+    announce('Last data action undone.');
+  } catch (error) {
+    announce(`Could not undo the last data action. ${sentence(error.message)}`);
+  } finally {
+    el.undo.disabled = false;
   }
-  state.cache = response.restored.cache;
-  state.baseline = response.restored.baseline;
-  state.history = response.restored.history || state.history;
-  state.notificationState = response.restored.notificationState || state.notificationState;
-  state.settings = response.restored.settings || state.settings;
-  state.portfolioViews =
-    response.restored.portfolioViews || (await getPortfolioViewState());
-  render();
-  el.undo.hidden = true;
-  announce('Last data action undone.');
 });
 
 // Connectivity is a render input, not an error: dropping offline swaps the
 // banner without discarding the cached snapshot, and reconnecting refreshes.
 window.addEventListener('offline', () => {
+  if (!bootReady) return;
   renderBanner();
   announce('You are offline. StarBoard is showing its stored snapshot.');
 });
 window.addEventListener('online', () => {
+  if (!bootReady) return;
   renderBanner();
   announce('Back online. Refreshing.');
   doRefresh();
@@ -1519,6 +1542,7 @@ window.addEventListener('online', () => {
   el.trendRange.value = state.trendRange;
 
   render();
+  bootReady = true;
   // Undo availability is a convenience. A worker that is still starting up
   // must never prevent the refresh below from running.
   await updateUndoAvailability().catch(() => {});

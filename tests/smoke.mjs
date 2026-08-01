@@ -806,6 +806,8 @@ async function main() {
     });
     const downgradePopup = await ctx.newPage();
     captureErrors(downgradePopup, 'downgrade popup');
+    const downgradeErrors = [];
+    downgradePopup.on('pageerror', (error) => downgradeErrors.push(error.message));
     let downgradeResult;
     try {
       await downgradePopup.goto(`chrome-extension://${extId}/src/popup.html`);
@@ -813,11 +815,26 @@ async function main() {
         () => document.querySelector('.empty h3')?.textContent === 'Newer StarBoard data detected',
         { timeout: 10000 },
       );
-      downgradeResult = await downgradePopup.evaluate(async () => ({
-        heading: document.querySelector('.empty h3')?.textContent || '',
-        banner: document.querySelector('#banner')?.textContent || '',
-        stored: (await chrome.storage.local.get('settings')).settings,
-      }));
+      downgradeResult = await downgradePopup.evaluate(async () => {
+        const nativeSendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+        let runtimeMessages = 0;
+        chrome.runtime.sendMessage = (...args) => {
+          runtimeMessages += 1;
+          return nativeSendMessage(...args);
+        };
+        window.dispatchEvent(new Event('offline'));
+        window.dispatchEvent(new Event('online'));
+        await new Promise((resolveFrame) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolveFrame)),
+        );
+        return {
+          heading: document.querySelector('.empty h3')?.textContent || '',
+          banner: document.querySelector('#banner')?.textContent || '',
+          bannerHidden: document.querySelector('#banner')?.hidden,
+          runtimeMessages,
+          stored: (await chrome.storage.local.get('settings')).settings,
+        };
+      });
     } catch (error) {
       downgradeResult = { error: error.message };
     } finally {
@@ -833,6 +850,15 @@ async function main() {
         /storage schema v\d+.*left untouched/i.test(downgradeResult.banner) &&
         isDeepStrictEqual(downgradeResult.stored, versionProbe.future),
       JSON.stringify(downgradeResult),
+    );
+    check(
+      'connectivity events cannot erase an unrecovered boot error',
+      downgradeResult.heading === 'Newer StarBoard data detected' &&
+        /storage schema v\d+.*left untouched/i.test(downgradeResult.banner || '') &&
+        downgradeResult.bannerHidden === false &&
+        downgradeResult.runtimeMessages === 0 &&
+        downgradeErrors.length === 0,
+      JSON.stringify({ ...downgradeResult, pageErrors: downgradeErrors }),
     );
 
     await firstRunOptions.evaluate(async () => {
@@ -984,6 +1010,74 @@ async function main() {
         alertInbox.afterDismiss?.dropped === 0,
       JSON.stringify(alertInbox),
     );
+
+    await firstRunOptions.evaluate(async () => {
+      const { createUndoSnapshot, setSettings, STORAGE_KEYS } = await import(
+        './lib/storage.js'
+      );
+      await setSettings({ theme: 'dark' });
+      await createUndoSnapshot('theme-smoke', [STORAGE_KEYS.settings]);
+      await setSettings({ theme: 'light' });
+    });
+    const undoPopup = await ctx.newPage();
+    captureErrors(undoPopup, 'undo popup');
+    await undoPopup.goto(`chrome-extension://${extId}/src/popup.html`);
+    await undoPopup.waitForFunction(
+      () => document.documentElement.dataset.theme === 'light' && !document.querySelector('#undo')?.hidden,
+    );
+    await undoPopup.click('#undo');
+    await undoPopup.waitForFunction(
+      () =>
+        document.documentElement.dataset.theme === 'dark' &&
+        document.querySelector('#undo')?.hidden,
+    );
+    const restoredTheme = await undoPopup.evaluate(async () => {
+      const { getSettings } = await import('./lib/storage.js');
+      return (await getSettings()).theme;
+    });
+    check(
+      'undo applies a restored theme immediately',
+      (await undoPopup.getAttribute('html', 'data-theme')) === 'dark' &&
+        restoredTheme === 'dark',
+      restoredTheme,
+    );
+
+    await undoPopup.evaluate(async () => {
+      const { createUndoSnapshot, STORAGE_KEYS } = await import('./lib/storage.js');
+      await createUndoSnapshot('undo-failure-smoke', [STORAGE_KEYS.settings]);
+      const nativeSendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+      window.__restoreUndoSendMessage = () => {
+        chrome.runtime.sendMessage = nativeSendMessage;
+        delete window.__restoreUndoSendMessage;
+      };
+      chrome.runtime.sendMessage = (message) => {
+        if (message?.type === 'undo') {
+          return Promise.reject(new Error('The message port closed before a response was received.'));
+        }
+        return nativeSendMessage(message);
+      };
+    });
+    await undoPopup.waitForSelector('#undo:not([hidden])');
+    await undoPopup.click('#undo');
+    await undoPopup.waitForFunction(() =>
+      /could not undo.*message port closed/i.test(
+        document.querySelector('#live-status')?.textContent || '',
+      ),
+    );
+    const failedUndo = await undoPopup.$eval('#undo', (button) => ({
+      hidden: button.hidden,
+      disabled: button.disabled,
+    }));
+    check(
+      'a closed worker port reports undo failure and leaves retry available',
+      failedUndo.hidden === false && failedUndo.disabled === false,
+      JSON.stringify(failedUndo),
+    );
+    await undoPopup.evaluate(async () => {
+      window.__restoreUndoSendMessage?.();
+      await chrome.storage.local.remove('starboardUndo');
+    });
+    await undoPopup.close();
 
     await firstRunOptions.check('#includeHistoryExport');
     await firstRunOptions.evaluate(() => {
@@ -1430,11 +1524,104 @@ async function main() {
         JSON.stringify(afterSwitch.baselineNames),
       );
 
-      await worker.evaluate(() => {
-        if (globalThis.__starboardOriginalFetch) {
-          globalThis.fetch = globalThis.__starboardOriginalFetch;
+      const baselineBeforeWorkerStop = await popup.evaluate(async () => {
+        const { getBaseline } = await import('./lib/storage.js');
+        return (await getBaseline()).at;
+      });
+      const rebaseCdp = await ctx.newCDPSession(popup);
+      const workerUrl = worker.url();
+      await rebaseCdp.send('ServiceWorker.enable');
+      await popup.exposeFunction('__stopWorkerAfterRebaseResponse', async () => {
+        const stopped = new Promise((resolveStop) => {
+          const timeout = setTimeout(() => resolveStop(false), 5000);
+          const onUpdate = ({ versions }) => {
+            if (
+              versions.some(
+                (version) =>
+                  version.scriptURL === workerUrl && version.runningStatus === 'stopped',
+              )
+            ) {
+              clearTimeout(timeout);
+              rebaseCdp.off('ServiceWorker.workerVersionUpdated', onUpdate);
+              resolveStop(true);
+            }
+          };
+          rebaseCdp.on('ServiceWorker.workerVersionUpdated', onUpdate);
+        });
+        await rebaseCdp.send('ServiceWorker.stopAllWorkers');
+        return stopped;
+      });
+      const rebasePortPatch = await popup.evaluate(() => {
+        try {
+          const nativeSendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+          let closeNextUndoPort = false;
+          window.__restoreRebaseSendMessage = () => {
+            chrome.runtime.sendMessage = nativeSendMessage;
+            delete window.__restoreRebaseSendMessage;
+          };
+          chrome.runtime.sendMessage = async (message) => {
+            if (message?.type === 'undo-status' && closeNextUndoPort) {
+              closeNextUndoPort = false;
+              throw new Error('The message port closed before a response was received.');
+            }
+            const response = await nativeSendMessage(message);
+            if (message?.type === 'refresh' && message.rebase) {
+              window.__rebaseWorkerStopped = await window.__stopWorkerAfterRebaseResponse();
+              closeNextUndoPort = true;
+            }
+            return response;
+          };
+          return true;
+        } catch {
+          return false;
         }
       });
+      await popup.click('#rebase');
+      await popup.waitForFunction(
+        () =>
+          document.querySelector('#rebase')?.classList.contains('confirming') &&
+          /resetting the baseline changes/i.test(
+            document.querySelector('#live-status')?.textContent || '',
+          ),
+      );
+      await popup.click('#rebase');
+      await popup.waitForFunction(
+        () => {
+          const status = document.querySelector('#live-status')?.textContent || '';
+          return (
+            window.__rebaseWorkerStopped === true &&
+            document.querySelector('#refresh')?.disabled === false &&
+            /comparison baseline reset/i.test(status) &&
+            !/refresh failed/i.test(status)
+          );
+        },
+        undefined,
+        { timeout: 15000 },
+      );
+      const rebaseAfterWorkerStop = await popup.evaluate(async () => {
+        const { getBaseline } = await import('./lib/storage.js');
+        return {
+          baselineAt: (await getBaseline()).at,
+          stopped: window.__rebaseWorkerStopped,
+          status: document.querySelector('#live-status')?.textContent || '',
+          refreshing: document.querySelector('#refresh')?.disabled,
+        };
+      });
+      check(
+        'a worker port closing after rebase cannot replace the committed success message',
+        rebasePortPatch &&
+          rebaseAfterWorkerStop.stopped === true &&
+          rebaseAfterWorkerStop.baselineAt !== baselineBeforeWorkerStop &&
+          /comparison baseline reset/i.test(rebaseAfterWorkerStop.status) &&
+          !/refresh failed/i.test(rebaseAfterWorkerStop.status) &&
+          rebaseAfterWorkerStop.refreshing === false,
+        JSON.stringify(rebaseAfterWorkerStop),
+      );
+      await popup.evaluate(async () => {
+        window.__restoreRebaseSendMessage?.();
+        await chrome.runtime.sendMessage({ type: 'undo-status' });
+      });
+      rebaseCdp.detach().catch(() => {});
       await ctx.unroute('**');
 
       const failed = checks.filter((check) => !check.pass);

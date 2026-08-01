@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Popup error handling now survives a Manifest V3 worker restart. A completed
+  refresh or baseline reset remains a success if a follow-up port closes,
+  boot failures survive connectivity events, and Undo reports transport
+  failures without losing retry while applying a restored theme immediately.
 - Grouped OS notifications no longer discard every detail after the first.
   All generated alerts remain readable in a bounded popup inbox until explicit
   dismissal, worker restarts do not repeat already-notified groups, and a
