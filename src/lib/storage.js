@@ -424,10 +424,16 @@ export function migrateRecord(key, raw, now = Date.now()) {
     generation,
     savedAt: wrapped && Number.isFinite(raw.savedAt) ? raw.savedAt : now,
   });
+  // Deciding "did migration change anything?" by serializing the record twice
+  // costs two full passes over a history that can reach 2 MiB, on every read.
+  // A wrapped record already at the current schema ran no migration step, and
+  // only cache and settings are rewritten afterwards, so for every other key
+  // the answer is structurally no.
+  const rewritable = key === STORAGE_KEYS.cache || key === STORAGE_KEYS.settings;
   const changed =
     !wrapped ||
     raw.schemaVersion !== SCHEMA_VERSION ||
-    JSON.stringify(raw.data) !== JSON.stringify(envelope.data);
+    (rewritable && JSON.stringify(raw.data) !== JSON.stringify(envelope.data));
   return { envelope, changed };
 }
 
@@ -644,7 +650,12 @@ async function commit(writes) {
   }
 }
 
-async function writeRecords(records, generation = null) {
+/**
+ * `validated` is set only by the migration write in `readRecord`, where
+ * `migrateRecord` has already run the same check against the same value.
+ * Validating a 365-day history twice per read is pure duplicated work.
+ */
+async function writeRecords(records, generation = null, { validated = false } = {}) {
   return storageLocked(async () => {
     const keys = Object.keys(records);
     const recovery = await readRecoveryState(keys);
@@ -653,7 +664,7 @@ async function writeRecords(records, generation = null) {
       // A missing or older primary can still have a newer recovery envelope.
       // Replacing that only surviving copy would be the same downgrade loss.
       rejectFutureSchema(key, recovery.records.get(key));
-      validateRecord(key, value);
+      if (!validated) validateRecord(key, value);
       const wrapped = makeEnvelope(value, { generation: generation ?? value.generation ?? null });
       writes[key] = wrapped;
       if (!LAST_KNOWN_GOOD_EXCLUDED.has(key)) writes[recoveryStorageKey(key)] = wrapped;
@@ -711,7 +722,7 @@ async function readRecord(key) {
   }
   if (migrated.changed) {
     try {
-      await writeRecords({ [key]: migrated.envelope.data });
+      await writeRecords({ [key]: migrated.envelope.data }, null, { validated: true });
     } catch (error) {
       if (isVersionError(error)) throw error;
       const restored = await restoreRecord(
@@ -722,7 +733,10 @@ async function readRecord(key) {
       return restored.value;
     }
   }
-  return copy(migrated.envelope.data);
+  // `migrateRecord` already copied the value out of the raw record, and
+  // `AREA.get` handed back a fresh structured clone before that. A third pass
+  // here only re-serialized the whole record for the caller.
+  return migrated.envelope.data;
 }
 
 /** Apply a theme to the current document. Pages default to dark markup-side. */

@@ -1231,6 +1231,118 @@ await test('recovery writes scale with the changed record instead of the whole s
   console.log(`INFO  changed-record write ${actualBytes} bytes vs legacy ${legacyBytes} bytes`);
 });
 
+await test('reading a settled record serializes it once, not three times', async () => {
+  replaceAreaValues(area, {});
+  // A year of a real portfolio: the record whose repeated serialization cost
+  // the most. Reads happen on every popup open; refreshes are twelve-hourly.
+  const repos = Array.from({ length: 200 }, (_, index) => [
+    `name:octocat/repository-with-a-realistic-name-${index}`,
+    `octocat/repository-with-a-realistic-name-${index}`,
+    index % 3 === 0 ? 1 : 0,
+  ]);
+  const snapshots = Array.from({ length: 365 }, (_, day) => ({
+    day: new Date(Date.UTC(2025, 0, 1) + day * 86400000).toISOString().slice(0, 10),
+    at: Date.UTC(2025, 0, 1) + day * 86400000,
+    source: 'api',
+    confidence: 'exact',
+    stars: repos.map((_entry, index) => index + day),
+    forks: repos.map((_entry, index) => (index + day) % 11),
+    approx: [],
+  }));
+  const history = { formatVersion: 3, repos, snapshots };
+  await storage.setHistory(history);
+
+  // The memory area emulates Chrome's structured clone with JSON, so its own
+  // copy has to be excluded — the real chrome.storage does not serialize here.
+  const nativeGet = area.get.bind(area);
+  let inStorageStub = false;
+  area.get = (...args) => {
+    inStorageStub = true;
+    try {
+      return nativeGet(...args);
+    } finally {
+      inStorageStub = false;
+    }
+  };
+  const nativeStringify = JSON.stringify;
+  let serializedBytes = 0;
+  let serializedCalls = 0;
+  JSON.stringify = function counted(value, ...rest) {
+    const text = nativeStringify.call(JSON, value, ...rest);
+    if (!inStorageStub && typeof text === 'string' && text.length > 100_000) {
+      serializedCalls += 1;
+      serializedBytes += text.length;
+    }
+    return text;
+  };
+  let read;
+  try {
+    read = await storage.getHistory();
+  } finally {
+    JSON.stringify = nativeStringify;
+    area.get = nativeGet;
+  }
+
+  const recordBytes = nativeStringify(history).length;
+  assert.equal(read.snapshots.length, 365);
+  assert.equal(read.repos.length, 200);
+  // One pass belongs to `copy()` inside migrateRecord. The change-detection
+  // comparison and the defensive re-copy on return were the other two.
+  assert.ok(
+    serializedCalls <= 1,
+    `a settled read serialized the record ${serializedCalls} times`,
+  );
+  console.log(
+    `INFO  ${(recordBytes / 1024).toFixed(0)} KB history read serialized ` +
+      `${(serializedBytes / 1024).toFixed(0)} KB (was ~${((recordBytes * 3) / 1024).toFixed(0)} KB)`,
+  );
+});
+
+await test('a migrating read validates the record it writes back exactly once', async () => {
+  replaceAreaValues(area, {});
+  const legacyHistory = {
+    schemaVersion: storage.SCHEMA_VERSION - 1,
+    savedAt: 0,
+    generation: null,
+    data: {
+      formatVersion: 2,
+      repos: [['7', 'octocat/one', 0]],
+      snapshots: [
+        {
+          day: '2026-01-01',
+          at: Date.UTC(2026, 0, 1),
+          source: 'api',
+          confidence: 'exact',
+          stars: [5],
+          forks: [1],
+          approx: [],
+        },
+      ],
+    },
+  };
+  replaceAreaValues(area, { [storage.STORAGE_KEYS.history]: legacyHistory });
+
+  const restored = await storage.getHistory();
+  assert.equal(restored.formatVersion, 3);
+  assert.equal(restored.repos[0][0], 'name:octocat/one');
+  // The re-keyed record must be persisted: skipping the second validation must
+  // not skip the write itself. History has no recovery copy by design.
+  assert.equal(area.values[storage.STORAGE_KEYS.history].data.formatVersion, 3);
+  assert.equal(area.values[storage.STORAGE_KEYS.history].schemaVersion, storage.SCHEMA_VERSION);
+  // A settled read must not write at all — the change comparison it used to
+  // run is exactly what this now decides structurally.
+  area.writeBytes.length = 0;
+  await storage.getHistory();
+  assert.equal(area.writeBytes.length, 0, 'a settled read must not write');
+
+  // An invalid record still has to be caught: the skipped validation is only
+  // the duplicate one, not the gate.
+  replaceAreaValues(area, {});
+  await assert.rejects(
+    storage.setHistory({ formatVersion: 3, repos: [['name:a', 'a', 0]], snapshots: 'nope' }),
+  );
+});
+
 await test('website count parsing covers full, abbreviated, and malformed input', async () => {
   const { parseCount } = await import('../src/lib/scrape.js');
   // What the repositories tab actually renders (verified 2026-07-31): full
