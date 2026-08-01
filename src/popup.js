@@ -583,6 +583,14 @@ function renderBanner() {
       });
       return;
     }
+    if (err.code === 'STORAGE_QUOTA_EXCEEDED') {
+      // Retrying cannot help; the user has to free space.
+      showBanner(`${sentence(err.message)}${suffix}`, {
+        label: 'Open settings',
+        onClick: () => chrome.runtime.openOptionsPage(),
+      });
+      return;
+    }
     if (err.rateLimited && err.resetAt) {
       // The service worker already scheduled a retry alarm for resetAt; this
       // only tells the user when that will happen.
@@ -874,6 +882,8 @@ function debounce(fn, ms) {
 
 let portfolioUpdateQueue = Promise.resolve();
 let pendingPortfolioUpdates = 0;
+// `data-portfolio-state` / `data-portfolio-error` are settle signals the
+// browser suite synchronises on. Keep writing them.
 document.body.dataset.portfolioState = 'saved';
 
 function queuePortfolioUpdate(work) {
@@ -883,8 +893,11 @@ function queuePortfolioUpdate(work) {
   syncControls();
   const result = portfolioUpdateQueue.then(work, work);
   portfolioUpdateQueue = result.catch((error) => {
-    document.body.dataset.portfolioError =
-      error?.message || 'Portfolio update failed.';
+    const message = error?.message || 'Portfolio update failed.';
+    document.body.dataset.portfolioError = message;
+    // The attribute alone told the user nothing; a saved view or filter that
+    // failed to persist has to be visible.
+    announce(`Could not save that view change. ${sentence(message)}`);
   });
   return result.finally(() => {
     pendingPortfolioUpdates -= 1;
@@ -1042,14 +1055,18 @@ el.trendRange.addEventListener('change', () => {
 });
 el.acknowledgeLifecycle.addEventListener('click', async () => {
   const ids = (state.cache?.lifecycleEvents || []).map((event) => event.id);
-  const response = await chrome.runtime.sendMessage({
-    type: 'acknowledge-lifecycle',
-    ids,
-  });
-  if (response?.ok) {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'acknowledge-lifecycle',
+      ids,
+    });
+    if (!response?.ok) throw new Error(response?.error?.message || 'StarBoard could not update.');
     state.cache = response.cache;
     render();
     announce('Repository changes acknowledged.');
+  } catch (error) {
+    // Silence here left the button looking broken with no explanation.
+    announce(`Could not acknowledge those changes. ${sentence(error.message)}`);
   }
 });
 el.undo.addEventListener('click', async () => {
@@ -1085,25 +1102,45 @@ window.addEventListener('online', () => {
 /* ---------- boot ---------- */
 
 (async function init() {
-  [
-    state.settings,
-    state.cache,
-    state.baseline,
-    state.history,
-    state.portfolioViews,
-  ] = await Promise.all([
-    getSettings(),
-    getCache(),
-    getBaseline(),
-    getHistory(),
-    getPortfolioViewState(),
-  ]);
+  try {
+    [
+      state.settings,
+      state.cache,
+      state.baseline,
+      state.history,
+      state.portfolioViews,
+    ] = await Promise.all([
+      getSettings(),
+      getCache(),
+      getBaseline(),
+      getHistory(),
+      getPortfolioViewState(),
+    ]);
+  } catch (error) {
+    // Without settings there is nothing to render. Say so rather than leaving
+    // the static "Loading…" markup on screen with every control disabled.
+    applyTheme('dark');
+    el.login.textContent = 'StarBoard';
+    el.subline.textContent = 'Could not read local data';
+    showBanner(
+      `StarBoard could not read its local data. ${sentence(error?.message || '')}`.trim(),
+      { label: 'Reload', onClick: () => location.reload() },
+    );
+    renderEmpty(
+      'Local data could not be read',
+      'Your stored snapshot may be corrupt. Reload to retry, or clear StarBoard data from Settings.',
+      { label: 'Open settings', onClick: () => chrome.runtime.openOptionsPage() },
+    );
+    return;
+  }
 
   applyTheme(state.settings.theme);
   el.trendRange.value = state.trendRange;
 
   render();
-  await updateUndoAvailability();
+  // Undo availability is a convenience. A worker that is still starting up
+  // must never prevent the refresh below from running.
+  await updateUndoAvailability().catch(() => {});
   if (!el.search.disabled) el.search.focus();
 
   // Website reads are intentionally conservative: opening the popup never

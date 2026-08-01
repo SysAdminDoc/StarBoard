@@ -10,27 +10,63 @@ function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
-function memoryArea(initial = {}) {
+/**
+ * Stub of a `chrome.storage` area. `quotaBytes` enforces the real
+ * QUOTA_BYTES behaviour — Chrome rejects the whole `set` and leaves existing
+ * values untouched — which is the only way to exercise the out-of-space path.
+ * Chrome bills the JSON serialization of each value plus its key length.
+ */
+function memoryArea(initial = {}, { quotaBytes = Infinity } = {}) {
   const values = clone(initial);
-  return {
+  const sizeOf = (bag) =>
+    Object.entries(bag).reduce(
+      (total, [key, value]) => total + key.length + Buffer.byteLength(JSON.stringify(value)),
+      0,
+    );
+  const area = {
     values,
+    // Mutable so a test can narrow the budget around one write.
+    quotaBytes,
     async get(keys) {
       if (keys == null) return clone(values);
+      // Chrome also accepts an object of key -> default.
+      if (keys && !Array.isArray(keys) && typeof keys === 'object') {
+        return Object.fromEntries(
+          Object.entries(keys).map(([name, fallback]) => [
+            name,
+            Object.hasOwn(values, name) ? clone(values[name]) : clone(fallback),
+          ]),
+        );
+      }
       const names = Array.isArray(keys) ? keys : [keys];
       return Object.fromEntries(
         names.filter((name) => Object.hasOwn(values, name)).map((name) => [name, clone(values[name])]),
       );
     },
     async set(next) {
+      const candidate = { ...values, ...clone(next) };
+      if (sizeOf(candidate) > area.quotaBytes) {
+        throw new Error('QUOTA_BYTES quota exceeded');
+      }
       Object.assign(values, clone(next));
     },
     async remove(keys) {
       for (const key of Array.isArray(keys) ? keys : [keys]) delete values[key];
     },
-    async getBytesInUse() {
-      return Buffer.byteLength(JSON.stringify(values));
+    async clear() {
+      for (const key of Object.keys(values)) delete values[key];
+    },
+    async getBytesInUse(keys) {
+      if (keys == null) return sizeOf(values);
+      const names = Array.isArray(keys) ? keys : [keys];
+      return sizeOf(
+        Object.fromEntries(
+          names.filter((name) => Object.hasOwn(values, name)).map((name) => [name, values[name]]),
+        ),
+      );
     },
   };
+  return area;
 }
 
 const area = memoryArea();
@@ -344,6 +380,66 @@ await test('REST adapter follows Link pagination and reuses ETag snapshots', asy
   assert.deepEqual(second.repos, first.repos);
   assert.equal(second.pagesFetched, 2);
   assert.deepEqual(conditionalHeaders, ['"profile"', '"page-1"', '"page-2"']);
+});
+
+await test('an out-of-space write fails loudly and leaves stored data intact', async () => {
+  Object.keys(area.values).forEach((key) => delete area.values[key]);
+  Object.keys(sessionArea.values).forEach((key) => delete sessionArea.values[key]);
+  const saved = await storage.setSettings({ username: 'octocat', dataSource: 'api' });
+  const before = clone(area.values);
+
+  // Narrow the budget to just under what the next write needs.
+  area.quotaBytes = await area.getBytesInUse(null);
+  await assert.rejects(
+    storage.setSettings({ username: 'a-much-longer-username-than-before' }),
+    (error) => {
+      assert.equal(error.code, 'STORAGE_QUOTA_EXCEEDED');
+      assert.equal(error.name, 'StorageQuotaError');
+      // The message must name a consumer and a remedy, not leak "QUOTA_BYTES".
+      assert.match(error.message, /out of local storage/i);
+      assert.match(error.message, /prune trend history/i);
+      assert.doesNotMatch(error.message, /QUOTA_BYTES/);
+      return true;
+    },
+  );
+  area.quotaBytes = Infinity;
+
+  // Chrome rejects the whole set, so nothing may have changed.
+  assert.deepEqual(area.values, before);
+  assert.equal((await storage.getSettings()).username, saved.username);
+});
+
+await test('history is not mirrored into the recovery copy', async () => {
+  Object.keys(area.values).forEach((key) => delete area.values[key]);
+  Object.keys(sessionArea.values).forEach((key) => delete sessionArea.values[key]);
+  await storage.setSettings({ username: 'octocat', dataSource: 'api' });
+  await storage.setHistory({
+    formatVersion: 1,
+    snapshots: [
+      {
+        day: '2026-07-30',
+        at: Date.parse('2026-07-30T00:00:00.000Z'),
+        source: 'api',
+        confidence: 'exact',
+        repos: [
+          {
+            key: 'id:1',
+            fullName: 'octocat/a',
+            stars: 5,
+            forks: 1,
+            private: false,
+            approximate: false,
+          },
+        ],
+      },
+    ],
+  });
+  assert.ok(area.values.history, 'history is stored');
+  // The largest record must not be duplicated into the shadow copy: doing so
+  // doubled the biggest consumer against a 5 MiB budget on Chrome <= 113.
+  const backup = area.values.starboardLastKnownGood.data;
+  assert.equal(backup.history, undefined);
+  assert.ok(backup.settings, 'settings are still recoverable');
 });
 
 await test('website count parsing covers full, abbreviated, and malformed input', async () => {

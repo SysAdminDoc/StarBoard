@@ -315,7 +315,75 @@ async function quarantine(key, raw, reason) {
       detectedSchema: Number.isInteger(raw?.schemaVersion) ? raw.schemaVersion : null,
     },
   ];
-  await AREA.set({ [STORAGE_KEYS.quarantine]: makeEnvelope({ records: next }) });
+  await commit({ [STORAGE_KEYS.quarantine]: makeEnvelope({ records: next }) });
+}
+
+/**
+ * History is by far the largest record and is the one thing that does not need
+ * a shadow copy: it is append-only, derived from refreshes, and losing a day
+ * degrades a trend rather than breaking the extension. Mirroring it doubled
+ * the single biggest consumer against a budget that is only 5 MiB on the
+ * Chrome versions this extension still supports.
+ */
+const LAST_KNOWN_GOOD_EXCLUDED = new Set([STORAGE_KEYS.history]);
+
+const CONSUMER_LABELS = Object.freeze({
+  [STORAGE_KEYS.history]: 'Trend history',
+  [STORAGE_KEYS.cache]: 'The repository snapshot',
+  [STORAGE_KEYS.baseline]: 'The comparison baseline',
+  [STORAGE_KEYS.lastKnownGood]: 'The recovery copy',
+  [STORAGE_KEYS.undo]: 'The undo snapshot',
+  [STORAGE_KEYS.portfolioViews]: 'Saved views',
+  [STORAGE_KEYS.quarantine]: 'The quarantine log',
+});
+
+export class StorageQuotaError extends Error {
+  constructor(message, { largest = null, bytes = 0 } = {}) {
+    super(message);
+    this.name = 'StorageQuotaError';
+    this.code = 'STORAGE_QUOTA_EXCEEDED';
+    this.largest = largest;
+    this.bytes = bytes;
+  }
+}
+
+function isQuotaError(error) {
+  return /quota/i.test(String(error?.message || error || ''));
+}
+
+async function largestConsumer() {
+  const keys = Object.values(STORAGE_KEYS);
+  const sizes = await Promise.all(
+    keys.map(async (key) => {
+      try {
+        return [key, await AREA.getBytesInUse(key)];
+      } catch {
+        return [key, 0];
+      }
+    }),
+  );
+  sizes.sort((first, second) => second[1] - first[1]);
+  return sizes[0] || [null, 0];
+}
+
+/**
+ * Write through one place so a full disk produces an explanation the user can
+ * act on rather than a bare "QUOTA_BYTES quota exceeded" surfacing as a
+ * generic refresh failure.
+ */
+async function commit(writes) {
+  try {
+    await AREA.set(writes);
+  } catch (error) {
+    if (!isQuotaError(error)) throw error;
+    const [key, bytes] = await largestConsumer();
+    const label = CONSUMER_LABELS[key] || 'Stored data';
+    const size = bytes ? ` (${Math.round(bytes / 1024)} KB)` : '';
+    throw new StorageQuotaError(
+      `StarBoard is out of local storage, so nothing was changed. ${label}${size} is using the most space — prune trend history in Settings to free some.`,
+      { largest: key, bytes },
+    );
+  }
 }
 
 async function writeRecords(records, generation = null) {
@@ -326,10 +394,11 @@ async function writeRecords(records, generation = null) {
     validateRecord(key, value);
     const wrapped = makeEnvelope(value, { generation: generation ?? value.generation ?? null });
     writes[key] = wrapped;
-    nextBackup[key] = wrapped;
+    if (!LAST_KNOWN_GOOD_EXCLUDED.has(key)) nextBackup[key] = wrapped;
   }
+  for (const key of LAST_KNOWN_GOOD_EXCLUDED) delete nextBackup[key];
   writes[STORAGE_KEYS.lastKnownGood] = makeEnvelope(nextBackup, { generation });
-  await AREA.set(writes);
+  await commit(writes);
 }
 
 async function restoreRecord(key, raw, reason) {
@@ -339,7 +408,7 @@ async function restoreRecord(key, raw, reason) {
   if (candidate) {
     try {
       const { envelope } = migrateRecord(key, candidate);
-      await AREA.set({ [key]: envelope });
+      await commit({ [key]: envelope });
       return copy(envelope.data);
     } catch {
       // The backup is also unusable; fall through to a clean record.
@@ -710,7 +779,7 @@ export async function clearPortfolioData() {
     delete backup[STORAGE_KEYS.baseline];
     delete backup[STORAGE_KEYS.history];
     delete backup[STORAGE_KEYS.notificationState];
-    await AREA.set({
+    await commit({
       [STORAGE_KEYS.lastKnownGood]: makeEnvelope(backup),
     });
     await AREA.remove([
@@ -726,7 +795,7 @@ async function saveUndoSnapshotInternal(scope, keys) {
   const snapshot = {};
   for (const key of keys) snapshot[key] = await readRecord(key);
   const createdAt = Date.now();
-  await AREA.set({
+  await commit({
     [STORAGE_KEYS.undo]: makeEnvelope({
       scope,
       createdAt,
@@ -805,7 +874,7 @@ export async function restoreUndoSnapshot() {
     if (removed.length) {
       const backup = await readLastKnownGood();
       removed.forEach((key) => delete backup[key]);
-      await AREA.set({
+      await commit({
         [STORAGE_KEYS.lastKnownGood]: makeEnvelope(backup),
       });
     }

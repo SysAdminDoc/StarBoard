@@ -4,6 +4,9 @@
 
 ### Added
 
+- Running out of local storage now fails with an explanation naming the largest
+  consumer and pointing at history pruning, instead of surfacing as a generic
+  refresh failure.
 - The popup reports when the browser is offline and refreshes automatically on
   reconnect, keeping the stored snapshot visible instead of showing a failure.
 - Errors are announced as alerts and carry a recovery action: a **Try again**
@@ -12,6 +15,16 @@
 
 ### Fixed
 
+- Trend history is no longer duplicated into the recovery copy on every write,
+  roughly halving peak local-storage use. History is append-only and derived,
+  so a shadow copy bought nothing against a budget that is only 5 MiB on
+  Chrome 113 and earlier.
+- The popup no longer freezes on its loading skeleton when local data cannot be
+  read, and a service worker that is still starting up can no longer stop the
+  popup from refreshing. Settings likewise report a failed load instead of
+  silently half-initialising.
+- "Acknowledge" and failed saved-view updates now report their errors instead
+  of failing silently.
 - Corrected a documented limitation that does not exist. The website source was
   described as reporting approximate counts above 1,000; the repositories tab
   in fact renders full numbers (`241,273`, not `241k`), so there is no

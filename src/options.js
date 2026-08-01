@@ -676,4 +676,11 @@ for (const key of INSTANT_SETTING_KEYS) {
   });
 }
 
-load().then(syncUndoControl);
+// A rejection here used to leave the page silently half-initialised: storage
+// figures and the badge preview stuck at defaults, and the undo control hidden
+// even when an undo was available.
+load()
+  .then(syncUndoControl)
+  .catch((error) => {
+    say(`Settings could not be loaded. ${error?.message || 'Reload the page to try again.'}`, 'err');
+  });

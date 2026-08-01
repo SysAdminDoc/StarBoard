@@ -594,16 +594,37 @@ async function main() {
       /offline/i.test(offlineBanner),
       offlineBanner,
     );
+    // Reconnecting legitimately triggers a refresh. Let it finish before
+    // touching storage — "emptyaccount" is a real GitHub login with no
+    // repositories, so that refresh succeeds and commits a fresh empty cache
+    // which would otherwise land after the cleanup below and look current.
     await ctx.setOffline(false);
+    await popup.waitForFunction(
+      () =>
+        !document.querySelector('#refresh').classList.contains('spinning') &&
+        document.body.dataset.portfolioState === 'saved',
+      { timeout: 45000 },
+    );
 
     // Restore the pristine first-run state the following assertions rely on.
+    // Order matters: neutralise settings first so no background refresh can be
+    // targeting the fake account, let it settle, and only then drop the cache —
+    // otherwise a refresh already in flight writes the stale profile back.
     await popup.evaluate(async () => {
       const { setSettings, DEFAULTS } = await import('./lib/storage.js');
-      await chrome.storage.local.remove('cache');
       await setSettings({ ...DEFAULTS });
     });
     await popup.reload();
     await popup.waitForSelector('.empty h3', { timeout: 10000 });
+    await popup.evaluate(async () => {
+      await chrome.storage.local.remove(['cache', 'baseline', 'history']);
+    });
+    await popup.reload();
+    await popup.waitForSelector('.empty h3', { timeout: 10000 });
+    await popup.waitForFunction(
+      async () => !(await chrome.storage.local.get('cache')).cache,
+      { timeout: 10000 },
+    );
 
     await popup.emulateMedia({ reducedMotion: 'reduce' });
     const reducedMotion = await popup.$eval('#refresh', (button) => {
@@ -742,11 +763,28 @@ async function main() {
     try {
       await popup.waitForSelector('.row', { timeout: 45000 });
     } catch (error) {
-      const diagnostic = await popup.evaluate(async () => ({
-        body: document.body.innerText,
-        storage: await chrome.storage.local.get(null),
-        lastError: chrome.runtime.lastError?.message || null,
-      }));
+      const diagnostic = await popup.evaluate(async () => {
+        // Never print a credential. This dump goes to CI logs and terminals.
+        const redact = (value) => {
+          if (Array.isArray(value)) return value.map(redact);
+          if (value && typeof value === 'object') {
+            return Object.fromEntries(
+              Object.entries(value).map(([key, inner]) => [
+                key,
+                /token|secret|authorization/i.test(key) && inner
+                  ? `[redacted ${String(inner).length} chars]`
+                  : redact(inner),
+              ]),
+            );
+          }
+          return value;
+        };
+        return {
+          body: document.body.innerText,
+          storage: redact(await chrome.storage.local.get(null)),
+          lastError: chrome.runtime.lastError?.message || null,
+        };
+      });
       console.error('popup diagnostic:', JSON.stringify(diagnostic, null, 2));
       throw error;
     }
