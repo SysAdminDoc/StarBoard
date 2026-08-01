@@ -723,6 +723,11 @@ select:disabled {
   color: var(--red);
 }
 
+.danger-compact.confirming {
+  color: var(--red);
+  font-weight: 750;
+}
+
 .view-editor {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;

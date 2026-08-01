@@ -493,8 +493,17 @@ $('exportCsv').addEventListener('click', async () => {
 });
 
 let pendingImportRecords = null;
+let applyImportArmedUntil = 0;
+let applyImportResetTimer;
+
+function resetApplyImportConfirmation() {
+  applyImportArmedUntil = 0;
+  clearTimeout(applyImportResetTimer);
+  $('applyImport').textContent = 'Apply restore';
+}
 
 function resetImportPreview() {
+  resetApplyImportConfirmation();
   pendingImportRecords = null;
   $('importPreview').hidden = true;
   $('importSummary').textContent = '';
@@ -507,6 +516,7 @@ $('cancelImport').addEventListener('click', resetImportPreview);
 $('importFile').addEventListener('change', async () => {
   const file = $('importFile').files?.[0];
   if (!file) return;
+  resetApplyImportConfirmation();
   try {
     // File.size is already bytes, so reject before file.text() allocates an
     // attacker-controlled document that the validator will refuse anyway.
@@ -531,6 +541,17 @@ $('importFile').addEventListener('change', async () => {
 
 $('applyImport').addEventListener('click', async () => {
   if (!pendingImportRecords) return;
+  if (Date.now() > applyImportArmedUntil) {
+    applyImportArmedUntil = Date.now() + 8000;
+    $('applyImport').textContent = 'Confirm apply restore';
+    say(
+      'Applying this backup replaces the selected local records. Activate again within 8 seconds to confirm.',
+      'err',
+    );
+    applyImportResetTimer = setTimeout(resetApplyImportConfirmation, 8000);
+    return;
+  }
+  resetApplyImportConfirmation();
   await withBusy($('applyImport'), 'Restoring…', async () => {
     const response = await chrome.runtime.sendMessage({
       type: 'import-backup',

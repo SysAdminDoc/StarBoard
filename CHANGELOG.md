@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Saved-view deletion and backup restore now require a second activation within
+  eight seconds, with explicit cancellation and the existing ten-minute undo
+  window preserved.
 - Release packaging now uses an explicit extension-file inventory, refuses a
   dirty Git tree without an intentional development override, rejects stray
   files under shipping roots, and records the source commit in the SPDX SBOM.

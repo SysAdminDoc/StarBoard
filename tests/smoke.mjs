@@ -2765,6 +2765,28 @@ async function main() {
 
     if (viewRenamed) {
       await popup.click('#deleteView');
+      const deleteArmed = /Confirm delete/.test(await popup.textContent('#deleteView'));
+      const deleteCancelled = await popup.evaluate(async (expectedId) => {
+        const { getPortfolioViewState } = await import('./lib/storage.js');
+        const before = await getPortfolioViewState();
+        return before.activeViewId === expectedId && before.views.some((view) => view.id === expectedId);
+      }, savedViewId);
+      check(
+        'saved-view deletion arms without changing data and can be cancelled',
+        deleteArmed && deleteCancelled,
+      );
+      await popup.click('#renameView');
+      await popup.click('#cancelView');
+      check(
+        'cancelling saved-view deletion restores the normal action label',
+        (await popup.textContent('#deleteView')).trim() === 'Delete',
+      );
+      await popup.click('#deleteView');
+      check(
+        'saved-view deletion requires the second activation within its window',
+        /Confirm delete/.test(await popup.textContent('#deleteView')),
+      );
+      await popup.click('#deleteView');
       await popup.waitForFunction((deletedId) => {
         const select = document.querySelector('#viewSelect');
         return (
@@ -3408,6 +3430,31 @@ async function main() {
         /1 saved view/.test(await options.textContent('#importSummary')),
     );
     await options.screenshot({ path: `${SHOTS}/08-import-preview.png`, fullPage: true });
+    await options.click('#applyImport');
+    const restoreArmed = /Confirm apply restore/.test(await options.textContent('#applyImport'));
+    const restoreStillPreviewing = !(await options.isHidden('#importPreview'));
+    check(
+      'restore requires a second activation and names the replacement scope',
+      restoreArmed && restoreStillPreviewing,
+    );
+    await options.click('#cancelImport');
+    check(
+      'first restore activation can be cancelled without changing local state',
+      (await options.isHidden('#importPreview')) &&
+        (await options.evaluate(async () => (await import('./lib/storage.js')).getSettings())).theme ===
+          'dark',
+    );
+    await options.setInputFiles('#importFile', {
+      name: 'StarBoard-smoke-backup.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(completeBackupText),
+    });
+    await options.waitForSelector('#importPreview:not([hidden])');
+    await options.click('#applyImport');
+    check(
+      'restore confirmation remains armed before the second activation',
+      /Confirm apply restore/.test(await options.textContent('#applyImport')),
+    );
     await options.click('#applyImport');
     const restoreApplied = await waitForCheck(
       'restore applies portable state without replacing the local credential',

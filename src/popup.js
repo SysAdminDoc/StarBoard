@@ -1195,6 +1195,7 @@ function closeViewEditor() {
 }
 
 function openViewEditor(mode) {
+  resetDeleteConfirmation();
   viewEditorMode = mode;
   const selected = state.portfolioViews.views.find(
     (view) => view.id === state.portfolioViews.activeViewId,
@@ -1354,6 +1355,7 @@ el.resetFilters.addEventListener('click', () => {
 });
 
 el.viewSelect.addEventListener('change', () => {
+  resetDeleteConfirmation();
   const id = el.viewSelect.value || null;
   // Loading a view is a newer, complete filter intent. It must not be followed
   // by a search debounce that was scheduled from the view being replaced.
@@ -1405,10 +1407,31 @@ el.viewEditor.addEventListener('submit', (event) => {
   });
 });
 
+let deleteViewArmedUntil = 0;
+let deleteViewResetTimer;
+
+function resetDeleteConfirmation() {
+  deleteViewArmedUntil = 0;
+  clearTimeout(deleteViewResetTimer);
+  el.deleteView.classList.remove('confirming');
+  el.deleteView.textContent = 'Delete';
+}
+
 el.deleteView.addEventListener('click', () => {
   const id = state.portfolioViews.activeViewId;
   const name = state.portfolioViews.views.find((view) => view.id === id)?.name;
   if (!id) return;
+  if (Date.now() > deleteViewArmedUntil) {
+    deleteViewArmedUntil = Date.now() + 8000;
+    el.deleteView.classList.add('confirming');
+    el.deleteView.textContent = 'Confirm delete';
+    announce(
+      `${name || 'Saved view'} will be deleted. Activate again within 8 seconds to confirm.`,
+    );
+    deleteViewResetTimer = setTimeout(resetDeleteConfirmation, 8000);
+    return;
+  }
+  resetDeleteConfirmation();
   queuePortfolioUpdate(async () => {
     await createUndoSnapshot('portfolio-view-change', [STORAGE_KEYS.portfolioViews]);
     state.portfolioViews = await deleteSavedPortfolioView(id);
