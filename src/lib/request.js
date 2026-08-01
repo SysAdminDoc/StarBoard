@@ -31,6 +31,7 @@ function backoffDelay(attempt, { baseDelayMs, maxDelayMs, jitterMs, random }) {
  * Build a retry wait that persists its wake-up before yielding and periodically
  * touches an extension API so an MV3 worker can survive long Retry-After waits.
  */
+/** @param {any} [options] */
 export function createRetryWait(
   {
     schedule,
@@ -67,12 +68,19 @@ export function createRetryWait(
   };
 }
 
+/**
+ * @param {string} url
+ * @param {any} [options] Unrecognized keys are forwarded to `fetch`.
+ */
 export async function requestWithRetry(
   url,
   {
     fetchImpl = fetch,
     parse = async (response) => response,
-    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    // The injected implementation also receives retry metadata as a second
+    // argument; the default has no use for it.
+    sleep = (/** @type {number} */ ms, /** @type {any} */ _meta) =>
+      new Promise((resolve) => setTimeout(resolve, ms)),
     random = Math.random,
     now = Date.now,
     timeoutMs = 20_000,

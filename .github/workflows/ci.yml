@@ -38,6 +38,9 @@ jobs:
       # must not block unrelated changes.
       - run: npm audit --audit-level=high --omit=dev
       - run: npm run check
+      # Type-checks the untyped source. It emits nothing and adds no runtime
+      # dependency; TypeScript is dev-only and never enters the package.
+      - run: npm run typecheck
       - run: npm run test:unit
       - run: npm run test:release
       - run: npm run build

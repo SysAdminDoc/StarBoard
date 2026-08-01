@@ -23,6 +23,7 @@ import {
 export const BACKUP_FORMAT = 'starboard-backup';
 export const BACKUP_FORMAT_VERSION = 1;
 export const BACKUP_MAX_BYTES = 5 * 1024 * 1024;
+/** @type {string[]} */
 const PORTABLE_KEYS = [
   STORAGE_KEYS.settings,
   STORAGE_KEYS.cache,
@@ -170,6 +171,7 @@ function sanitizePortfolioViews(state, includePrivate, names) {
   return clean;
 }
 
+/** @param {any} [state] */
 export async function createBackup({
   settings,
   cache,
@@ -391,6 +393,7 @@ function historyCsvRows(history, includePrivate) {
   return rows;
 }
 
+/** @param {any} [state] */
 export function createCsv({
   cache,
   baseline,

@@ -120,6 +120,11 @@ function mapPolicyError(error) {
   });
 }
 
+/**
+ * @param {string} path
+ * @param {string} token
+ * @param {any} [options]
+ */
 async function request(
   path,
   token,
@@ -273,6 +278,11 @@ function previousPage(validator, previousByName) {
   return repos.length === validator.repoNames.length ? repos : null;
 }
 
+/**
+ * @param {string} basePath
+ * @param {string} token
+ * @param {any} [options]
+ */
 async function fetchAllPages(
   basePath,
   token,

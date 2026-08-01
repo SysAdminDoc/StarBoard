@@ -10,12 +10,16 @@
     "screenshots:store": "node scripts/render_store_screenshots.mjs",
     "build": "py -3.12 scripts/build.py",
     "check": "node scripts/check.mjs",
-    "test": "npm run test:unit && npm run test:release && npm run test:smoke",
+    "typecheck": "tsc -p jsconfig.json && tsc -p jsconfig.scripts.json",
+    "test": "npm run typecheck && npm run test:unit && npm run test:release && npm run test:smoke",
     "test:unit": "node tests/unit.mjs",
     "test:release": "py -3.12 tests/release_test.py",
     "test:smoke": "node tests/smoke.mjs"
   },
   "devDependencies": {
-    "playwright": "1.62.0"
+    "@types/chrome": "^0.2.5",
+    "@types/node": "^26.1.2",
+    "playwright": "1.62.0",
+    "typescript": "^7.0.2"
   }
 }

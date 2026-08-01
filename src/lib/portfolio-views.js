@@ -40,6 +40,7 @@ function cleanText(value, max) {
 }
 
 export function normalizePortfolioFilters(value = {}) {
+  /** @type {any} */
   const next = { ...DEFAULT_PORTFOLIO_FILTERS };
   next.query = cleanText(value.query, 200);
   next.language =

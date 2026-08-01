@@ -66,6 +66,13 @@ const LANG_COLORS = {
   Zig: '#ec915c',
 };
 
+/**
+ * One element registry holds inputs, selects, buttons and spans, so a single
+ * narrow return type would be wrong for every caller. The type checker is here
+ * for logic defects, not to re-derive which tag each id refers to.
+ * @param {string} id
+ * @returns {any}
+ */
 const $ = (id) => document.getElementById(id);
 localizeDocument();
 
@@ -314,7 +321,7 @@ async function updateUndoAvailability() {
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== 'local' || !changes[STORAGE_KEYS.undo]) return;
-  const envelope = changes[STORAGE_KEYS.undo].newValue;
+  const envelope = /** @type {any} */ (changes[STORAGE_KEYS.undo].newValue);
   el.undo.hidden = !(envelope?.data?.expiresAt > Date.now());
 });
 
@@ -324,6 +331,7 @@ const nf = new Intl.NumberFormat();
 const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 const dateTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
+/** @type {[Intl.RelativeTimeFormatUnit, number][]} */
 const UNITS = [
   ['year', 31536000000],
   ['month', 2592000000],
@@ -444,7 +452,8 @@ const SORTERS = {
   forks: (a, b) => b.forks_count - a.forks_count || b.stargazers_count - a.stargazers_count,
   starsDelta: (a, b) => b.starsDelta - a.starsDelta || b.stargazers_count - a.stargazers_count,
   forksDelta: (a, b) => b.forksDelta - a.forksDelta || b.forks_count - a.forks_count,
-  updated: (a, b) => new Date(b.pushed_at || 0) - new Date(a.pushed_at || 0),
+  updated: (a, b) =>
+    new Date(b.pushed_at || 0).getTime() - new Date(a.pushed_at || 0).getTime(),
   name: (a, b) => a.name.localeCompare(b.name),
 };
 

@@ -227,21 +227,26 @@ const readmeScreenshots = [...readme.matchAll(/(?:src="|]\()(docs\/screenshot[^"
 const referencedScreenshots = [
   ...new Set([...(storeListing.screenshots || []), ...readmeScreenshots]),
 ];
-const uiCommit = spawnSync(
-  'git',
-  [
-    'log',
-    '-1',
-    '--format=%ct',
-    '--',
-    'src/popup.css',
-    'src/popup.html',
-    'src/options.css',
-    'src/options.html',
-  ],
-  { cwd: ROOT, encoding: 'utf8' },
-);
-const uiCommitTime = Number.parseInt(uiCommit.stdout.trim(), 10);
+// Each screenshot shows one surface. Comparing every image against every UI
+// file failed an options capture whenever unrelated popup markup changed, and
+// the only way to clear it was to re-commit a byte-identical file.
+const POPUP_SOURCES = ['src/popup.css', 'src/popup.html'];
+const OPTIONS_SOURCES = ['src/options.css', 'src/options.html'];
+const SCREENSHOT_SOURCES = {
+  'docs/screenshot-popup.png': POPUP_SOURCES,
+  'docs/screenshot-deltas.png': POPUP_SOURCES,
+  'docs/screenshot-web-mode.png': POPUP_SOURCES,
+  'docs/screenshot-options.png': OPTIONS_SOURCES,
+};
+const ALL_UI_SOURCES = [...POPUP_SOURCES, ...OPTIONS_SOURCES];
+
+function lastCommitTime(paths) {
+  const result = spawnSync('git', ['log', '-1', '--format=%ct', '--', ...paths], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  });
+  return Number.parseInt(result.stdout.trim(), 10);
+}
 for (const shot of referencedScreenshots) {
   let bytes;
   try {
@@ -256,6 +261,7 @@ for (const shot of referencedScreenshots) {
   if (width !== 1280 || height !== 800) {
     failures.push(`${shot}: expected a 1280x800 PNG, found ${width || '?'}x${height || '?'}`);
   }
+  const uiCommitTime = lastCommitTime(SCREENSHOT_SOURCES[shot] || ALL_UI_SOURCES);
   if (Number.isFinite(uiCommitTime)) {
     const dirty = spawnSync(
       'git',

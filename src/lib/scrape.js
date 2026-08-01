@@ -56,6 +56,8 @@ export function reposUrl(username, page = 1) {
 /**
  * Parse a count as GitHub renders it: "52", "1,234", "1.2k", "12k", "1.3m".
  * Returns [value, approximate].
+ * @param {string} [text]
+ * @returns {[number, boolean]}
  */
 export function parseCount(text) {
   const raw = (text || '').trim().toLowerCase().replace(/,/g, '');

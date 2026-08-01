@@ -25,6 +25,13 @@ import { localizeDocument, message as i18nMessage } from './lib/i18n.js';
 const GITHUB_ORIGIN = 'https://github.com/*';
 const WEB_MIN_REFRESH_MINUTES = 360;
 
+/**
+ * One element registry holds inputs, selects, buttons and spans, so a single
+ * narrow return type would be wrong for every caller. The type checker is here
+ * for logic defects, not to re-derive which tag each id refers to.
+ * @param {string} id
+ * @returns {any}
+ */
 const $ = (id) => document.getElementById(id);
 localizeDocument();
 const fields = {
@@ -115,6 +122,7 @@ const feedbackTimers = new Map();
  * why a quota failure read as a generic "could not save".
  */
 function messageError(error, fallback) {
+  /** @type {any} */
   const rethrown = new Error(error?.message || fallback);
   rethrown.code = error?.code || 'MESSAGE_FAILED';
   if (error?.resetAt != null) rethrown.resetAt = error.resetAt;
@@ -223,6 +231,7 @@ function formatRetryAt(timestamp) {
  * when a rate limit lifts, that a quota failure has a fix on this very page, or
  * that nothing was going to reach the network in the first place.
  */
+/** @param {any} error */
 function reportError(error, target = 'account', fallback = 'That action failed.') {
   const code = error?.code;
   let message = error?.message || fallback;

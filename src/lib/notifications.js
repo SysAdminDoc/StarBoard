@@ -29,6 +29,7 @@ function validTime(value) {
 }
 
 export function normalizeNotificationConfig(value = {}) {
+  /** @type {any} */
   const config = {
     ...DEFAULT_NOTIFICATION_CONFIG,
     ...Object.fromEntries(
@@ -137,6 +138,13 @@ function comparablePortfolio(cache, includeForks) {
   return (cache?.repos || []).filter((repo) => (includeForks || !repo.fork) && !repo.approx);
 }
 
+/**
+ * @param {any} previous
+ * @param {any} current
+ * @param {any} config
+ * @param {any} state
+ * @param {any} [options]
+ */
 export function evaluateNotificationEvents(
   previous,
   current,

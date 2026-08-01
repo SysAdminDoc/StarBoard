@@ -1,0 +1,33 @@
+{
+  "//": [
+    "Type-checks the extension source without turning it into TypeScript. There",
+    "is no build step and no emit: `npm run typecheck` is a gate, not a compiler.",
+    "`noImplicitAny` and `strictNullChecks` stay off deliberately — on ~6,000",
+    "lines of plain JS they produce thousands of 'parameter implicitly has an",
+    "any type' notes that bury the diagnostics worth acting on (misspelled",
+    "properties, wrong arity, unreachable branches, unused bindings).",
+    "Node types are deliberately absent here: extension code runs in a browser,",
+    "and loading them makes setTimeout return a Node Timeout. Build and test",
+    "scripts are checked separately by jsconfig.scripts.json."
+  ],
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": ["chrome"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "allowUnreachableCode": false,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.js"]
+}

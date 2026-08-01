@@ -28,6 +28,7 @@ function normalizedAlarm(alarm) {
     : null;
 }
 
+/** @param {any} [input] */
 export function buildDiagnostics({
   manifest,
   settings,

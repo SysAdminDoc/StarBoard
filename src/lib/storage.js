@@ -109,17 +109,32 @@ const SETTINGS_KEYS = new Set(Object.keys(DEFAULTS));
 const AREA = chrome.storage.local;
 const SESSION_AREA = chrome.storage.session;
 
+// Typed loose on purpose: these hold the tail of a chain whose links return
+// whatever their own work returned, and only the tail's settlement matters.
+/** @type {Promise<any>} */
 let writeQueue = Promise.resolve();
+/** @type {Promise<any>} */
 let quarantineQueue = Promise.resolve();
+/** @type {Promise<any>} */
 let storageLockQueue = Promise.resolve();
 
+/**
+ * @template T
+ * @param {() => T | Promise<T>} work
+ * @returns {Promise<T>}
+ */
 function serialized(work) {
   const result = writeQueue.then(work, work);
   writeQueue = result.catch(() => {});
   return result;
 }
 
-/** Serialize record commits across extension pages and the service worker. */
+/**
+ * Serialize record commits across extension pages and the service worker.
+ * @template T
+ * @param {() => T | Promise<T>} work
+ * @returns {Promise<T>}
+ */
 function storageLocked(work) {
   const run = () => {
     if (globalThis.navigator?.locks?.request) {
@@ -373,6 +388,7 @@ export function normalizeSettings(value, { validate = true } = {}) {
   for (const key of SETTINGS_KEYS) {
     if (Object.hasOwn(value, key)) clean[key] = value[key];
   }
+  /** @type {any} */
   const next = { ...DEFAULTS, ...clean };
   next.username = String(next.username || '').trim().replace(/^@/, '').slice(0, 100);
   next.token = typeof next.token === 'string' ? next.token.trim() : '';
@@ -570,6 +586,7 @@ export async function dismissStorageRecoveryNotice(id) {
  * degrades a trend rather than breaking the extension. Mirroring it would
  * double the single biggest consumer and defeat the quota-proportional cap.
  */
+/** @type {Set<string>} */
 const LAST_KNOWN_GOOD_EXCLUDED = new Set([STORAGE_KEYS.history]);
 const RECOVERY_RECORD_KEYS = Object.freeze([
   STORAGE_KEYS.settings,
@@ -609,6 +626,7 @@ async function largestConsumer() {
     ...Object.values(STORAGE_KEYS),
     ...RECOVERY_RECORD_KEYS.map(recoveryStorageKey),
   ];
+  /** @type {[string, number][]} */
   const sizes = await Promise.all(
     keys.map(async (key) => {
       try {
@@ -796,7 +814,7 @@ export async function setSettings(patch) {
 }
 
 async function getSessionToken() {
-  const raw = (await SESSION_AREA.get(SESSION_TOKEN_KEY))[SESSION_TOKEN_KEY];
+  const raw = /** @type {any} */ ((await SESSION_AREA.get(SESSION_TOKEN_KEY))[SESSION_TOKEN_KEY]);
   if (raw == null) return '';
   rejectFutureSchema(SESSION_TOKEN_KEY, raw);
   if (
@@ -968,6 +986,7 @@ export async function activateSavedPortfolioView(id) {
 export async function applyImportedState(input) {
   return serialized(async () => {
     assert(isObject(input), 'import records must be an object');
+    /** @type {Set<string>} */
     const allowed = new Set([
       STORAGE_KEYS.settings,
       STORAGE_KEYS.cache,
@@ -1117,7 +1136,7 @@ export async function createUndoSnapshot(scope, keys) {
 }
 
 async function readUndo() {
-  const raw = (await AREA.get(STORAGE_KEYS.undo))[STORAGE_KEYS.undo];
+  const raw = /** @type {any} */ ((await AREA.get(STORAGE_KEYS.undo))[STORAGE_KEYS.undo]);
   rejectFutureSchema(STORAGE_KEYS.undo, raw);
   if (
     !isObject(raw) ||
@@ -1195,14 +1214,16 @@ export async function restoreUndoSnapshot() {
 }
 
 export async function getStorageDiagnostics() {
-  const stored = await AREA.get([
-    STORAGE_KEYS.settings,
-    STORAGE_KEYS.cache,
-    STORAGE_KEYS.baseline,
-    STORAGE_KEYS.history,
-    STORAGE_KEYS.portfolioViews,
-    STORAGE_KEYS.quarantine,
-  ]);
+  const stored = /** @type {any} */ (
+    await AREA.get([
+      STORAGE_KEYS.settings,
+      STORAGE_KEYS.cache,
+      STORAGE_KEYS.baseline,
+      STORAGE_KEYS.history,
+      STORAGE_KEYS.portfolioViews,
+      STORAGE_KEYS.quarantine,
+    ])
+  );
   return {
     schemaVersion: SCHEMA_VERSION,
     settingsStored: !!stored[STORAGE_KEYS.settings],
