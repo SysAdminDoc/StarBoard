@@ -119,6 +119,7 @@ const el = {
   lifecycleList: $('lifecycle-list'),
   acknowledgeLifecycle: $('ack-lifecycle'),
   list: $('list'),
+  asOf: $('as-of'),
   footer: $('footer'),
   undo: $('undo'),
   updated: $('updated'),
@@ -135,6 +136,7 @@ let state = {
   portfolioViews: null,
   storageRecoveryNotice: null,
   trendRange: 'baseline',
+  movement: new Set(),
 };
 let refreshing = false;
 let bootReady = false;
@@ -261,6 +263,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
 const nf = new Intl.NumberFormat();
 const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+const dateTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 const UNITS = [
   ['year', 31536000000],
@@ -361,6 +364,22 @@ function withDeltas(cache) {
   });
 }
 
+function movementFor(cache) {
+  const movement = cache?.movement;
+  if (!movement?.generation || movement.generation !== cache.generation || !Array.isArray(movement.repos)) {
+    return new Set();
+  }
+  try {
+    if (sessionStorage.getItem('starboardMovementGeneration') === movement.generation) {
+      return new Set();
+    }
+    sessionStorage.setItem('starboardMovementGeneration', movement.generation);
+  } catch {
+    // A restricted storage context should not suppress the visual cue.
+  }
+  return new Set(movement.repos);
+}
+
 const SORTERS = {
   stars: (a, b) => b.stargazers_count - a.stargazers_count || a.name.localeCompare(b.name),
   forks: (a, b) => b.forks_count - a.forks_count || b.stargazers_count - a.stargazers_count,
@@ -422,6 +441,7 @@ function rowNode(repo, rank, changes) {
   a.target = '_blank';
   a.rel = 'noreferrer';
   a.title = repo.description || repo.full_name;
+  if (state.movement.has(repo.full_name)) a.classList.add('moved');
 
   const rankEl = document.createElement('div');
   rankEl.className = 'rank';
@@ -445,6 +465,13 @@ function rowNode(repo, rank, changes) {
     change.className = `lifecycle-tag ${lifecycle.type}`;
     change.textContent = lifecycle.type === 'renamed' ? 'renamed' : 'new';
     name.appendChild(change);
+  }
+  if (state.movement.has(repo.full_name)) {
+    const moved = document.createElement('span');
+    moved.className = 'movement-tag';
+    moved.textContent = 'moved';
+    moved.title = 'Star or fork count changed in the newest snapshot';
+    name.appendChild(moved);
   }
   main.appendChild(name);
 
@@ -1003,6 +1030,7 @@ function render() {
   // describe those totals. `renderTotals` refills them on the normal path.
   el.quality.replaceChildren();
   el.quality.hidden = true;
+  el.asOf.hidden = true;
   const healthy = !!cache?.fetchedAt && !cache.error;
   el.footer.classList.toggle('is-healthy', healthy);
   syncControls();
@@ -1065,6 +1093,13 @@ function render() {
     rows.length === allCount
       ? `${nf.format(rows.length)} shown`
       : `${nf.format(rows.length)} of ${nf.format(allCount)} shown`;
+  if (cache.fetchedAt) {
+    el.asOf.hidden = false;
+    el.asOf.textContent = `As of ${relative(cache.fetchedAt)}`;
+    el.asOf.title = `Snapshot captured ${dateTime.format(new Date(cache.fetchedAt))}`;
+  } else {
+    el.asOf.hidden = true;
+  }
   el.updated.textContent = `${cache.stale ? 'Last successful update' : 'Updated'} ${relative(cache.fetchedAt)}`;
   el.rate.hidden = !settings.showSourceStatus;
   if (cache.source === 'web') {
@@ -1127,6 +1162,7 @@ async function doRefresh(rebase = false) {
     // undo-status probe must not turn a committed success into a reported
     // failure if the MV3 worker disappears immediately after responding.
     state.cache = res?.cache ?? (await getCache().catch(() => state.cache));
+    state.movement = res?.ok ? movementFor(state.cache) : new Set();
     state.baseline = res?.baseline ?? (await getBaseline().catch(() => state.baseline));
     state.history = await getHistory().catch(() => state.history);
     state.notificationState = await getNotificationState().catch(
@@ -1493,6 +1529,7 @@ el.undo.addEventListener('click', async () => {
       return;
     }
     state.cache = response.restored.cache;
+    state.movement = new Set();
     state.baseline = response.restored.baseline;
     state.history = response.restored.history || state.history;
     state.notificationState = response.restored.notificationState || state.notificationState;
@@ -1544,6 +1581,7 @@ window.addEventListener('online', () => {
       getNotificationState(),
       getPortfolioViewState(),
     ]);
+    state.movement = movementFor(state.cache);
     // Read this after the records: one of those reads may have just restored
     // or reset an invalid envelope and written the notice we need to show.
     state.storageRecoveryNotice = await getStorageRecoveryNotice();

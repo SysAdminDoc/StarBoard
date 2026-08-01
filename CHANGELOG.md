@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Fresh star or fork movement is now marked directly on changed repository rows,
+  and each snapshot shows an as-of time beside the list without adding row announcements.
 - Project notes now match the current schema, history format, verification
   commands and website capability evidence; the remaining website blocker is
   explicitly the robots.txt/AUP decision.

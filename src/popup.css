@@ -864,6 +864,13 @@ select:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+.as-of {
+  color: var(--faint);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .filter-panel {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1164,6 +1171,22 @@ select:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.movement-tag {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 7.5px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.row.moved {
+  border-inline-start: 3px solid var(--accent);
 }
 
 .lifecycle-tag {

@@ -1510,17 +1510,39 @@ async function main() {
         fixtureRepo(2, 'bravo', 20, 2),
         fixtureRepo(3, 'charlie', 10, 1),
       ]);
-      const secondRefresh = await popup.evaluate(() =>
-        chrome.runtime.sendMessage({ type: 'refresh', force: true, reason: 'fixture-2' }),
-      );
+      await popup.click('#refresh');
+      await popup.waitForFunction(() => document.querySelector('.row.moved'));
+      const secondRefresh = await popup.evaluate(async () => {
+        const { getCache } = await import('./lib/storage.js');
+        const cache = await getCache();
+        return { ok: !!cache?.movement, cache };
+      });
       check(
         'a second generation preserves the baseline so deltas appear',
         secondRefresh?.ok === true &&
           secondRefresh.cache.repos.find((repo) => repo.name === 'alpha').stargazers_count === 34,
         JSON.stringify({ ok: secondRefresh?.ok }),
       );
+      const movementView = await popup.evaluate(() => ({
+        movedRows: document.querySelectorAll('.row.moved').length,
+        movedLabel: document.querySelector('.row.moved .movement-tag')?.textContent || '',
+        asOf: document.querySelector('#as-of')?.textContent || '',
+        asOfTitle: document.querySelector('#as-of')?.title || '',
+      }));
+      check(
+        'the newest snapshot marks moved rows and keeps its as-of time near the list',
+        movementView.movedRows === 1 &&
+          movementView.movedLabel === 'moved' &&
+          /^As of /.test(movementView.asOf) &&
+          /Snapshot captured/.test(movementView.asOfTitle),
+        JSON.stringify(movementView),
+      );
       await popup.reload();
       await popup.waitForSelector('.row', { timeout: 15000 });
+      check(
+        'movement markers clear when the popup is opened again',
+        (await popup.locator('.row.moved').count()) === 0,
+      );
       const delta = await popup.textContent('.row .stat.stars .delta');
       check('star gains render as a delta on the ranked row', /\+4/.test(delta || ''), delta);
 

@@ -260,6 +260,19 @@ async function evaluateNotifications(previous, current, settings, generation) {
   await deliverPendingNotifications();
 }
 
+function changedRepositoryNames(previous, current) {
+  const prior = new Map(
+    (previous?.repos || []).map((repo) => [repo.full_name, [repo.stargazers_count, repo.forks_count]]),
+  );
+  return (current?.repos || [])
+    .filter((repo) => {
+      const before = prior.get(repo.full_name);
+      return before &&
+        (before[0] !== repo.stargazers_count || before[1] !== repo.forks_count);
+    })
+    .map((repo) => repo.full_name);
+}
+
 /** Run one generation selected by the refresh coordinator. */
 async function runRefresh(intent) {
   const { settings } = intent;
@@ -304,6 +317,10 @@ async function runRefresh(intent) {
       stale: false,
       pendingSource: null,
       error: null,
+      movement: {
+        generation,
+        repos: changedRepositoryNames(previous, result),
+      },
     };
     cache.lifecycleEvents = mergeLifecycleEvents(
       previous?.lifecycleEvents || [],
@@ -357,6 +374,7 @@ async function recordRefreshFailure(err, settings = null) {
       ...previous,
       stale: true,
       confidence: 'stale',
+      movement: null,
       pendingSource:
         settings?.dataSource && previous.source !== settings.dataSource
           ? settings.dataSource
