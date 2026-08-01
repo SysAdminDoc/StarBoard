@@ -19,6 +19,31 @@ profile page paginates, sorts badly, and shows you a total — never a *change*.
 StarBoard answers the two questions you actually open GitHub for: **which of my
 projects are doing best**, and **what moved since yesterday**.
 
+### Why it still works
+
+On **2026-06-30** GitHub restricted the `/stargazers` endpoint to repository
+admins and collaborators. Every tool that draws a star-history *curve* does it
+by reading that endpoint and reconstructing the past from who starred when — so
+for repositories you do not administer, that approach no longer has data to
+work from.
+
+StarBoard never used it. It records a snapshot of the counts it can see, keeps
+them locally, and compares snapshots. That means:
+
+- **It keeps working for any account**, because it only reads counts that are
+  public on the profile page or returned by the ordinary repository listing.
+- **It can show a count going down.** Reconstructed curves are cumulative by
+  construction and cannot represent a star being removed. A snapshot diff can,
+  and StarBoard renders negative deltas as readily as positive ones.
+- **It only knows what it has watched.** The trade is honest and stated in the
+  UI: there is no history before you installed it, ranges longer than the data
+  retained are marked unavailable, and a gap is drawn as a gap rather than
+  interpolated into a number that was never measured.
+
+No token ever leaves your browser. There is no server, no account, and no
+telemetry — the API token, if you choose to use one, is sent only to
+`api.github.com` and stored only in your own profile.
+
 ## Features
 
 - **Ranked instantly** — all repos sorted by stars, descending, the moment the popup opens.
