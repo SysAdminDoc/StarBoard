@@ -56,17 +56,35 @@ const SOURCE_HINTS = {
   web: 'The default. Reads your github.com repositories page using the session you are already signed in with — no token. Uses one page load per 30 repositories, so larger portfolios use more bandwidth and take longer to refresh.',
   api: 'The secondary option. Reads api.github.com with exact counts and 3-4 requests per refresh. Without a token GitHub allows 60 requests/hour and shows public repos only.',
 };
+const WEB_PERMISSION_MISSING =
+  ' Access to github.com is not currently granted, so website mode cannot read anything —' +
+  ' choose the website source again to re-grant it.';
+
+/**
+ * Whether `https://github.com/*` is granted. Cached because the hint has to be
+ * rendered synchronously, and refreshed from every event that can change it.
+ */
+let hasWebPermission = true;
+/**
+ * True once a username has been saved. A first-run profile has not been asked
+ * for the github.com origin yet — Save requests it — so the missing-permission
+ * warning belongs only to an established install that lost the grant.
+ */
+let configured = false;
 
 function syncSourceUI() {
   const web = fields.dataSource.value === 'web';
-  $('sourceHint').textContent = SOURCE_HINTS[fields.dataSource.value];
+  const webBlocked = web && configured && !hasWebPermission;
+  $('sourceHint').textContent =
+    SOURCE_HINTS[fields.dataSource.value] + (webBlocked ? WEB_PERMISSION_MISSING : '');
+  $('sourceHint').classList.toggle('token-warning', webBlocked);
   $('tokenField').style.display = web ? 'none' : '';
   const persistent = fields.tokenMode.value === 'persistent';
   $('tokenStorageHint').textContent = persistent
     ? 'Persistent mode keeps the PAT in chrome.storage.local after the browser closes. Choose this only on a trusted profile.'
     : 'Session mode keeps the PAT in chrome.storage.session and clears it when the browser session ends.';
   $('tokenStorageHint').classList.toggle('token-warning', persistent);
-  $('forgetToken').disabled = !fields.token.value;
+  $('forgetToken').disabled = pageBusy || !fields.token.value;
   for (const option of fields.refreshMinutes.options) {
     const minutes = Number(option.value);
     option.disabled = web && minutes > 0 && minutes < WEB_MIN_REFRESH_MINUTES;
@@ -91,9 +109,21 @@ const feedback = {
 };
 const feedbackTimers = new Map();
 
+/**
+ * Rethrow a message-boundary failure as an Error that still carries the code and
+ * reset time. Wrapping it in a bare `new Error(message)` dropped both, which is
+ * why a quota failure read as a generic "could not save".
+ */
+function messageError(error, fallback) {
+  const rethrown = new Error(error?.message || fallback);
+  rethrown.code = error?.code || 'MESSAGE_FAILED';
+  if (error?.resetAt != null) rethrown.resetAt = error.resetAt;
+  return rethrown;
+}
+
 async function patchSettings(changes) {
   const response = await chrome.runtime.sendMessage({ type: 'patch-settings', changes });
-  if (!response?.ok) throw new Error(response?.error?.message || 'Could not save settings.');
+  if (!response?.ok) throw messageError(response?.error, 'Could not save settings.');
   return response.settings;
 }
 
@@ -113,6 +143,101 @@ function say(message, kind = '', target = 'account') {
   }
   regions.ok.textContent = message;
   feedbackTimers.set(target, setTimeout(() => say('', '', target), 6000));
+}
+
+/**
+ * Every control that must not accept input before `load()` has resolved. Until
+ * it does, the form still reads its HTML defaults — `web` for the source, `dark`
+ * for the theme — and a click would save those over the user's real settings.
+ */
+function busyControls() {
+  return [
+    ...Object.values(fields),
+    ...Object.values(notificationFields),
+    $('notificationsEnabled'),
+    $('save'),
+    $('test'),
+    $('forgetToken'),
+    $('historyKeep'),
+    $('pruneHistory'),
+    $('includePrivateExport'),
+    $('includeHistoryExport'),
+    $('backupJson'),
+    $('exportCsv'),
+    $('chooseImport'),
+    $('applyImport'),
+    $('cancelImport'),
+    $('buildDiagnostics'),
+    $('copyDiagnostics'),
+    $('clear'),
+    $('undoClear'),
+  ];
+}
+
+let pageBusy = true;
+let notificationState = null;
+
+function setPageBusy(busy) {
+  pageBusy = busy;
+  $('settingsGrid').setAttribute('aria-busy', String(busy));
+  $('loadingBanner').hidden = !busy;
+  for (const control of busyControls()) control.disabled = busy;
+  if (busy) return;
+  // Several controls carry a disabled state of their own — the notification
+  // block, the token button, web-mode refresh intervals. Re-derive them rather
+  // than leaving everything enabled.
+  syncSourceUI();
+  if (notificationState) {
+    syncNotificationUI(
+      notificationState.config,
+      notificationState.permitted,
+      notificationState.pending,
+      notificationState.dropped,
+    );
+  }
+  $('copyDiagnostics').disabled = !diagnosticsText;
+  syncOfflineState();
+}
+
+function offline() {
+  return navigator.onLine === false;
+}
+
+function syncOfflineState() {
+  $('offlineBanner').hidden = !offline();
+}
+
+window.addEventListener('online', syncOfflineState);
+window.addEventListener('offline', syncOfflineState);
+
+function formatRetryAt(timestamp) {
+  if (!Number.isFinite(timestamp)) return '';
+  const seconds = Math.max(0, Math.round((timestamp - Date.now()) / 1000));
+  if (seconds <= 90) return ` Try again in about ${Math.max(1, seconds)} seconds.`;
+  const time = new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return ` The quota resets at ${time}.`;
+}
+
+/**
+ * Surface an error with the one piece of context the raw message never carries:
+ * when a rate limit lifts, that a quota failure has a fix on this very page, or
+ * that nothing was going to reach the network in the first place.
+ */
+function reportError(error, target = 'account', fallback = 'That action failed.') {
+  const code = error?.code;
+  let message = error?.message || fallback;
+  if (code === 'RATE_LIMITED') {
+    message += formatRetryAt(error.resetAt ?? error.retryAt);
+  } else if (code === 'STORAGE_QUOTA_EXCEEDED') {
+    message += ' Prune trend history below to free space, then try again.';
+  } else if (offline() && (code === 'NETWORK' || code === 'TIMEOUT')) {
+    message = `No network connection — ${message}`;
+  }
+  say(message, 'err', target);
+  if (code === 'STORAGE_QUOTA_EXCEEDED' && !pageBusy) {
+    $('pruneHistory').scrollIntoView({ block: 'center' });
+    $('pruneHistory').focus();
+  }
 }
 
 async function withBusy(button, busyLabel, work) {
@@ -156,7 +281,16 @@ async function showStorageInfo() {
 }
 
 async function load() {
-  const s = await getSettings();
+  const [s] = await Promise.all([
+    getSettings(),
+    chrome.permissions
+      .contains({ origins: [GITHUB_ORIGIN] })
+      .then((granted) => {
+        hasWebPermission = granted;
+      })
+      .catch(() => {}),
+  ]);
+  configured = Boolean(s.username);
   fields.username.value = s.username;
   fields.token.value = s.token;
   fields.tokenMode.value = s.tokenMode;
@@ -227,10 +361,12 @@ function notificationPatch() {
 }
 
 function syncNotificationUI(config, permitted, pending = 0, dropped = 0) {
+  notificationState = { config, permitted, pending, dropped };
   $('notificationsEnabled').checked = !!config.enabled;
+  $('notificationsEnabled').disabled = pageBusy;
   for (const [key, field] of Object.entries(notificationFields)) {
     field.value = String(config[key]);
-    field.disabled = !config.enabled;
+    field.disabled = pageBusy || !config.enabled;
   }
   $('notificationControls').setAttribute('aria-disabled', String(!config.enabled));
   $('notificationPermissionState').textContent =
@@ -247,7 +383,7 @@ function syncNotificationUI(config, permitted, pending = 0, dropped = 0) {
 
 async function loadNotificationConfig() {
   const response = await chrome.runtime.sendMessage({ type: 'notification-status' });
-  if (!response?.ok) throw new Error(response?.error?.message || 'Could not load notifications.');
+  if (!response?.ok) throw messageError(response?.error, 'Could not load notifications.');
   syncNotificationUI(response.config, response.permitted, response.pending, response.dropped);
 }
 
@@ -257,8 +393,11 @@ async function loadNotificationConfig() {
  * from a click — both are qualifying user gestures.
  */
 async function ensureWebPermission() {
-  if (await chrome.permissions.contains({ origins: [GITHUB_ORIGIN] })) return true;
-  return chrome.permissions.request({ origins: [GITHUB_ORIGIN] });
+  hasWebPermission = await chrome.permissions.contains({ origins: [GITHUB_ORIGIN] });
+  if (!hasWebPermission) {
+    hasWebPermission = await chrome.permissions.request({ origins: [GITHUB_ORIGIN] });
+  }
+  return hasWebPermission;
 }
 
 fields.dataSource.addEventListener('change', async () => {
@@ -283,6 +422,14 @@ fields.dataSource.addEventListener('change', async () => {
     const settings = await patchSettings({ dataSource: source, refreshMinutes });
     fields.token.value = settings.token;
     syncSourceUI();
+    if (offline()) {
+      say(
+        `Source set to ${source === 'web' ? 'github.com' : 'the GitHub API'}. StarBoard is ` +
+          'offline — it will read from there once you reconnect.',
+        'ok',
+      );
+      return;
+    }
     say(`Switching to ${source === 'web' ? 'github.com' : 'the GitHub API'}…`);
     const result = await chrome.runtime.sendMessage({
       type: 'settings-changed',
@@ -290,12 +437,17 @@ fields.dataSource.addEventListener('change', async () => {
       source,
       reason: 'source-change',
     });
-    say(
-      result?.ok
-        ? `Now reading from ${source === 'web' ? 'github.com' : 'the GitHub API'}.`
-        : `${result?.error?.message || 'Source refresh failed.'} The prior snapshot is still shown.`,
-      result?.ok ? 'ok' : 'err',
-    );
+    if (result?.ok) {
+      say(`Now reading from ${source === 'web' ? 'github.com' : 'the GitHub API'}.`, 'ok');
+    } else {
+      reportError(
+        {
+          ...(result?.error || {}),
+          message: `${result?.error?.message || 'Source refresh failed.'} The prior snapshot is still shown.`,
+        },
+        'account',
+      );
+    }
   } finally {
     fields.dataSource.disabled = false;
   }
@@ -319,8 +471,16 @@ $('save').addEventListener('click', async () => {
       }
     }
     await patchSettings(next);
+    configured = Boolean(next.username);
     fields.username.value = next.username;
     await chrome.runtime.sendMessage({ type: 'settings-changed' });
+    // Saving is local and works offline; only the refresh that follows needs
+    // the network, so say which half happened instead of failing both.
+    if (offline()) {
+      say('Settings saved. StarBoard is offline — the refresh will run once you reconnect.', 'ok');
+      await showStorageInfo();
+      return;
+    }
     say('Saved — refreshing…');
     const res = await chrome.runtime.sendMessage({
       type: 'refresh',
@@ -332,15 +492,22 @@ $('save').addEventListener('click', async () => {
       say(`Synced ${res.cache.repos.length} repos for @${res.cache.profile.login}.`, 'ok');
       await showStorageInfo();
     } else {
-      say(res?.error?.message || 'Refresh failed.', 'err');
+      reportError(res?.error, 'account', 'Refresh failed.');
     }
-  }).catch((err) => say(err.message || 'Could not save settings.', 'err'));
+  }).catch((err) => reportError(err, 'account', 'Could not save settings.'));
 });
 
 let connectionController = null;
 window.addEventListener('pagehide', () => connectionController?.abort('pagehide'));
 
 $('test').addEventListener('click', async () => {
+  if (offline()) {
+    say(
+      'No network connection — a connection test cannot reach GitHub. Reconnect and try again.',
+      'err',
+    );
+    return;
+  }
   connectionController?.abort('restarted');
   const controller = new AbortController();
   connectionController = controller;
@@ -379,7 +546,8 @@ $('test').addEventListener('click', async () => {
     );
   } catch (err) {
     if (connectionController !== controller) return;
-    say(err.code === 'CANCELLED' ? 'Connection test cancelled.' : err.message, 'err');
+    if (err.code === 'CANCELLED') say('Connection test cancelled.', 'err');
+    else reportError(err, 'account', 'The connection test failed.');
   } finally {
     if (connectionController === controller) {
       connectionController = null;
@@ -417,11 +585,11 @@ $('clear').addEventListener('click', async () => {
   resetClearConfirmation();
   await withBusy($('clear'), 'Clearing…', async () => {
     const response = await chrome.runtime.sendMessage({ type: 'clear-portfolio' });
-    if (!response?.ok) throw new Error(response?.error?.message || 'Could not clear local data.');
+    if (!response?.ok) throw messageError(response?.error, 'Could not clear local data.');
     await showStorageInfo();
     $('undoClear').hidden = !response.undo?.available;
     say('Snapshot, baseline and history cleared. Undo is available for 10 minutes.', 'ok', 'clear');
-  }).catch((error) => say(error.message || 'Could not clear local data.', 'err', 'clear'));
+  }).catch((error) => reportError(error, 'clear', 'Could not clear local data.'));
 });
 
 let pruneArmedUntil = 0;
@@ -451,11 +619,11 @@ $('pruneHistory').addEventListener('click', async () => {
   resetPruneConfirmation();
   await withBusy($('pruneHistory'), 'Pruning…', async () => {
     const response = await chrome.runtime.sendMessage({ type: 'prune-history', keepDays });
-    if (!response?.ok) throw new Error(response?.error?.message || 'Could not prune history.');
+    if (!response?.ok) throw messageError(response?.error, 'Could not prune history.');
     await showStorageInfo();
     $('undoClear').hidden = !response.undo?.available;
     say(`History now keeps at most ${keepDays} days. Undo is available for 10 minutes.`, 'ok', 'history');
-  }).catch((error) => say(error.message || 'Could not prune history.', 'err', 'history'));
+  }).catch((error) => reportError(error, 'history', 'Could not prune history.'));
 });
 
 async function readPortableState() {
@@ -496,7 +664,7 @@ $('backupJson').addEventListener('click', async () => {
       'application/json',
     );
     say('Checksummed JSON backup downloaded. No personal access token was included.', 'ok', 'transfer');
-  }).catch((error) => say(error.message || 'Could not create the backup.', 'err', 'transfer'));
+  }).catch((error) => reportError(error, 'transfer', 'Could not create the backup.'));
 });
 
 $('exportCsv').addEventListener('click', async () => {
@@ -507,7 +675,7 @@ $('exportCsv').addEventListener('click', async () => {
     });
     downloadText(csv, `StarBoard-repositories-${exportDate()}.csv`, 'text/csv;charset=utf-8');
     say('Timestamped repository CSV downloaded.', 'ok', 'transfer');
-  }).catch((error) => say(error.message || 'Could not create the CSV.', 'err', 'transfer'));
+  }).catch((error) => reportError(error, 'transfer', 'Could not create the CSV.'));
 });
 
 let pendingImportRecords = null;
@@ -576,12 +744,12 @@ $('applyImport').addEventListener('click', async () => {
       type: 'import-backup',
       records: pendingImportRecords,
     });
-    if (!response?.ok) throw new Error(response?.error?.message || 'Could not restore backup.');
+    if (!response?.ok) throw messageError(response?.error, 'Could not restore backup.');
     resetImportPreview();
     await load();
     $('undoClear').hidden = !response.undo?.available;
     say('Backup restored. The prior local state is undoable for 10 minutes.', 'ok', 'transfer');
-  }).catch((error) => say(error.message || 'Could not restore backup.', 'err', 'transfer'));
+  }).catch((error) => reportError(error, 'transfer', 'Could not restore backup.'));
 });
 
 let diagnosticsText = '';
@@ -590,14 +758,14 @@ $('buildDiagnostics').addEventListener('click', async () => {
   await withBusy($('buildDiagnostics'), 'Building…', async () => {
     const response = await chrome.runtime.sendMessage({ type: 'get-diagnostics' });
     if (!response?.ok) {
-      throw new Error(response?.error?.message || 'Could not build diagnostics.');
+      throw messageError(response?.error, 'Could not build diagnostics.');
     }
     diagnosticsText = `${JSON.stringify(response.diagnostics, null, 2)}\n`;
     $('diagnosticsOutput').textContent = diagnosticsText;
     $('diagnosticsOutput').hidden = false;
     $('copyDiagnostics').disabled = false;
     say('Redacted diagnostics built locally.', 'ok', 'diagnostics');
-  }).catch((error) => say(error.message || 'Could not build diagnostics.', 'err', 'diagnostics'));
+  }).catch((error) => reportError(error, 'diagnostics', 'Could not build diagnostics.'));
 });
 
 async function copyDiagnosticsText() {
@@ -647,7 +815,7 @@ $('notificationsEnabled').addEventListener('change', async () => {
       type: 'patch-notification-config',
       changes: { enabled: enabling },
     });
-    if (!response?.ok) throw new Error(response?.error?.message || 'Could not save notifications.');
+    if (!response?.ok) throw messageError(response?.error, 'Could not save notifications.');
     syncNotificationUI(response.config, response.permitted, response.pending, response.dropped);
     say(enabling ? 'Local alerts enabled.' : 'Local alerts disabled.', 'ok');
   } catch (error) {
@@ -667,7 +835,7 @@ for (const field of Object.values(notificationFields)) {
         changes: notificationPatch(),
       });
       if (!response?.ok) {
-        throw new Error(response?.error?.message || 'Could not save notification settings.');
+        throw messageError(response?.error, 'Could not save notification settings.');
       }
       syncNotificationUI(response.config, response.permitted, response.pending, response.dropped);
       say('Notification settings saved.', 'ok');
@@ -680,16 +848,41 @@ for (const field of Object.values(notificationFields)) {
   });
 }
 
-chrome.permissions.onRemoved.addListener((permissions) => {
+chrome.permissions.onRemoved.addListener(async (permissions) => {
   if (permissions.permissions?.includes('notifications')) {
     loadNotificationConfig().catch(() => {});
+  }
+  // Revoking github.com leaves the stored source reading `web` while website
+  // mode can no longer fetch anything. Re-sync from storage and say so.
+  if (permissions.origins?.some((origin) => origin.includes('github.com'))) {
+    hasWebPermission = false;
+    const settings = await getSettings().catch(() => null);
+    if (settings) {
+      configured = Boolean(settings.username);
+      fields.dataSource.value = settings.dataSource;
+    }
+    syncSourceUI();
+    if (settings?.dataSource === 'web') {
+      say(
+        'Access to github.com was removed. Website mode cannot read your repositories until ' +
+          'you select the website source again, or switch to the GitHub API.',
+        'err',
+      );
+    }
+  }
+});
+
+chrome.permissions.onAdded.addListener((permissions) => {
+  if (permissions.origins?.some((origin) => origin.includes('github.com'))) {
+    hasWebPermission = true;
+    syncSourceUI();
   }
 });
 
 $('undoClear').addEventListener('click', async () => {
   await withBusy($('undoClear'), 'Restoring…', async () => {
     const response = await chrome.runtime.sendMessage({ type: 'undo' });
-    if (!response?.ok) throw new Error(response?.error?.message || 'Undo is no longer available.');
+    if (!response?.ok) throw messageError(response?.error, 'Undo is no longer available.');
     await load();
     $('undoClear').hidden = true;
     say('Last data action undone.', 'ok', 'clear');
@@ -727,12 +920,12 @@ fields.tokenMode.addEventListener('change', async () => {
 $('forgetToken').addEventListener('click', async () => {
   await withBusy($('forgetToken'), 'Forgetting…', async () => {
     const response = await chrome.runtime.sendMessage({ type: 'forget-token' });
-    if (!response?.ok) throw new Error(response?.error?.message || 'Could not forget the token.');
+    if (!response?.ok) throw messageError(response?.error, 'Could not forget the token.');
     fields.token.value = '';
     fields.tokenMode.value = 'session';
     syncSourceUI();
     say('Token removed from session and persistent storage.', 'ok');
-  }).catch((error) => say(error.message || 'Could not forget the token.', 'err'));
+  }).catch((error) => reportError(error, 'account', 'Could not forget the token.'));
   syncSourceUI();
 });
 
@@ -777,7 +970,7 @@ for (const key of INSTANT_SETTING_KEYS) {
         await chrome.runtime.sendMessage({ type: 'settings-changed' });
         say(`${INSTANT_SETTING_LABELS[key]} saved.`, 'ok');
       })
-      .catch((err) => say(err.message || 'Could not save that setting.', 'err'))
+      .catch((err) => reportError(err, 'account', 'Could not save that setting.'))
       .finally(() => {
         pendingSettingsSaves -= 1;
         if (pendingSettingsSaves === 0) document.body.dataset.settingsState = 'saved';
@@ -785,11 +978,25 @@ for (const key of INSTANT_SETTING_KEYS) {
   });
 }
 
-// A rejection here used to leave the page silently half-initialised: storage
-// figures and the badge preview stuck at defaults, and the undo control hidden
-// even when an undo was available.
+// The form starts disabled and busy. Until `load()` resolves it still holds the
+// markup defaults — `web`, `dark`, `—` — and any activation would write those
+// over the user's real settings. A rejection also used to leave the page
+// silently half-initialised: storage figures stuck at defaults and the undo
+// control hidden even when an undo was available.
+setPageBusy(true);
+syncOfflineState();
 load()
-  .then(syncUndoControl)
+  .then(async () => {
+    setPageBusy(false);
+    await syncUndoControl();
+  })
   .catch((error) => {
-    say(`Settings could not be loaded. ${error?.message || 'Reload the page to try again.'}`, 'err');
+    $('loadingBanner').hidden = true;
+    $('settingsGrid').setAttribute('aria-busy', 'false');
+    say(
+      `Settings could not be loaded, so the controls stay locked to avoid overwriting them. ${
+        error?.message || 'Reload the page to try again.'
+      }`,
+      'err',
+    );
   });

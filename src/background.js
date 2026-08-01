@@ -635,6 +635,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       error: {
         message: error?.message || 'StarBoard could not complete that request.',
         code: error?.code || 'MESSAGE_FAILED',
+        // Settings needs this to say when a rate limit lifts rather than
+        // repeating a bare "rate limit reached".
+        resetAt: error?.resetAt ?? error?.retryAt ?? null,
       },
     });
   });

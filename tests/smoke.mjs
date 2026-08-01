@@ -3648,6 +3648,216 @@ async function main() {
       }, beforeClear);
       if (!restored) throw new Error('the restored snapshot or history did not match');
     });
+
+    // The settings page holds every destructive control and, until load()
+    // resolves, every field still reads its markup default — `web` for the
+    // source, `dark` for the theme. Activating anything in that window used to
+    // save those defaults over the real settings.
+    const seededSettings = await options.evaluate(async () => {
+      const { settings } = await chrome.storage.local.get('settings');
+      const before = settings.data;
+      await chrome.storage.local.set({
+        settings: {
+          ...settings,
+          data: { ...before, username: 'octocat', dataSource: 'api', theme: 'light' },
+        },
+      });
+      return before;
+    });
+    const busyOptions = await ctx.newPage();
+    captureErrors(busyOptions, 'settings load state');
+    // Hold the first storage read open so the busy window is observable instead
+    // of being a race the test has to guess at.
+    await busyOptions.addInitScript(() => {
+      const area = chrome.storage.local;
+      const original = area.get.bind(area);
+      let held = true;
+      area.get = (...args) =>
+        held
+          ? new Promise((resolveGet) => {
+              held = false;
+              setTimeout(() => original(...args).then(resolveGet), 700);
+            })
+          : original(...args);
+    });
+    await busyOptions.goto(`chrome-extension://${extId}/src/options.html`);
+    await busyOptions.waitForSelector('#save');
+    const busyState = await busyOptions.evaluate(() => ({
+      busy: document.querySelector('#settingsGrid').getAttribute('aria-busy'),
+      banner: !document.querySelector('#loadingBanner').hidden,
+      locked: ['save', 'test', 'dataSource', 'theme', 'clear', 'pruneHistory', 'backupJson'].every(
+        (id) => document.getElementById(id).disabled,
+      ),
+    }));
+    check(
+      'settings controls stay disabled and busy until stored settings load',
+      busyState.busy === 'true' && busyState.banner && busyState.locked,
+      JSON.stringify(busyState),
+    );
+    await busyOptions.click('#save', { force: true, timeout: 2000 }).catch(() => {});
+    await busyOptions.waitForFunction(
+      () => document.querySelector('#settingsGrid').getAttribute('aria-busy') === 'false',
+      { timeout: 10000 },
+    );
+    const afterLoad = await busyOptions.evaluate(async () => ({
+      stored: (await chrome.storage.local.get('settings')).settings.data,
+      source: document.querySelector('#dataSource').value,
+      theme: document.querySelector('#theme').value,
+      banner: !document.querySelector('#loadingBanner').hidden,
+      unlocked: ['save', 'test', 'dataSource', 'theme'].every(
+        (id) => !document.getElementById(id).disabled,
+      ),
+    }));
+    check(
+      'activating a control during the load window cannot overwrite saved settings',
+      afterLoad.stored.dataSource === 'api' &&
+        afterLoad.stored.theme === 'light' &&
+        afterLoad.source === 'api' &&
+        afterLoad.theme === 'light',
+      JSON.stringify(afterLoad),
+    );
+    check(
+      'the form unlocks and drops its busy banner once settings are loaded',
+      afterLoad.unlocked && !afterLoad.banner,
+      JSON.stringify(afterLoad),
+    );
+
+    // Offline is a state the settings page had no representation for: both
+    // network actions simply failed at the fetch.
+    await ctx.setOffline(true);
+    await busyOptions.waitForFunction(
+      () => document.querySelector('#offlineBanner')?.hidden === false,
+      { timeout: 10000 },
+    );
+    await busyOptions.click('#test');
+    await busyOptions.waitForFunction(
+      () => /no network connection/i.test(document.querySelector('#statusError')?.textContent || ''),
+      { timeout: 10000 },
+    );
+    const offlineTest = await busyOptions.textContent('#statusError');
+    check(
+      'an offline connection test explains itself instead of failing at the fetch',
+      /no network connection/i.test(offlineTest) && /reconnect/i.test(offlineTest),
+      offlineTest,
+    );
+    await busyOptions.click('#save');
+    await busyOptions.waitForFunction(
+      () => /offline/i.test(document.querySelector('#status')?.textContent || ''),
+      { timeout: 15000 },
+    );
+    const offlineSave = await busyOptions.evaluate(async () => ({
+      status: document.querySelector('#status').textContent,
+      stored: (await chrome.storage.local.get('settings')).settings.data,
+    }));
+    check(
+      'an offline save persists locally and says the refresh is deferred',
+      /settings saved/i.test(offlineSave.status) &&
+        /reconnect/i.test(offlineSave.status) &&
+        offlineSave.stored.username === 'octocat',
+      JSON.stringify(offlineSave),
+    );
+    await ctx.setOffline(false);
+    await busyOptions.waitForFunction(
+      () => document.querySelector('#offlineBanner')?.hidden === true,
+      { timeout: 10000 },
+    );
+    check(
+      'the offline banner clears when connectivity returns',
+      await busyOptions.$eval('#offlineBanner', (node) => node.hidden),
+    );
+
+    // A rate-limited response carries the reset time; the page used to drop it.
+    await busyOptions.evaluate(() => {
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ message: 'API rate limit exceeded' }), {
+          status: 403,
+          headers: {
+            'content-type': 'application/json',
+            'x-ratelimit-limit': '60',
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 1800),
+          },
+        });
+    });
+    await busyOptions.click('#test');
+    await busyOptions.waitForFunction(
+      () => /rate limit/i.test(document.querySelector('#statusError')?.textContent || ''),
+      { timeout: 10000 },
+    );
+    const rateLimited = await busyOptions.textContent('#statusError');
+    check(
+      'a rate-limited connection test states when it can be retried',
+      /rate limit/i.test(rateLimited) && /(resets at|try again in)/i.test(rateLimited),
+      rateLimited,
+    );
+
+    // A storage-quota failure has its fix on this very page, but the generic
+    // message never pointed at it.
+    const quotaFocus = await busyOptions.evaluate(async () => {
+      const native = chrome.runtime.sendMessage.bind(chrome.runtime);
+      chrome.runtime.sendMessage = async (msg, ...rest) => {
+        if (msg?.type === 'patch-settings') {
+          return {
+            ok: false,
+            error: {
+              message: 'StarBoard ran out of local storage space.',
+              code: 'STORAGE_QUOTA_EXCEEDED',
+            },
+          };
+        }
+        return native(msg, ...rest);
+      };
+      document.querySelector('#badgeMode').value = 'off';
+      document.querySelector('#badgeMode').dispatchEvent(new Event('change'));
+      await new Promise((done) => setTimeout(done, 400));
+      chrome.runtime.sendMessage = native;
+      return {
+        message: document.querySelector('#statusError').textContent,
+        focused: document.activeElement?.id,
+      };
+    });
+    check(
+      'a storage-quota failure persists and hands focus to the prune control',
+      /prune trend history/i.test(quotaFocus.message) && quotaFocus.focused === 'pruneHistory',
+      JSON.stringify(quotaFocus),
+    );
+
+    // Website mode without the github.com grant is the state a revocation
+    // leaves behind: the stored source still reads `web` and nothing worked.
+    await busyOptions.evaluate(async () => {
+      const { settings } = await chrome.storage.local.get('settings');
+      await chrome.storage.local.set({
+        settings: { ...settings, data: { ...settings.data, dataSource: 'web' } },
+      });
+    });
+    const revokedOptions = await ctx.newPage();
+    captureErrors(revokedOptions, 'revoked origin settings');
+    await revokedOptions.goto(`chrome-extension://${extId}/src/options.html`);
+    await revokedOptions.waitForFunction(
+      () => document.querySelector('#settingsGrid')?.getAttribute('aria-busy') === 'false',
+      { timeout: 10000 },
+    );
+    const revoked = await revokedOptions.evaluate(() => ({
+      source: document.querySelector('#dataSource').value,
+      hint: document.querySelector('#sourceHint').textContent,
+      warned: document.querySelector('#sourceHint').classList.contains('token-warning'),
+      granted: false,
+    }));
+    check(
+      'website mode without the github.com grant says so on the source control',
+      revoked.source === 'web' &&
+        /not currently granted/i.test(revoked.hint) &&
+        revoked.warned,
+      JSON.stringify(revoked),
+    );
+    await revokedOptions.close();
+    await busyOptions.evaluate(
+      (data) => chrome.storage.local.get('settings').then(({ settings }) =>
+        chrome.storage.local.set({ settings: { ...settings, data } }),
+      ),
+      seededSettings,
+    );
+    await busyOptions.close();
   } finally {
     await closeContext(ctx);
   }

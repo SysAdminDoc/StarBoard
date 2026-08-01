@@ -26,7 +26,15 @@
         <p>Keep your repository signal current, comparable, and close at hand.</p>
       </header>
 
-      <main class="settings-grid">
+      <p id="loadingBanner" class="page-banner busy" role="status" aria-live="polite">
+        Loading your saved settings…
+      </p>
+      <p id="offlineBanner" class="page-banner offline" role="status" aria-live="polite" hidden>
+        No network connection. Saved settings still apply; refreshes and connection tests
+        resume once you are back online.
+      </p>
+
+      <main class="settings-grid" id="settingsGrid" aria-busy="true">
         <section class="card account-card">
           <div class="section-heading">
             <span class="section-icon" aria-hidden="true">

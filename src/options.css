@@ -431,6 +431,28 @@ a:hover {
   font-size: 11px;
 }
 
+/* Page-level states the cards themselves cannot express: the settings have not
+   loaded yet, or the browser is offline so every network action is doomed. */
+.page-banner {
+  margin: 0 0 16px;
+  padding: 9px 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.page-banner.busy {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-soft));
+}
+
+.page-banner.offline {
+  border-color: color-mix(in srgb, var(--gold) 40%, var(--border));
+  background: color-mix(in srgb, var(--gold) 9%, var(--surface-soft));
+}
+
 .callout {
   position: relative;
   margin-top: auto;
@@ -1023,8 +1045,14 @@ footer::before {
 
   .section-icon,
   .callout,
-  .badge-preview {
+  .badge-preview,
+  .page-banner.busy {
     border-color: var(--border);
+    background: var(--surface-soft);
+  }
+
+  .page-banner.offline {
+    border-color: var(--gold);
     background: var(--surface-soft);
   }
 
