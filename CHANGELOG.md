@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Retained repository-rename events are applied to trend history only once.
+  Recreating a repository under a name freed by an earlier rename no longer
+  merges it into the renamed repository, and renaming a repository back to its
+  original name now converges on one stable series.
 - Rapid search and sort/filter changes now persist in the same order the user
   made them. A delayed search debounce can no longer render an older result set
   after a newer control change, and browser coverage compares the painted row

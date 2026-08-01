@@ -1175,7 +1175,13 @@ await test('daily history updates same-day points and follows renames', async ()
       confidence: 'exact',
       repos: [renamed],
       lifecycleEvents: [
-        { type: 'renamed', from: 'octocat/old-name', to: 'octocat/new-name' },
+        {
+          id: 'rename-old-to-new',
+          type: 'renamed',
+          from: 'octocat/old-name',
+          to: 'octocat/new-name',
+          at: firstAt + 7 * 86_400_000,
+        },
       ],
     },
     { now: firstAt + 7 * 86_400_000 },
@@ -1192,6 +1198,140 @@ await test('daily history updates same-day points and follows renames', async ()
   assert.equal(comparison.fullName, 'octocat/new-name');
   assert.equal(comparison.stars, 11);
   assert.equal(renamed.stargazers_count - comparison.stars, 7);
+});
+
+await test('a retained rename event cannot consume a repository recreated under the old name', async () => {
+  const day = Date.UTC(2026, 0, 10, 8);
+  const original = {
+    id: 7,
+    full_name: 'octocat/foo',
+    stargazers_count: 10,
+    forks_count: 1,
+    private: false,
+  };
+  const renamed = { ...original, full_name: 'octocat/bar' };
+  const rename = {
+    id: 'generation-2:renamed:7:octocat/foo:octocat/bar',
+    type: 'renamed',
+    from: 'octocat/foo',
+    to: 'octocat/bar',
+    at: day + 86_400_000,
+  };
+
+  let history = recordDailyHistory(
+    null,
+    { source: 'api', confidence: 'exact', repos: [original] },
+    { now: day },
+  );
+  history = recordDailyHistory(
+    history,
+    {
+      source: 'api',
+      confidence: 'exact',
+      repos: [{ ...renamed, stargazers_count: 11 }],
+      lifecycleEvents: [rename],
+    },
+    { now: day + 86_400_000 },
+  );
+
+  for (let offset = 2; offset <= 4; offset += 1) {
+    history = recordDailyHistory(
+      history,
+      {
+        source: 'api',
+        confidence: 'exact',
+        repos: [
+          { ...renamed, stargazers_count: 10 + offset },
+          {
+            ...original,
+            id: 8,
+            stargazers_count: offset - 1,
+            forks_count: 0,
+          },
+        ],
+        lifecycleEvents: [rename],
+      },
+      { now: day + offset * 86_400_000 },
+    );
+  }
+
+  assert.deepEqual(
+    history.repos.map((entry) => entry[1]).sort(),
+    ['octocat/bar', 'octocat/foo'],
+  );
+  assert.deepEqual(
+    historyRows(history)
+      .filter((row) => row.fullName === 'octocat/foo')
+      .map((row) => row.stars),
+    [1, 2, 3],
+  );
+});
+
+await test('rename then rename back converges without replaying either event', async () => {
+  const day = Date.UTC(2026, 0, 20, 8);
+  const foo = {
+    id: 7,
+    full_name: 'octocat/foo',
+    stargazers_count: 10,
+    forks_count: 1,
+    private: false,
+  };
+  const bar = { ...foo, full_name: 'octocat/bar' };
+  const toBar = {
+    id: 'generation-2:renamed:7:octocat/foo:octocat/bar',
+    type: 'renamed',
+    from: 'octocat/foo',
+    to: 'octocat/bar',
+    at: day + 86_400_000,
+  };
+  const toFoo = {
+    id: 'generation-3:renamed:7:octocat/bar:octocat/foo',
+    type: 'renamed',
+    from: 'octocat/bar',
+    to: 'octocat/foo',
+    at: day + 2 * 86_400_000,
+  };
+
+  let history = recordDailyHistory(
+    null,
+    { source: 'api', confidence: 'exact', repos: [foo] },
+    { now: day },
+  );
+  history = recordDailyHistory(
+    history,
+    {
+      source: 'api',
+      confidence: 'exact',
+      repos: [{ ...bar, stargazers_count: 11 }],
+      lifecycleEvents: [toBar],
+    },
+    { now: day + 86_400_000 },
+  );
+
+  for (let offset = 2; offset <= 4; offset += 1) {
+    history = recordDailyHistory(
+      history,
+      {
+        source: 'api',
+        confidence: 'exact',
+        repos: [{ ...foo, stargazers_count: 10 + offset }],
+        lifecycleEvents: [toFoo, toBar],
+      },
+      { now: day + offset * 86_400_000 },
+    );
+    assert.deepEqual(history.repos.map((entry) => entry[1]), ['octocat/foo']);
+  }
+
+  assert.deepEqual(
+    historyRows(history).map((row) => [row.fullName, row.stars]),
+    [
+      ['octocat/foo', 10],
+      ['octocat/foo', 11],
+      ['octocat/foo', 12],
+      ['octocat/foo', 13],
+      ['octocat/foo', 14],
+    ],
+  );
 });
 
 await test('same-day history keeps repositories missing from a later refresh', async () => {

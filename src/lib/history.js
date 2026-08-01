@@ -332,7 +332,21 @@ export function recordDailyHistory(
 
   // A rename changes the key, so the old series has to be carried across
   // before today's counts are placed, or the repository restarts from zero.
-  const carried = applyRenames(existing.repos, existing.snapshots, cache.lifecycleEvents);
+  // Lifecycle events remain in the cache until the user dismisses them, so an
+  // event at or before the newest measurement has already been applied. Replaying
+  // it would consume a different repository later created under the freed name.
+  const newestMeasurementAt = existing.snapshots.reduce(
+    (latest, snapshot) => Math.max(latest, snapshot.at),
+    -Infinity,
+  );
+  const unappliedLifecycleEvents = (cache.lifecycleEvents || []).filter(
+    (event) => Number.isFinite(event?.at) && event.at > newestMeasurementAt,
+  );
+  const carried = applyRenames(
+    existing.repos,
+    existing.snapshots,
+    unappliedLifecycleEvents,
+  );
   const index = new Map(carried.repos.map((entry, at) => [entry[0], at]));
   const repos = [...carried.repos];
   for (const repo of cache.repos) {
