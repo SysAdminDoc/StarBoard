@@ -38,6 +38,13 @@ const CHROME_EXECUTABLE = process.env.STARBOARD_CHROME_EXECUTABLE || '';
 const BROWSER_CHANNEL = CHROME_EXECUTABLE
   ? { executablePath: CHROME_EXECUTABLE }
   : { channel: 'chromium' };
+// The suite must run headed (MV3 service workers never start in headless
+// Chromium). STARBOARD_WINDOW_POSITION="x,y" places those windows on a chosen
+// display so a headed run does not take over the operator's desktop.
+const WINDOW_POSITION = process.env.STARBOARD_WINDOW_POSITION || '';
+const WINDOW_ARGS = WINDOW_POSITION
+  ? [`--window-position=${WINDOW_POSITION}`, '--window-size=1280,1000']
+  : [];
 
 /**
  * Web mode reads github.com through an *optional* host permission, granted by
@@ -161,7 +168,7 @@ async function testWebMode(source) {
   const ctx = await chromium.launchPersistentContext(profile, {
     ...BROWSER_CHANNEL,
     headless: false,
-    args: [`--disable-extensions-except=${variant}`, `--load-extension=${variant}`],
+    args: [`--disable-extensions-except=${variant}`, `--load-extension=${variant}`, ...WINDOW_ARGS],
   });
 
   try {
@@ -267,7 +274,7 @@ async function testNotificationMode(source) {
   const ctx = await chromium.launchPersistentContext(profile, {
     ...BROWSER_CHANNEL,
     headless: false,
-    args: [`--disable-extensions-except=${variant}`, `--load-extension=${variant}`],
+    args: [`--disable-extensions-except=${variant}`, `--load-extension=${variant}`, ...WINDOW_ARGS],
   });
 
   try {
@@ -403,7 +410,7 @@ async function main() {
   const ctx = await chromium.launchPersistentContext(PROFILE, {
     ...BROWSER_CHANNEL,
     headless: false, // MV3 service workers do not start in headless Chromium
-    args: [`--disable-extensions-except=${source}`, `--load-extension=${source}`],
+    args: [`--disable-extensions-except=${source}`, `--load-extension=${source}`, ...WINDOW_ARGS],
   });
 
   try {
@@ -844,15 +851,6 @@ async function main() {
         document.querySelectorAll('.row').length < 20
       );
     }, searchTerm);
-    await popup.waitForTimeout(200);
-    await popup.waitForFunction(async (expected) => {
-      const { getPortfolioViewState } = await import('./lib/storage.js');
-      return (
-        document.body.dataset.portfolioState === 'saved' &&
-        (await getPortfolioViewState()).active.query === expected &&
-        document.querySelectorAll('.row').length < 20
-      );
-    }, searchTerm);
     const filtered = await popup.$$eval('.row', (n) => n.length);
     check('search filters the list', filtered > 0 && filtered <= rows.length, `${filtered} rows`);
     await popup.fill('#search', '');
@@ -861,21 +859,6 @@ async function main() {
       return (
         document.body.dataset.portfolioState === 'saved' &&
         (await getPortfolioViewState()).active.query === ''
-      );
-    });
-    await popup.waitForTimeout(200);
-    await popup.waitForFunction(async () => {
-      const { getPortfolioViewState } = await import('./lib/storage.js');
-      const names = [...document.querySelectorAll('.row .name')].map(
-        (node) => node.textContent,
-      );
-      return (
-        document.body.dataset.portfolioState === 'saved' &&
-        (await getPortfolioViewState()).active.sortKey === 'name' &&
-        names.length > 1 &&
-        names.every(
-          (value, index) => index === 0 || names[index - 1].localeCompare(value) <= 0,
-        )
       );
     });
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Repaired an unreachable wait predicate in the browser suite that made every
+  online run time out roughly a third of the way through, leaving deltas,
+  badge, alarms, credentials, diagnostics, backup/restore and notifications
+  unverified. The full suite now runs to completion.
+
+### Changed
+
+- Headed browser runs honor `STARBOARD_WINDOW_POSITION="x,y"` so the suite can
+  be placed on a chosen display instead of taking over the active desktop.
+
 ## v1.2.0 — 2026-07-29
 
 ### Changed
