@@ -43,6 +43,20 @@ def main() -> None:
         if first != second:
             raise SystemExit("release outputs differ between clean-room builds")
 
+        # A Windows checkout can materialize text as CRLF while Linux uses LF.
+        # The published bytes must depend on the commit, not global Git config.
+        line_ending_probe = clean_root / "src" / "popup.js"
+        probe_text = line_ending_probe.read_text(encoding="utf-8")
+        line_ending_probe.write_text(
+            probe_text,
+            encoding="utf-8",
+            newline="\r\n",
+        )
+        subprocess.run(command, cwd=clean_root, check=True)
+        third = snapshot(clean_root / "dist")
+        if second != third:
+            raise SystemExit("release outputs depend on checkout line endings")
+
         version = json.loads((clean_root / "manifest.json").read_text(encoding="utf-8"))["version"]
         stem = f"StarBoard-v{version}"
         expected = {
@@ -51,8 +65,8 @@ def main() -> None:
             f"{stem}.files.sha256",
             f"{stem}.spdx.json",
         }
-        if set(second) != expected:
-            raise SystemExit(f"unexpected release outputs: {sorted(second)}")
+        if set(third) != expected:
+            raise SystemExit(f"unexpected release outputs: {sorted(third)}")
         if list(clean_root.rglob("*.crx")) or list(clean_root.rglob("*.pem")):
             raise SystemExit("clean release generated signing material")
 

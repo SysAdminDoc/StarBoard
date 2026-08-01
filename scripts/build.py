@@ -31,6 +31,7 @@ ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 # 3 = Unix. Pinned so a Windows build and a Linux build agree byte for byte.
 ZIP_CREATE_SYSTEM = 3
 ZIP_COMPRESSION = zipfile.ZIP_STORED
+TEXT_SUFFIXES = {".css", ".html", ".js", ".json", ".txt"}
 
 
 def version() -> str:
@@ -53,12 +54,28 @@ def collect() -> list[tuple[Path, str]]:
     return sorted(files, key=lambda item: item[1])
 
 
-def digest(path: Path, algorithm: str = "sha256") -> str:
+def shipping_bytes(path: Path, name: str) -> bytes:
+    """Return the canonical bytes placed in the release archive.
+
+    Git checkouts can materialize the same text blob with LF or CRLF depending
+    on host configuration. Normalize shipping text here so third-party builds
+    do not need a particular global Git setting. LICENSE is the only extension-
+    less text file in the package.
+    """
+    payload = path.read_bytes()
+    if path.suffix.lower() in TEXT_SUFFIXES or name == "LICENSE":
+        return payload.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return payload
+
+
+def digest_bytes(payload: bytes, algorithm: str = "sha256") -> str:
     hasher = hashlib.new(algorithm)
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            hasher.update(block)
+    hasher.update(payload)
     return hasher.hexdigest()
+
+
+def digest(path: Path, algorithm: str = "sha256") -> str:
+    return digest_bytes(path.read_bytes(), algorithm)
 
 
 def build_zip(dest: Path, files: list[tuple[Path, str]] | None = None) -> Path:
@@ -77,7 +94,7 @@ def build_zip(dest: Path, files: list[tuple[Path, str]] | None = None) -> Path:
             info.compress_type = ZIP_COMPRESSION
             info.create_system = ZIP_CREATE_SYSTEM
             info.external_attr = 0o644 << 16
-            archive.writestr(info, path.read_bytes())
+            archive.writestr(info, shipping_bytes(path, name))
     return dest
 
 
@@ -85,19 +102,20 @@ def build_file_manifest(
     dest: Path,
     files: list[tuple[Path, str]],
 ) -> Path:
-    lines = [f"{digest(path)}  {name}" for path, name in files]
+    lines = [f"{digest_bytes(shipping_bytes(path, name))}  {name}" for path, name in files]
     dest.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return dest
 
 
 def _spdx_file(path: Path, name: str) -> dict[str, Any]:
     identifier = hashlib.sha256(name.encode("utf-8")).hexdigest()[:16]
+    payload = shipping_bytes(path, name)
     return {
         "SPDXID": f"SPDXRef-File-{identifier}",
         "fileName": f"./{name}",
         "checksums": [
-            {"algorithm": "SHA1", "checksumValue": digest(path, "sha1")},
-            {"algorithm": "SHA256", "checksumValue": digest(path)},
+            {"algorithm": "SHA1", "checksumValue": digest_bytes(payload, "sha1")},
+            {"algorithm": "SHA256", "checksumValue": digest_bytes(payload)},
         ],
         "licenseConcluded": "MIT",
         "licenseInfoInFiles": ["MIT"],
