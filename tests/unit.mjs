@@ -118,6 +118,7 @@ const {
   historyRows,
   migrateHistoryToV2,
   recordDailyHistory,
+  rekeyHistoryByName,
 } = await import('../src/lib/history.js');
 const {
   createBackup,
@@ -193,7 +194,7 @@ await test('v1.2 settings migrate to session-aware schema v4', async () => {
 
 await test('current settings migration is idempotent', async () => {
   const current = await fixture('current-settings.json');
-  const migrated = storage.migrateRecord('settings', current, 5);
+  const migrated = storage.migrateRecord('settings', current, storage.SCHEMA_VERSION);
   assert.equal(migrated.changed, false);
   assert.deepEqual(migrated.envelope.data, current.data);
 });
@@ -577,8 +578,8 @@ await test('an out-of-space write fails loudly and leaves stored data intact', a
 await test('history is not mirrored into the recovery copy', async () => {
   await storage.setSettings({ username: 'octocat', dataSource: 'api' });
   await storage.setHistory({
-    formatVersion: 2,
-    repos: [['id:1', 'octocat/a', 0]],
+    formatVersion: 3,
+    repos: [['name:octocat/a', 'octocat/a', 0]],
     snapshots: [
       {
         day: '2026-07-30',
@@ -1041,7 +1042,7 @@ await test('saved portfolio view deletion is recoverable through the shared undo
   assert.equal(restored.portfolioViews.active.language, 'JavaScript');
 });
 
-await test('daily history replaces same-day points and follows API IDs across renames', async () => {
+await test('daily history replaces same-day points and follows renames', async () => {
   const firstAt = Date.UTC(2026, 0, 1, 8);
   const first = {
     source: 'api',
@@ -1076,20 +1077,108 @@ await test('daily history replaces same-day points and follows API IDs across re
   };
   history = recordDailyHistory(
     history,
-    { source: 'api', confidence: 'exact', repos: [renamed] },
+    {
+      source: 'api',
+      confidence: 'exact',
+      repos: [renamed],
+      lifecycleEvents: [
+        { type: 'renamed', from: 'octocat/old-name', to: 'octocat/new-name' },
+      ],
+    },
     { now: firstAt + 7 * 86_400_000 },
   );
+  assert.equal(history.repos.length, 1, 'a rename must not open a second series');
   const comparison = historyPointForRepo(history, renamed, 7, {
     now: firstAt + 7 * 86_400_000,
   });
-  // Identity follows the numeric API id, so the delta spans the rename. The
-  // dictionary holds one name per identity and keeps it current, so a
-  // historical point reports the repository's present name rather than the one
-  // it carried that day — the series stays one continuous line instead of
-  // appearing to change subject halfway through.
+  // The key is the name, so a rename is carried across by re-keying the
+  // dictionary from the detected lifecycle event. The dictionary holds one
+  // name per identity, so a historical point reports the repository's present
+  // name rather than the one it carried that day — the series stays one
+  // continuous line instead of appearing to change subject halfway through.
   assert.equal(comparison.fullName, 'octocat/new-name');
   assert.equal(comparison.stars, 11);
   assert.equal(renamed.stargazers_count - comparison.stars, 7);
+});
+
+await test('a trend series survives a change of data source', async () => {
+  const start = Date.UTC(2026, 2, 1, 9);
+  // The API knows the numeric id; github.com never exposes it. Keying on the
+  // id meant a source switch started every series over from nothing.
+  const viaApi = {
+    source: 'api',
+    confidence: 'exact',
+    repos: [
+      { id: 42, full_name: 'octocat/demo', stargazers_count: 30, forks_count: 4, private: false },
+    ],
+  };
+  const viaWeb = {
+    source: 'web',
+    confidence: 'exact',
+    repos: [
+      {
+        id: 'octocat/demo',
+        full_name: 'octocat/demo',
+        stargazers_count: 37,
+        forks_count: 5,
+        private: false,
+      },
+    ],
+  };
+  let history = recordDailyHistory(null, viaApi, { now: start });
+  history = recordDailyHistory(history, viaWeb, { now: start + 7 * 86_400_000 });
+
+  assert.equal(history.repos.length, 1, 'one repository must occupy one key space');
+  assert.equal(history.snapshots.length, 2);
+  const comparison = historyPointForRepo(history, viaWeb.repos[0], 7, {
+    now: start + 7 * 86_400_000,
+  });
+  assert.equal(comparison.stars, 30, 'the pre-switch point is still comparable');
+  assert.equal(viaWeb.repos[0].stargazers_count - comparison.stars, 7);
+});
+
+await test('an id-keyed history merges into one series when it is re-keyed', async () => {
+  // What an account that used both sources under format 2 actually holds: the
+  // same repository twice, once per key space, each with half the series.
+  const day = (n) => new Date(Date.UTC(2026, 2, 1 + n)).toISOString().slice(0, 10);
+  const legacy = {
+    formatVersion: 2,
+    repos: [
+      ['id:42', 'octocat/demo', 0],
+      ['name:octocat/demo', 'octocat/demo', 0],
+    ],
+    snapshots: [
+      {
+        day: day(0),
+        at: Date.UTC(2026, 2, 1),
+        source: 'api',
+        confidence: 'exact',
+        stars: [30, null],
+        forks: [4, null],
+        approx: [],
+      },
+      {
+        day: day(1),
+        at: Date.UTC(2026, 2, 2),
+        source: 'web',
+        confidence: 'approximate',
+        stars: [null, 37],
+        forks: [null, 5],
+        approx: [1],
+      },
+    ],
+  };
+  const merged = rekeyHistoryByName(legacy);
+  assert.equal(merged.formatVersion, 3);
+  assert.equal(merged.repos.length, 1);
+  assert.deepEqual(merged.repos[0], ['name:octocat/demo', 'octocat/demo', 0]);
+  assert.deepEqual(merged.snapshots[0].stars, [30]);
+  assert.deepEqual(merged.snapshots[1].stars, [37]);
+  // The approximation index has to follow the repository into its new slot.
+  assert.deepEqual(merged.snapshots[1].approx, [0]);
+  const rows = historyRows(merged);
+  assert.equal(rows.length, 2, 'both days remain readable as one series');
+  assert.ok(rows.every((row) => row.fullName === 'octocat/demo'));
 });
 
 await test('history keeps gaps distinct from measured zeros', async () => {
@@ -1119,7 +1208,7 @@ await test('history keeps gaps distinct from measured zeros', async () => {
   );
 
   const second = history.snapshots[1];
-  const indexOfB = history.repos.findIndex((entry) => entry[0] === 'id:2');
+  const indexOfB = history.repos.findIndex((entry) => entry[0] === 'name:octocat/b');
   // A measured zero on day one, an explicit gap on day two. Conflating them
   // would invent a fake -0 delta and a phantom data point.
   assert.equal(history.snapshots[0].stars[indexOfB], 0);
@@ -1179,7 +1268,7 @@ await test('history reports the range it can actually serve', async () => {
 });
 
 function emptyHistoryForTest() {
-  return { formatVersion: 2, repos: [], snapshots: [] };
+  return { formatVersion: 3, repos: [], snapshots: [] };
 }
 
 await test('history enforces 365 UTC days and the two-megabyte hard cap', async () => {
@@ -1203,7 +1292,8 @@ await test('history enforces 365 UTC days and the two-megabyte hard cap', async 
       ],
     })),
   };
-  const historySeed = migrateHistoryToV2(legacySeed);
+  // Both migration steps, in the order the schema chain applies them.
+  const historySeed = rekeyHistoryByName(migrateHistoryToV2(legacySeed));
   const history = recordDailyHistory(
     historySeed,
     {
@@ -1587,8 +1677,8 @@ await test('notification milestones and deltas deduplicate across worker restart
     [
       'portfolio:delta:notification-g1',
       'portfolio:milestone:100',
-      'repo:id:1:delta:notification-g1',
-      'repo:id:1:milestone:10',
+      'repo:name:octocat/demo:delta:notification-g1',
+      'repo:name:octocat/demo:milestone:10',
     ],
   );
 

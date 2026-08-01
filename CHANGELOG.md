@@ -15,6 +15,14 @@
   changed silently.
 - Typing in the search box announces once, after typing stops. Each 120 ms
   debounce settle used to restart the same sentence mid-utterance.
+- Trend history survives a change of data source. Repositories were keyed on
+  the numeric GitHub id under the API and on their name under website mode, so
+  switching source moved every repository into an empty key space and every
+  series restarted from nothing. History is now keyed on the name — the only
+  identifier both sources produce — and renames are carried across by
+  re-keying from the rename StarBoard already detects. Existing histories
+  migrate in place, and an account that had used both sources has its two
+  half-series merged into one.
 
 ## v1.3.0 — 2026-07-31
 

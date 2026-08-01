@@ -10,6 +10,7 @@ import {
   emptyHistory,
   migrateHistoryToV2,
   pruneHistory,
+  rekeyHistoryByName,
   recordDailyHistory,
   validateHistory,
 } from './history.js';
@@ -30,7 +31,7 @@ import {
   validatePortfolioViewState,
 } from './portfolio-views.js';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 export const STORAGE_KEYS = Object.freeze({
   settings: 'settings',
   cache: 'cache',
@@ -162,6 +163,15 @@ function migrateV4ToV5(key, value) {
   return value;
 }
 
+function migrateV5ToV6(key, value) {
+  if (key !== STORAGE_KEYS.history) return value;
+  // Format 2 keyed API repositories on their numeric id and website
+  // repositories on their name, so switching source orphaned every series.
+  // Name keys are the only ones both sources can produce.
+  if (value?.formatVersion === 2) return rekeyHistoryByName(value);
+  return value;
+}
+
 function validateSettings(value) {
   assert(isObject(value), 'settings must be an object');
   assert(typeof value.username === 'string' && value.username.length <= 100, 'invalid username');
@@ -276,6 +286,7 @@ export function migrateRecord(key, raw, now = Date.now()) {
     else if (version === 2) value = migrateV2ToV3(key, value);
     else if (version === 3) value = migrateV3ToV4(key, value);
     else if (version === 4) value = migrateV4ToV5(key, value);
+    else if (version === 5) value = migrateV5ToV6(key, value);
     version += 1;
   }
 

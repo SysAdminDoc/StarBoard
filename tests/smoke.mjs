@@ -918,8 +918,11 @@ async function main() {
 
       const offlineState = await popup.evaluate(async () => {
         const { getHistory, getCache } = await import('./lib/storage.js');
+        const { HISTORY_FORMAT_VERSION } = await import('./lib/history.js');
         const [history, cache] = await Promise.all([getHistory(), getCache()]);
         return {
+          expectedFormat: HISTORY_FORMAT_VERSION,
+          keyed: history.repos.every(([key, fullName]) => key === `name:${fullName}`),
           formatVersion: history.formatVersion,
           dictionary: history.repos.length,
           days: history.snapshots.length,
@@ -929,7 +932,8 @@ async function main() {
       });
       check(
         'history records the generation in the compact format',
-        offlineState.formatVersion === 2 &&
+        offlineState.formatVersion === offlineState.expectedFormat &&
+          offlineState.keyed &&
           offlineState.dictionary === 3 &&
           offlineState.days === 1 &&
           offlineState.stars.every((value) => value !== null),

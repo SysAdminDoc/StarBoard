@@ -14,7 +14,7 @@
  * must never be computed across a gap.
  */
 
-export const HISTORY_FORMAT_VERSION = 2;
+export const HISTORY_FORMAT_VERSION = 3;
 export const HISTORY_RETENTION_DAYS = 365;
 export const HISTORY_MAX_BYTES = 2 * 1024 * 1024;
 const DAY_MS = 86_400_000;
@@ -34,14 +34,103 @@ export function utcDay(timestamp = Date.now()) {
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * The one identifier both data sources produce.
+ *
+ * Format 2 keyed API repositories on their numeric id and website repositories
+ * on their name, so changing the source orphaned every series at once — the
+ * new key space simply had no history in it. github.com never exposes the
+ * numeric id, so the name is the only key that can survive a switch. Renames
+ * are handled by re-keying the dictionary from the lifecycle events rather
+ * than by choosing a rename-proof key that one source cannot supply.
+ */
 export function repositoryHistoryKey(repo) {
-  return typeof repo?.id === 'number' && Number.isFinite(repo.id)
-    ? `id:${repo.id}`
-    : `name:${repo?.full_name || ''}`;
+  return `name:${repo?.full_name || ''}`;
 }
 
 export function emptyHistory() {
   return { formatVersion: HISTORY_FORMAT_VERSION, repos: [], snapshots: [] };
+}
+
+/**
+ * Collapse dictionary entries that now resolve to the same key.
+ *
+ * A day holds one measurement per repository, so when two slots merge only one
+ * of them can hold a value for any given day; the first non-null wins and the
+ * other is a no-op.
+ */
+function mergeByKey(repos, snapshots) {
+  const index = new Map();
+  const merged = [];
+  const slotFor = [];
+  for (const entry of repos) {
+    const existingAt = index.get(entry[0]);
+    if (existingAt !== undefined) {
+      merged[existingAt] = entry;
+      slotFor.push(existingAt);
+      continue;
+    }
+    index.set(entry[0], merged.length);
+    slotFor.push(merged.length);
+    merged.push(entry);
+  }
+  if (merged.length === repos.length) return { repos: merged, snapshots };
+  const nextSnapshots = snapshots.map((snapshot) => {
+    const stars = new Array(merged.length).fill(null);
+    const forks = new Array(merged.length).fill(null);
+    const wasApproximate = new Set(snapshot.approx);
+    const approx = new Set();
+    for (let i = 0; i < repos.length; i += 1) {
+      if (snapshot.stars[i] === null) continue;
+      const at = slotFor[i];
+      if (stars[at] !== null) continue;
+      stars[at] = snapshot.stars[i];
+      forks[at] = snapshot.forks[i];
+      if (wasApproximate.has(i)) approx.add(at);
+    }
+    return { ...snapshot, stars, forks, approx: [...approx].sort((a, b) => a - b) };
+  });
+  return { repos: merged, snapshots: nextSnapshots };
+}
+
+/**
+ * Move a format-2 dictionary onto name keys.
+ *
+ * `id:` entries already carry the repository's current full name, so the
+ * rewrite is lossless. An account that had used both sources ends up with two
+ * entries per repository, which merge into one series.
+ */
+export function rekeyHistoryByName(history) {
+  const repos = (history?.repos || []).map(([, fullName, isPrivate]) => [
+    `name:${fullName}`,
+    fullName,
+    isPrivate,
+  ]);
+  const merged = mergeByKey(repos, history?.snapshots || []);
+  return {
+    formatVersion: HISTORY_FORMAT_VERSION,
+    repos: merged.repos,
+    snapshots: merged.snapshots,
+  };
+}
+
+/** Follow detected renames so a renamed repository keeps its series. */
+function applyRenames(repos, snapshots, lifecycleEvents) {
+  const moves = new Map();
+  for (const event of lifecycleEvents || []) {
+    if (event?.type !== 'renamed' || !event.from || !event.to) continue;
+    moves.set(`name:${event.from}`, event.to);
+  }
+  if (!moves.size) return { repos, snapshots };
+  let touched = false;
+  const next = repos.map((entry) => {
+    const to = moves.get(entry[0]);
+    if (!to) return entry;
+    touched = true;
+    return [`name:${to}`, to, entry[2]];
+  });
+  if (!touched) return { repos, snapshots };
+  return mergeByKey(next, snapshots);
 }
 
 /** Rebuild the format-1 shape into the dictionary form. */
@@ -75,7 +164,9 @@ export function migrateHistoryToV2(legacy) {
       approx,
     };
   });
-  return { formatVersion: HISTORY_FORMAT_VERSION, repos, snapshots };
+  // Deliberately literal: this step only changes the shape. The schema chain
+  // runs `rekeyHistoryByName` afterwards to reach the current format.
+  return { formatVersion: 2, repos, snapshots };
 }
 
 export function validateHistory(value) {
@@ -89,7 +180,7 @@ export function validateHistory(value) {
     assert(Array.isArray(entry) && entry.length === 3, 'invalid history repository entry');
     const [key, fullName, isPrivate] = entry;
     assert(
-      typeof key === 'string' && (key.startsWith('id:') || key.startsWith('name:')),
+      typeof key === 'string' && key.startsWith('name:'),
       'invalid history repository key',
     );
     assert(!keys.has(key), 'duplicate history repository');
@@ -98,6 +189,9 @@ export function validateHistory(value) {
       typeof fullName === 'string' && fullName.includes('/'),
       'invalid history repository name',
     );
+    // One key space, derived from one field: a drifting pair is how a single
+    // repository ends up with two series.
+    assert(key === `name:${fullName}`, 'history repository key must match its name');
     assert(isPrivate === 0 || isPrivate === 1, 'invalid history visibility');
   }
 
@@ -186,13 +280,16 @@ export function recordDailyHistory(
   const existing = current ? structuredClone(current) : emptyHistory();
   validateHistory(existing);
 
-  const index = new Map(existing.repos.map((entry, at) => [entry[0], at]));
-  const repos = [...existing.repos];
+  // A rename changes the key, so the old series has to be carried across
+  // before today's counts are placed, or the repository restarts from zero.
+  const carried = applyRenames(existing.repos, existing.snapshots, cache.lifecycleEvents);
+  const index = new Map(carried.repos.map((entry, at) => [entry[0], at]));
+  const repos = [...carried.repos];
   for (const repo of cache.repos) {
     const key = repositoryHistoryKey(repo);
     const isPrivate = repo.private ? 1 : 0;
     if (index.has(key)) {
-      // Names change; keep the dictionary current so exports stay readable.
+      // Visibility changes; keep the dictionary current so exports stay honest.
       repos[index.get(key)] = [key, repo.full_name, isPrivate];
       continue;
     }
@@ -218,7 +315,7 @@ export function recordDailyHistory(
     if (repo.approx) approx.push(at);
   }
 
-  const snapshots = existing.snapshots
+  const snapshots = carried.snapshots
     .filter((point) => point.day !== day)
     .map((point) => ({ ...point, stars: grow(point.stars), forks: grow(point.forks) }));
   snapshots.push({
