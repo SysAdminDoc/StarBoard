@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -35,7 +36,44 @@ def main() -> None:
         (clean_root / "scripts").mkdir()
         shutil.copy2(ROOT / "scripts" / "build.py", clean_root / "scripts" / "build.py")
 
+        git_env = {
+            **os.environ,
+            "GIT_AUTHOR_DATE": "2000-01-01T00:00:00Z",
+            "GIT_COMMITTER_DATE": "2000-01-01T00:00:00Z",
+        }
+        subprocess.run(["git", "init", "-q"], cwd=clean_root, check=True, env=git_env)
+        subprocess.run(["git", "config", "core.autocrlf", "false"], cwd=clean_root, check=True)
+        subprocess.run(["git", "config", "user.name", "StarBoard release test"], cwd=clean_root, check=True)
+        subprocess.run(["git", "config", "user.email", "release-test@example.invalid"], cwd=clean_root, check=True)
+        subprocess.run(["git", "add", "."], cwd=clean_root, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "release fixture"], cwd=clean_root, check=True, env=git_env)
+
         command = [sys.executable, str(clean_root / "scripts" / "build.py")]
+
+        manifest_probe = clean_root / "manifest.json"
+        manifest_bytes = manifest_probe.read_bytes()
+        manifest_probe.write_bytes(manifest_bytes + b" ")
+        dirty = subprocess.run(command, cwd=clean_root, text=True, capture_output=True)
+        if dirty.returncode == 0 or "dirty tree" not in (dirty.stdout + dirty.stderr):
+            raise SystemExit("release build did not reject a dirty source tree")
+        manifest_probe.write_bytes(manifest_bytes)
+
+        stray = clean_root / "src" / "popup.js.bak"
+        stray.write_text("must not ship\n", encoding="utf-8")
+        stray_env = {**os.environ, "STARBOARD_ALLOW_DIRTY_BUILD": "1"}
+        unexpected = subprocess.run(
+            command,
+            cwd=clean_root,
+            text=True,
+            capture_output=True,
+            env=stray_env,
+        )
+        if unexpected.returncode == 0 or "unexpected files" not in (
+            unexpected.stdout + unexpected.stderr
+        ):
+            raise SystemExit("release build did not reject an unexpected shipping file")
+        stray.unlink()
+
         subprocess.run(command, cwd=clean_root, check=True)
         first = snapshot(clean_root / "dist")
         subprocess.run(command, cwd=clean_root, check=True)
@@ -52,7 +90,12 @@ def main() -> None:
             encoding="utf-8",
             newline="\r\n",
         )
-        subprocess.run(command, cwd=clean_root, check=True)
+        subprocess.run(
+            command,
+            cwd=clean_root,
+            check=True,
+            env={**os.environ, "STARBOARD_ALLOW_DIRTY_BUILD": "1"},
+        )
         third = snapshot(clean_root / "dist")
         if second != third:
             raise SystemExit("release outputs depend on checkout line endings")
@@ -107,6 +150,15 @@ def main() -> None:
         sbom = json.loads((dist / f"{stem}.spdx.json").read_text(encoding="utf-8"))
         if sbom.get("spdxVersion") != "SPDX-2.3":
             raise SystemExit("SBOM is not SPDX 2.3")
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=clean_root,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+        if sbom.get("packages", [{}])[0].get("sourceInfo") != f"git commit {commit}":
+            raise SystemExit("SBOM does not record the source commit")
         sbom_files = {
             entry["fileName"].removeprefix("./"): {
                 item["algorithm"]: item["checksumValue"] for item in entry["checksums"]

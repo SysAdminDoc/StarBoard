@@ -16,17 +16,47 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import posixpath
 import re
 import shutil
+import subprocess
 import zipfile
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
-INCLUDE = ("manifest.json", "src", "icons", "LICENSE")
-EXCLUDE_SUFFIXES = {".map", ".pem"}
+ALLOWED_FILES = (
+    "LICENSE",
+    "icons/icon128.png",
+    "icons/icon16.png",
+    "icons/icon32.png",
+    "icons/icon48.png",
+    "manifest.json",
+    "src/background.js",
+    "src/lib/diagnostics.js",
+    "src/lib/github.js",
+    "src/lib/history.js",
+    "src/lib/install.js",
+    "src/lib/lifecycle.js",
+    "src/lib/notifications.js",
+    "src/lib/portfolio-views.js",
+    "src/lib/refresh-coordinator.js",
+    "src/lib/request.js",
+    "src/lib/scrape.js",
+    "src/lib/storage.js",
+    "src/lib/transfer.js",
+    "src/offscreen.html",
+    "src/offscreen.js",
+    "src/options.css",
+    "src/options.html",
+    "src/options.js",
+    "src/popup.css",
+    "src/popup.html",
+    "src/popup.js",
+)
+SHIPPING_ROOTS = ("src", "icons")
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 # 3 = Unix. Pinned so a Windows build and a Linux build agree byte for byte.
 ZIP_CREATE_SYSTEM = 3
@@ -40,18 +70,63 @@ def version() -> str:
 
 def collect() -> list[tuple[Path, str]]:
     """Return (absolute path, archive name) for every shipping file."""
-    files: list[tuple[Path, str]] = []
-    for entry in INCLUDE:
-        path = ROOT / entry
-        if path.is_file():
-            files.append((path, entry))
-        elif path.is_dir():
-            for child in sorted(path.rglob("*")):
-                if child.is_file() and child.suffix.lower() not in EXCLUDE_SUFFIXES:
-                    files.append((child, child.relative_to(ROOT).as_posix()))
-        else:
-            raise SystemExit(f"missing required path: {entry}")
-    return sorted(files, key=lambda item: item[1])
+    allowed = set(ALLOWED_FILES)
+    missing = sorted(name for name in allowed if not (ROOT / name).is_file())
+    actual = {
+        child.relative_to(ROOT).as_posix()
+        for entry in SHIPPING_ROOTS
+        for child in (ROOT / entry).rglob("*")
+        if child.is_file()
+    }
+    unexpected = sorted(actual - allowed)
+    if missing:
+        raise SystemExit("release allow-list paths are missing: " + ", ".join(missing))
+    if unexpected:
+        raise SystemExit("unexpected files under shipping roots: " + ", ".join(unexpected))
+    return [(ROOT / name, name) for name in sorted(allowed)]
+
+
+def git(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def source_commit() -> str:
+    supplied = os.environ.get("STARBOARD_SOURCE_COMMIT", "").strip().lower()
+    if re.fullmatch(r"[a-f0-9]{40}", supplied):
+        return supplied
+    result = git("rev-parse", "HEAD")
+    commit = result.stdout.strip().lower()
+    return commit if result.returncode == 0 and re.fullmatch(r"[a-f0-9]{40}", commit) else "NOASSERTION"
+
+
+def require_clean_tree() -> None:
+    if os.environ.get("STARBOARD_ALLOW_DIRTY_BUILD") == "1":
+        return
+    inside = git("rev-parse", "--is-inside-work-tree")
+    if inside.returncode != 0:
+        return
+    status = git(
+        "status",
+        "--porcelain",
+        "--untracked-files=all",
+        "--",
+        ".",
+        ":(exclude)dist",
+        ":(exclude)dist/**",
+    )
+    if status.returncode != 0:
+        raise SystemExit(status.stderr.strip() or "could not inspect the source tree")
+    if status.stdout.strip():
+        raise SystemExit(
+            "refusing to build from a dirty tree; commit the release source or set "
+            "STARBOARD_ALLOW_DIRTY_BUILD=1 for an intentional development build"
+        )
 
 
 def shipping_bytes(path: Path, name: str) -> bytes:
@@ -127,6 +202,7 @@ def build_spdx(
     dest: Path,
     files: list[tuple[Path, str]],
     release_version: str,
+    commit: str,
 ) -> Path:
     spdx_files = [_spdx_file(path, name) for path, name in files]
     content_identity = hashlib.sha256(
@@ -170,6 +246,7 @@ def build_spdx(
                 "licenseDeclared": "MIT",
                 "copyrightText": "Copyright (c) SysAdminDoc",
                 "supplier": "Person: SysAdminDoc",
+                "sourceInfo": f"git commit {commit}",
             }
         ],
         "files": spdx_files,
@@ -348,7 +425,9 @@ def clean_dist() -> None:
 
 
 def main() -> None:
+    require_clean_tree()
     release_version = version()
+    commit = source_commit()
     clean_dist()
     files = collect()
     stem = f"StarBoard-v{release_version}"
@@ -363,7 +442,7 @@ def main() -> None:
         newline="\n",
     )
     files_path = build_file_manifest(DIST / f"{stem}.files.sha256", files)
-    spdx_path = build_spdx(DIST / f"{stem}.spdx.json", files, release_version)
+    spdx_path = build_spdx(DIST / f"{stem}.spdx.json", files, release_version, commit)
 
     print(f"StarBoard v{release_version} - {len(files)} files")
     for artifact in (zip_path, hash_path, files_path, spdx_path):
