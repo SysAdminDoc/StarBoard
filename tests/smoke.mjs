@@ -2489,6 +2489,142 @@ async function main() {
     await popup.reload();
     await popup.waitForFunction(() => document.querySelectorAll('.row').length > 0);
 
+    // History was stored but never drawn. A dense series exercises the line; a
+    // deliberate hole proves the gap is not smoothed into a trend.
+    await popup.evaluate(async () => {
+      const { getCache, setHistory } = await import('./lib/storage.js');
+      const { recordDailyHistory } = await import('./lib/history.js');
+      const cache = await getCache();
+      let history = { formatVersion: 3, repos: [], snapshots: [] };
+      // 35 days deep so the 30-day range stays selectable, with days 20
+      // through 15 missing entirely: a six-day hole inside the window.
+      for (let offset = 34; offset >= 0; offset -= 1) {
+        if (offset <= 20 && offset >= 15) continue;
+        history = recordDailyHistory(
+          history,
+          {
+            ...cache,
+            repos: cache.repos.map((repo) => ({
+              ...repo,
+              stargazers_count: Math.max(0, repo.stargazers_count - offset),
+              forks_count: Math.max(0, repo.forks_count - offset),
+            })),
+          },
+          { now: Date.now() - offset * 86_400_000 },
+        );
+      }
+      await setHistory(history);
+    });
+    await popup.reload();
+    await popup.waitForFunction(() => document.querySelectorAll('.row').length > 0);
+    await popup.selectOption('#trendRange', '30');
+    await popup.waitForFunction(() => !!document.querySelector('.row svg.spark'));
+    const sparkline = await popup.evaluate(() => {
+      const svg = document.querySelector('.row svg.spark');
+      const row = svg.closest('.row');
+      const box = svg.getBoundingClientRect();
+      return {
+        role: svg.getAttribute('role'),
+        roledescription: svg.getAttribute('aria-roledescription'),
+        label: svg.getAttribute('aria-label'),
+        preserve: svg.getAttribute('preserveAspectRatio'),
+        segments: svg.querySelectorAll('path, circle').length,
+        strokeEffect: getComputedStyle(svg.querySelector('path')).vectorEffect,
+        width: box.width,
+        rowFits: row.getBoundingClientRect().right <= document.body.clientWidth,
+        focusables: row.querySelectorAll('a, button, input, select, [tabindex]').length,
+        bodyScrollsSideways: document.body.scrollWidth > document.body.clientWidth,
+      };
+    });
+    check(
+      'each row draws a dependency-free sparkline that breaks across a gap',
+      sparkline.role === 'img' &&
+        sparkline.roledescription === 'sparkline' &&
+        sparkline.preserve === 'none' &&
+        sparkline.segments === 2 &&
+        sparkline.strokeEffect === 'non-scaling-stroke' &&
+        sparkline.width > 0,
+      JSON.stringify(sparkline),
+    );
+    check(
+      'the sparkline states its range, endpoints, change and gap count',
+      /Stars over 30 days \(\d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}\)/.test(sparkline.label) &&
+        /up /.test(sparkline.label) &&
+        /No data for 6 of 30 days/.test(sparkline.label),
+      sparkline.label,
+    );
+    check(
+      'sparklines add no focus stops inside the list and stay within the popup width',
+      sparkline.focusables === 0 && sparkline.rowFits && !sparkline.bodyScrollsSideways,
+      JSON.stringify(sparkline),
+    );
+
+    await popup.click('#toggleTrendTable');
+    await popup.waitForSelector('#trendTable:not([hidden]) tbody tr');
+    const trendTable = await popup.evaluate(() => {
+      const first = document.querySelector('#trendTable tbody tr');
+      return {
+        expanded: document.querySelector('#toggleTrendTable').getAttribute('aria-expanded'),
+        caption: document.querySelector('#trendTableCaption').textContent,
+        headers: [...document.querySelectorAll('#trendTable thead th')].map((n) =>
+          n.textContent.trim(),
+        ),
+        rowHeaderScope: first.querySelector('th')?.getAttribute('scope'),
+        cells: [...first.children].map((n) => n.textContent),
+        rows: document.querySelectorAll('#trendTable tbody tr').length,
+        listRows: document.querySelectorAll('.row').length,
+      };
+    });
+    check(
+      'a table fallback carries the same series the sparklines encode',
+      trendTable.expanded === 'true' &&
+        trendTable.rows === trendTable.listRows &&
+        trendTable.rowHeaderScope === 'row' &&
+        trendTable.headers.join('|') === 'Repository|Start|End|Change|Days measured' &&
+        /24 of 30/.test(trendTable.cells[4]) &&
+        /Stars history over the last 30 days|Star history over the last 30 days/.test(
+          trendTable.caption,
+        ),
+      JSON.stringify(trendTable),
+    );
+    await popup.click('#toggleTrendTable');
+    await popup.waitForSelector('#trendTable[hidden]', { state: 'attached' });
+
+    // Below a handful of retained points a line only encodes "up or down".
+    await popup.evaluate(async () => {
+      const { getHistory, setHistory } = await import('./lib/storage.js');
+      const history = await getHistory();
+      // Keep the oldest point so the 30-day range stays selectable, but leave
+      // only three measurements inside the window itself.
+      await setHistory({
+        ...history,
+        snapshots: [history.snapshots[0], ...history.snapshots.slice(-3)],
+      });
+    });
+    await popup.reload();
+    await popup.waitForFunction(() => document.querySelectorAll('.row').length > 0);
+    await popup.selectOption('#trendRange', '30');
+    await popup.waitForFunction(() => !!document.querySelector('.row .spark-thin'));
+    const thin = await popup.evaluate(() => {
+      const node = document.querySelector('.row .spark-thin');
+      return {
+        text: node.textContent,
+        label: node.getAttribute('aria-label'),
+        svgs: document.querySelectorAll('.row svg.spark').length,
+      };
+    });
+    check(
+      'too few retained points shows the count instead of a misleading line',
+      thin.svgs === 0 && /3 pts/.test(thin.text) && /too few to plot/i.test(thin.label),
+      JSON.stringify(thin),
+    );
+    await popup.evaluate(async (history) => {
+      const { setHistory } = await import('./lib/storage.js');
+      await setHistory(history);
+    }, fullHistory);
+    await popup.reload();
+    await popup.waitForFunction(() => document.querySelectorAll('.row').length > 0);
+
     // The footer's Undo sits after one focusable row per repository — 343 on
     // the reference account — and keyboard shortcuts are out by project rule.
     const skipLink = await popup.evaluate(async () => {

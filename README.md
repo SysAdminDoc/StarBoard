@@ -277,7 +277,17 @@ Chrome's 10 MiB quota). A repository dictionary is stored once and each day
 holds only counts, so a 500-repository portfolio keeps the full year in about
 1.5 MB and a 200-repository one in well under a megabyte. Ranges longer than the
 data actually retained are shown as unavailable rather than returning a column
-of dashes. Settings can prune it to a shorter window with undo.
+of dashes, and a range that stops being retained falls back to the longest one
+the history can still serve. Settings can prune it to a shorter window with undo.
+
+While a day range is selected, each row draws an inline SVG sparkline of that
+repository's retained star counts — no charting library, no network. Missing
+days break the line into separate segments rather than being drawn through, and
+a series with fewer than five retained points shows the point count instead,
+because a two-point line only encodes "up or down". Every sparkline carries a
+label stating its range, its measured endpoints, the change and how many days
+are missing. Sparklines add no focus stops to the list; the **Trend table**
+control beside Filters opens the same series as a real table.
 
 ## Development
 

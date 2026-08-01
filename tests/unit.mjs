@@ -1343,6 +1343,95 @@ await test('a migrating read validates the record it writes back exactly once', 
   );
 });
 
+await test('a sparkline series keeps gaps and never carries a value forward', async () => {
+  const {
+    SPARKLINE_MAX_GAP_DAYS,
+    historyRepoIndex,
+    historySeriesForRepo,
+    sparklineSegments,
+  } = await import('../src/lib/history.js');
+  const now = Date.UTC(2026, 0, 31, 12);
+  const day = (offset) =>
+    new Date(Date.UTC(2026, 0, 31) - offset * 86400000).toISOString().slice(0, 10);
+  const point = (offset, stars) => ({
+    day: day(offset),
+    at: Date.UTC(2026, 0, 31) - offset * 86400000,
+    source: 'api',
+    confidence: 'exact',
+    stars: [stars],
+    forks: [1],
+    approx: [],
+  });
+  // Measured on days 9, 8, 7 then a six-day hole, then 0. The hole is wider
+  // than the carry-forward window, so the line must break rather than imply a
+  // trend across it.
+  const history = {
+    formatVersion: 3,
+    repos: [['name:octocat/one', 'octocat/one', 0]],
+    snapshots: [point(9, 10), point(8, 12), point(7, 13), point(0, 40)],
+  };
+  const repo = { full_name: 'octocat/one' };
+  const series = historySeriesForRepo(history, repo, 10, { now });
+
+  assert.equal(series.values.length, 10);
+  assert.equal(series.measured, 4);
+  assert.equal(series.gaps, 6);
+  assert.equal(series.first, 10);
+  assert.equal(series.last, 40);
+  assert.equal(series.delta, 30);
+  assert.equal(series.from, day(9));
+  assert.equal(series.to, day(0));
+  assert.equal(series.firstDay, day(9));
+  assert.equal(series.lastDay, day(0));
+  // A missing day is null, never the previous measurement and never zero.
+  assert.deepEqual(
+    series.values.map((v) => v.value),
+    [10, 12, 13, null, null, null, null, null, null, 40],
+  );
+
+  const segments = sparklineSegments(series.values);
+  assert.equal(segments.length, 2, 'a six-day hole must split the line');
+  assert.deepEqual(
+    segments[0].map((p) => p.value),
+    [10, 12, 13],
+  );
+  assert.deepEqual(
+    segments[1].map((p) => p.value),
+    [40],
+  );
+
+  // A hole inside the carry-forward window stays one segment.
+  const narrow = historySeriesForRepo(
+    {
+      ...history,
+      snapshots: [point(3, 10), point(1, 14), point(0, 15)],
+    },
+    repo,
+    10,
+    { now },
+  );
+  assert.equal(sparklineSegments(narrow.values).length, 1);
+  // The reported dates are the days measured, not the window's edges.
+  assert.equal(narrow.from, day(9));
+  assert.equal(narrow.firstDay, day(3));
+  assert.equal(narrow.lastDay, day(0));
+  assert.ok(SPARKLINE_MAX_GAP_DAYS >= 2);
+
+  // A repository with no retained series reports the empty shape, not a throw.
+  const missing = historySeriesForRepo(history, { full_name: 'octocat/absent' }, 10, { now });
+  assert.equal(missing.measured, 0);
+  assert.equal(missing.gaps, 10);
+  assert.equal(missing.delta, null);
+  assert.deepEqual(sparklineSegments(missing.values), []);
+
+  // The shared index must select the same slot the scan would.
+  const indexed = historySeriesForRepo(history, repo, 10, {
+    now,
+    index: historyRepoIndex(history),
+  });
+  assert.deepEqual(indexed.values, series.values);
+});
+
 await test('website count parsing covers full, abbreviated, and malformed input', async () => {
   const { parseCount } = await import('../src/lib/scrape.js');
   // What the repositories tab actually renders (verified 2026-07-31): full

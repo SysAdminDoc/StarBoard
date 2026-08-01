@@ -561,6 +561,138 @@ export function historyPointForRepo(history, repo, days, { now = Date.now() } = 
   );
 }
 
+/**
+ * Below this many measured points a line encodes nothing a reader can use — two
+ * points only say "up or down" — so the caller shows the count instead.
+ */
+export const SPARKLINE_MIN_POINTS = 5;
+/**
+ * Prometheus's staleness discipline: a measurement is carried across a hole only
+ * this wide. A longer hole splits the line into separate segments so three
+ * missing weeks are never drawn as a trend through them.
+ */
+export const SPARKLINE_MAX_GAP_DAYS = 3;
+
+/**
+ * One repository's daily series across the trailing `days` window.
+ *
+ * Every day in the window gets an entry; days with no measurement carry
+ * `value: null`. Nothing is interpolated and nothing is carried forward — that
+ * decision belongs to the renderer, which splits the line instead.
+ */
+export function historySeriesForRepo(
+  history,
+  repo,
+  days,
+  { now = Date.now(), metric = 'stars', index = null } = {},
+) {
+  assert(Number.isInteger(days) && days >= 1, 'invalid trend range');
+  assert(metric === 'stars' || metric === 'forks', 'invalid history metric');
+  const key = repositoryHistoryKey(repo);
+  const empty = {
+    key,
+    fullName: repo?.full_name || '',
+    metric,
+    days,
+    from: null,
+    to: null,
+    values: [],
+    measured: 0,
+    gaps: days,
+    first: null,
+    firstDay: null,
+    last: null,
+    lastDay: null,
+    delta: null,
+    approximate: false,
+  };
+  if (!history?.snapshots?.length) return empty;
+  // Callers rendering a whole board pass the shared index; a lone caller pays
+  // one scan rather than one scan per row.
+  const at = index
+    ? index.get(key) ?? -1
+    : history.repos.findIndex((entry) => entry[0] === key);
+  if (at === -1) return empty;
+
+  const todayStart = Date.parse(`${utcDay(now)}T00:00:00.000Z`);
+  const oldestDay = utcDay(todayStart - (days - 1) * DAY_MS);
+  const measuredByDay = new Map();
+  for (let i = history.snapshots.length - 1; i >= 0; i -= 1) {
+    const snapshot = history.snapshots[i];
+    if (snapshot.day < oldestDay) break;
+    const value = snapshot[metric][at];
+    if (value === null || value === undefined) continue;
+    measuredByDay.set(snapshot.day, {
+      value,
+      approximate: snapshot.approx.includes(at),
+    });
+  }
+
+  const values = [];
+  let measured = 0;
+  let first = null;
+  let firstDay = null;
+  let last = null;
+  let lastDay = null;
+  let approximate = false;
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
+    const day = utcDay(todayStart - offset * DAY_MS);
+    const point = measuredByDay.get(day) || null;
+    values.push({ day, value: point ? point.value : null, approximate: !!point?.approximate });
+    if (!point) continue;
+    measured += 1;
+    if (firstDay === null) {
+      first = point.value;
+      firstDay = day;
+    }
+    last = point.value;
+    lastDay = day;
+    approximate = approximate || point.approximate;
+  }
+
+  return {
+    ...empty,
+    from: values[0]?.day || null,
+    to: values.at(-1)?.day || null,
+    values,
+    measured,
+    gaps: days - measured,
+    first,
+    firstDay,
+    last,
+    lastDay,
+    delta: first === null || last === null ? null : last - first,
+    approximate,
+  };
+}
+
+/** One key→slot map for a whole board render, so per-row reads stay linear. */
+export function historyRepoIndex(history) {
+  return new Map((history?.repos || []).map((entry, at) => [entry[0], at]));
+}
+
+/**
+ * Contiguous runs of measured points, split wherever the hole between two
+ * measurements exceeds `maxGapDays`. A run of one point is kept: the renderer
+ * draws it as a dot rather than dropping a real measurement on the floor.
+ */
+export function sparklineSegments(values, { maxGapDays = SPARKLINE_MAX_GAP_DAYS } = {}) {
+  const segments = [];
+  let current = [];
+  let lastIndex = -1;
+  values.forEach((point, index) => {
+    if (point.value === null) return;
+    if (current.length && index - lastIndex > maxGapDays) {
+      segments.push(current);
+      current = [];
+    }
+    current.push({ ...point, index });
+    lastIndex = index;
+  });
+  if (current.length) segments.push(current);
+  return segments;
+}
+
 /** The oldest day actually retained, so the UI can stop offering longer ranges. */
 export function historyRetainedDays(history, { now = Date.now() } = {}) {
   const oldest = history?.snapshots?.[0]?.day;

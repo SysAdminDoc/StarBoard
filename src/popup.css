@@ -1096,7 +1096,7 @@ select:disabled {
   display: grid;
   content-visibility: auto;
   contain-intrinsic-size: 0 56px;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr) auto auto;
   gap: 8px;
   margin: 4px 0;
   padding: 8px 9px 8px 8px;
@@ -1284,6 +1284,91 @@ select:disabled {
   font-size: 8px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+
+/* Data-space viewBox with preserveAspectRatio="none": the path is authored in
+   day/value units and stretched to the slot, while non-scaling-stroke keeps the
+   line one physical pixel wide instead of squashing it with the box. */
+.spark {
+  display: block;
+  width: 58px;
+  height: 20px;
+  align-self: center;
+  overflow: visible;
+}
+
+.spark path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.25;
+  vector-effect: non-scaling-stroke;
+}
+
+.spark circle {
+  fill: var(--accent);
+}
+
+.spark.is-down path,
+.spark.is-down circle {
+  stroke: var(--faint);
+  fill: var(--faint);
+}
+
+/* Too few retained points for a line to mean anything. */
+.spark-thin {
+  align-self: center;
+  min-width: 58px;
+  color: var(--faint);
+  font-size: 9px;
+  text-align: center;
+}
+
+.trend-table {
+  max-height: 210px;
+  padding: 0 11px 9px;
+  overflow: auto;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface);
+}
+
+.trend-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.trend-table caption {
+  padding: 8px 0 6px;
+  color: var(--faint);
+  font-size: 9px;
+  text-align: left;
+}
+
+.trend-table th,
+.trend-table td {
+  padding: 3px 5px 3px 0;
+  border-bottom: 1px solid var(--border-soft);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.trend-table th:first-child,
+.trend-table td:first-child {
+  max-width: 150px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+}
+
+.trend-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  color: var(--faint);
+  font-weight: 700;
 }
 
 .stats {

@@ -25,9 +25,13 @@ import {
 } from './lib/storage.js';
 import { localizeDocument, message } from './lib/i18n.js';
 import {
+  SPARKLINE_MIN_POINTS,
   historyPointsForRepos,
+  historyRepoIndex,
   historyRetainedDays,
+  historySeriesForRepo,
   repositoryHistoryKey,
+  sparklineSegments,
 } from './lib/history.js';
 import {
   DEFAULT_PORTFOLIO_FILTERS,
@@ -116,6 +120,10 @@ const el = {
   filterActivity: $('filterActivity'),
   resetFilters: $('resetFilters'),
   trendRange: $('trendRange'),
+  toggleTrendTable: $('toggleTrendTable'),
+  trendTable: $('trendTable'),
+  trendTableCaption: $('trendTableCaption'),
+  trendTableBody: $('trendTableBody'),
   count: $('count'),
   quality: $('quality'),
   banner: $('banner'),
@@ -502,6 +510,151 @@ function statNode(kind, value, delta, approx = false, comparisonMissing = false)
   return wrap;
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** The window the sparkline covers, or null while the baseline is selected. */
+function sparklineDays() {
+  return state.trendRange === 'baseline' ? null : Number.parseInt(state.trendRange, 10);
+}
+
+// Rebuilt only when the history record itself changes: a findIndex per row was
+// quadratic in the portfolio size, on every render.
+let seriesIndex = { history: null, map: null };
+
+function repoSeriesIndex() {
+  if (seriesIndex.history !== state.history) {
+    seriesIndex = { history: state.history, map: historyRepoIndex(state.history) };
+  }
+  return seriesIndex.map;
+}
+
+function seriesFor(repo) {
+  const days = sparklineDays();
+  if (!days || !state.history) return null;
+  return historySeriesForRepo(state.history, repo, days, { index: repoSeriesIndex() });
+}
+
+/** Sentence a screen reader gets in place of the line. */
+function seriesLabel(series) {
+  if (!series || series.measured === 0) {
+    return `No star history retained in the last ${series?.days ?? 0} days.`;
+  }
+  const change =
+    series.delta === null
+      ? 'no measurable change'
+      : series.delta === 0
+        ? 'unchanged'
+        : `${series.delta > 0 ? 'up' : 'down'} ${nf.format(Math.abs(series.delta))}`;
+  const gaps = series.gaps
+    ? ` No data for ${nf.format(series.gaps)} of ${nf.format(series.days)} days.`
+    : '';
+  // The dates have to be the days actually measured. Naming the window's edges
+  // instead claimed a reading on a day the series has no point for.
+  return (
+    `Stars over ${nf.format(series.days)} days (${series.from} to ${series.to}): ` +
+    `${nf.format(series.first)} on ${series.firstDay}, ` +
+    `${nf.format(series.last)} on ${series.lastDay}, ${change}.${gaps}`
+  );
+}
+
+/**
+ * An inline SVG sparkline with no dependency. The viewBox is authored in data
+ * space — x is the day index, y is the value — and stretched to the slot by
+ * `preserveAspectRatio="none"`, so no value has to be projected by hand.
+ */
+function sparklineNode(series) {
+  if (!series || series.measured < SPARKLINE_MIN_POINTS) {
+    const thin = document.createElement('span');
+    thin.className = 'spark-thin';
+    thin.textContent = series?.measured ? `${series.measured} pts` : '—';
+    thin.setAttribute('role', 'img');
+    thin.setAttribute(
+      'aria-label',
+      series?.measured
+        ? `Only ${series.measured} retained points in ${series.days} days — too few to plot. ` +
+          seriesLabel(series)
+        : seriesLabel(series),
+    );
+    return thin;
+  }
+
+  const segments = sparklineSegments(series.values);
+  const measured = series.values.filter((point) => point.value !== null).map((p) => p.value);
+  const min = Math.min(...measured);
+  const max = Math.max(...measured);
+  // A flat series would collapse to a zero-height box and disappear.
+  const span = max - min || 1;
+  const width = Math.max(1, series.days - 1);
+
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', `spark${series.delta < 0 ? ' is-down' : ''}`);
+  svg.setAttribute('viewBox', `0 ${min - span * 0.12} ${width} ${span * 1.24}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-roledescription', 'sparkline');
+  svg.setAttribute('aria-label', seriesLabel(series));
+
+  for (const segment of segments) {
+    if (segment.length === 1) {
+      // One measurement stranded between long gaps is still a measurement.
+      const dot = document.createElementNS(SVG_NS, 'circle');
+      dot.setAttribute('cx', String(segment[0].index));
+      dot.setAttribute('cy', String(min + max - segment[0].value));
+      dot.setAttribute('r', '0.6');
+      svg.appendChild(dot);
+      continue;
+    }
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute(
+      'd',
+      segment
+        // SVG y grows downward; mirror the value around the series midpoint so
+        // a rising count rises on screen.
+        .map((point, i) => `${i ? 'L' : 'M'}${point.index} ${min + max - point.value}`)
+        .join(' '),
+    );
+    svg.appendChild(path);
+  }
+  return svg;
+}
+
+function renderTrendTable(rows) {
+  const days = sparklineDays();
+  const active = !el.trendTable.hidden;
+  el.toggleTrendTable.disabled = !days || !rows.length;
+  if (!days) {
+    el.trendTable.hidden = true;
+    el.toggleTrendTable.setAttribute('aria-expanded', 'false');
+    return;
+  }
+  if (!active) return;
+  el.trendTableCaption.textContent =
+    `Star history over the last ${nf.format(days)} days for ${nf.format(rows.length)} ` +
+    `visible repositor${rows.length === 1 ? 'y' : 'ies'}. A dash means no measurement was retained.`;
+  const body = document.createDocumentFragment();
+  for (const repo of rows) {
+    const series = seriesFor(repo);
+    const tr = document.createElement('tr');
+    const cells = [
+      repo.full_name,
+      series?.first === null || !series ? '—' : nf.format(series.first),
+      series?.last === null || !series ? '—' : nf.format(series.last),
+      series?.delta === null || !series
+        ? '—'
+        : `${series.delta > 0 ? '+' : ''}${nf.format(series.delta)}`,
+      series ? `${nf.format(series.measured)} of ${nf.format(series.days)}` : '—',
+    ];
+    cells.forEach((text, index) => {
+      const cell = document.createElement(index === 0 ? 'th' : 'td');
+      if (index === 0) cell.setAttribute('scope', 'row');
+      cell.textContent = text;
+      tr.appendChild(cell);
+    });
+    body.appendChild(tr);
+  }
+  el.trendTableBody.replaceChildren(body);
+}
+
 function rowNode(repo, rank, changes) {
   const a = document.createElement('a');
   a.className = 'row';
@@ -584,6 +737,9 @@ function rowNode(repo, rank, changes) {
   }
 
   a.appendChild(main);
+
+  const series = seriesFor(repo);
+  if (series) a.appendChild(sparklineNode(series));
 
   const stats = document.createElement('div');
   stats.className = 'stats';
@@ -1206,6 +1362,8 @@ function render() {
     el.rate.title = 'GitHub API requests remaining this hour';
   }
 
+  renderTrendTable(rows);
+
   if (!rows.length) {
     // Every other empty state offers a way out. This one hid its only escape
     // inside the collapsed filter panel.
@@ -1465,6 +1623,18 @@ for (const [control, key, name] of [
     ).catch((error) => announce(error.message || 'Could not save that filter.'));
   });
 }
+
+el.toggleTrendTable.addEventListener('click', () => {
+  const opening = el.trendTable.hidden;
+  el.trendTable.hidden = !opening;
+  el.toggleTrendTable.setAttribute('aria-expanded', String(opening));
+  if (opening) {
+    render();
+    announce('Trend table shown. It carries the same series as the row sparklines.');
+  } else {
+    announce('Trend table hidden.');
+  }
+});
 
 el.toggleFilters.addEventListener('click', () => {
   const opening = el.filterPanel.hidden;

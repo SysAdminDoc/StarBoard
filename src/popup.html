@@ -164,10 +164,38 @@
           <option value="90">90 days</option>
         </select>
       </label>
+      <!-- One tab stop for the whole board, not one per row: 343 disclosures
+           inside the list would be the accessibility regression, not the fix. -->
+      <button
+        id="toggleTrendTable"
+        class="filter-toggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="trendTable"
+        disabled
+      >
+        Trend table
+      </button>
       <span class="spacer"></span>
       <span id="as-of" class="as-of" hidden></span>
       <span id="count" class="count"></span>
     </div>
+
+    <section id="trendTable" class="trend-table" aria-labelledby="trendTableCaption" hidden>
+      <table>
+        <caption id="trendTableCaption"></caption>
+        <thead>
+          <tr>
+            <th scope="col">Repository</th>
+            <th scope="col">Start</th>
+            <th scope="col">End</th>
+            <th scope="col">Change</th>
+            <th scope="col">Days measured</th>
+          </tr>
+        </thead>
+        <tbody id="trendTableBody"></tbody>
+      </table>
+    </section>
 
     <section id="filterPanel" class="filter-panel" aria-label="Repository filters" hidden>
       <label>
