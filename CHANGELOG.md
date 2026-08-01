@@ -15,6 +15,11 @@
 
 ### Fixed
 
+- Changing the tracked GitHub username no longer produces silently wrong
+  numbers. The previous account's baseline was kept, so deltas were computed as
+  the new account's live counts minus the old account's snapshot, and both
+  accounts' repositories accumulated in one trend series. A switch now starts a
+  clean baseline and history, recoverable through the usual undo window.
 - Typing in the repository filter is no longer clobbered mid-keystroke. Each
   render followed an awaited storage write and then overwrote the field,
   discarding characters typed in between and throwing the caret to the end.

@@ -264,17 +264,29 @@ async function runRefresh(intent) {
   const { settings } = intent;
   const generation = generationId();
   try {
-    const previous = await getCache();
+    const stored = await getCache();
     const result =
       settings.dataSource === 'web'
         ? await fetchAccountViaWeb(settings.username)
-        : await fetchAccount(settings, { previous });
-    const existingBaseline = await getBaseline();
+        : await fetchAccount(settings, { previous: stored });
+
+    // Comparing one account's live counts against another account's snapshot
+    // produces confident nonsense, and blending both into one history series
+    // corrupts every trend. Switching the tracked account starts clean.
+    const resolved = result.profile?.login?.toLowerCase() || '';
+    const held = stored?.profile?.login?.toLowerCase() || '';
+    const accountChanged = !!held && !!resolved && held !== resolved;
+    // clearPortfolioData keeps its own undo snapshot, so the previous
+    // account's data stays recoverable for the usual window.
+    if (accountChanged) await clearPortfolioData();
+    const previous = accountChanged ? null : stored;
+
+    const existingBaseline = accountChanged ? null : await getBaseline();
     if (intent.rebase) {
       await createUndoSnapshot('baseline-reset', ['baseline']);
     }
     const baseline = chooseBaseline(existingBaseline, result.repos, settings.baselineHours, {
-      rebase: intent.rebase,
+      rebase: intent.rebase || accountChanged,
       generation,
     });
     const source = result.source || 'api';

@@ -969,6 +969,84 @@ async function main() {
         JSON.stringify(scrollKept),
       );
 
+      // Switching the tracked account must not compare one account's live
+      // counts against another's snapshot, nor blend both into one history.
+      const beforeSwitch = await popup.evaluate(async () => {
+        const { getHistory } = await import('./lib/storage.js');
+        return (await getHistory()).repos.length;
+      });
+      await worker.evaluate(() => {
+        globalThis.fetch = async (input) => {
+          const url = String(input?.url || input);
+          const profile = {
+            login: 'hubot',
+            name: 'Hubot',
+            avatar_url: '',
+            html_url: 'https://github.com/hubot',
+            public_repos: 1,
+            followers: 0,
+          };
+          const repos = [
+            {
+              id: 900,
+              name: 'only',
+              full_name: 'hubot/only',
+              html_url: 'https://github.com/hubot/only',
+              description: '',
+              language: null,
+              stargazers_count: 5,
+              forks_count: 0,
+              open_issues_count: 0,
+              private: false,
+              fork: false,
+              archived: false,
+              updated_at: '2026-07-30T12:00:00Z',
+              pushed_at: '2026-07-30T12:00:00Z',
+            },
+          ];
+          return new Response(JSON.stringify(url.includes('/repos') ? repos : profile), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        };
+      });
+      await popup.evaluate(async () => {
+        const { setSettings } = await import('./lib/storage.js');
+        await setSettings({ username: 'hubot' });
+      });
+      const switched = await popup.evaluate(() =>
+        chrome.runtime.sendMessage({ type: 'refresh', force: true, reason: 'account-switch' }),
+      );
+      const afterSwitch = await popup.evaluate(async () => {
+        const { getHistory, getBaseline, getCache } = await import('./lib/storage.js');
+        const [history, baseline, cache] = await Promise.all([
+          getHistory(),
+          getBaseline(),
+          getCache(),
+        ]);
+        return {
+          historyRepos: history.repos.map((entry) => entry[1]),
+          days: history.snapshots.length,
+          baselineNames: Object.keys(baseline?.counts || {}),
+          login: cache?.profile?.login,
+        };
+      });
+      check(
+        'switching accounts starts a clean history instead of blending both',
+        switched?.ok === true &&
+          beforeSwitch === 40 &&
+          afterSwitch.historyRepos.length === 1 &&
+          afterSwitch.historyRepos[0] === 'hubot/only' &&
+          afterSwitch.login === 'hubot',
+        JSON.stringify({ before: beforeSwitch, after: afterSwitch.historyRepos.length }),
+      );
+      check(
+        'switching accounts rebases so no delta spans the boundary',
+        afterSwitch.baselineNames.length === 1 &&
+          afterSwitch.baselineNames[0] === 'hubot/only',
+        JSON.stringify(afterSwitch.baselineNames),
+      );
+
       await worker.evaluate(() => {
         if (globalThis.__starboardOriginalFetch) {
           globalThis.fetch = globalThis.__starboardOriginalFetch;
