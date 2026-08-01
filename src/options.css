@@ -544,6 +544,19 @@ select:disabled {
   color: var(--red);
 }
 
+.action-feedback {
+  flex: 1 1 100%;
+  min-height: 16px;
+}
+
+.action-feedback .status {
+  display: block;
+}
+
+.action-feedback .status:empty {
+  display: none;
+}
+
 /* ---------- popup details ---------- */
 
 .details-card .section-heading {

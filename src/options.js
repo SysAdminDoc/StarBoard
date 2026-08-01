@@ -80,7 +80,14 @@ function syncSourceUI() {
 
 const parser = new DOMParser();
 const parseHTML = (html) => parser.parseFromString(html, 'text/html');
-const status = $('status');
+const feedback = {
+  account: { ok: $('status'), error: $('statusError') },
+  history: { ok: $('historyStatus'), error: $('historyError') },
+  transfer: { ok: $('transferStatus'), error: $('transferError') },
+  diagnostics: { ok: $('diagnosticsStatus'), error: $('diagnosticsError') },
+  clear: { ok: $('clearStatus'), error: $('clearError') },
+};
+const feedbackTimers = new Map();
 
 async function patchSettings(changes) {
   const response = await chrome.runtime.sendMessage({ type: 'patch-settings', changes });
@@ -88,13 +95,21 @@ async function patchSettings(changes) {
   return response.settings;
 }
 
-let statusTimer;
-function say(message, kind = '') {
-  clearTimeout(statusTimer);
-  status.textContent = message;
-  status.className = `status ${kind}`;
-  status.setAttribute('aria-live', kind === 'err' ? 'assertive' : 'polite');
-  if (message) statusTimer = setTimeout(() => say(''), 6000);
+function say(message, kind = '', target = 'account') {
+  const regions = feedback[target] || feedback.account;
+  clearTimeout(feedbackTimers.get(target));
+  regions.ok.textContent = '';
+  regions.ok.hidden = false;
+  regions.error.textContent = '';
+  regions.error.hidden = true;
+  if (!message) return;
+  if (kind === 'err') {
+    regions.error.textContent = message;
+    regions.error.hidden = false;
+    return;
+  }
+  regions.ok.textContent = message;
+  feedbackTimers.set(target, setTimeout(() => say('', '', target), 6000));
 }
 
 async function withBusy(button, busyLabel, work) {
@@ -390,7 +405,7 @@ $('clear').addEventListener('click', async () => {
     clearArmedUntil = Date.now() + 8000;
     $('clear').textContent = 'Confirm clear all portfolio data';
     $('clearScope').hidden = false;
-    say('Confirm the exact data scope below.', 'err');
+    say('Confirm the exact data scope below.', 'err', 'clear');
     clearTimeout(clearResetTimer);
     clearResetTimer = setTimeout(resetClearConfirmation, 8000);
     return;
@@ -402,8 +417,8 @@ $('clear').addEventListener('click', async () => {
     if (!response?.ok) throw new Error(response?.error?.message || 'Could not clear local data.');
     await showStorageInfo();
     $('undoClear').hidden = !response.undo?.available;
-    say('Snapshot, baseline and history cleared. Undo is available for 10 minutes.', 'ok');
-  }).catch((error) => say(error.message || 'Could not clear local data.', 'err'));
+    say('Snapshot, baseline and history cleared. Undo is available for 10 minutes.', 'ok', 'clear');
+  }).catch((error) => say(error.message || 'Could not clear local data.', 'err', 'clear'));
 });
 
 let pruneArmedUntil = 0;
@@ -424,7 +439,7 @@ $('pruneHistory').addEventListener('click', async () => {
       `This permanently removes trend points older than ${keepDays} days. ` +
       'The current snapshot, baseline, settings and credentials stay unchanged.';
     $('pruneScope').hidden = false;
-    say('Confirm the history range to prune.', 'err');
+    say('Confirm the history range to prune.', 'err', 'history');
     clearTimeout(pruneResetTimer);
     pruneResetTimer = setTimeout(resetPruneConfirmation, 8000);
     return;
@@ -436,8 +451,8 @@ $('pruneHistory').addEventListener('click', async () => {
     if (!response?.ok) throw new Error(response?.error?.message || 'Could not prune history.');
     await showStorageInfo();
     $('undoClear').hidden = !response.undo?.available;
-    say(`History now keeps at most ${keepDays} days. Undo is available for 10 minutes.`, 'ok');
-  }).catch((error) => say(error.message || 'Could not prune history.', 'err'));
+    say(`History now keeps at most ${keepDays} days. Undo is available for 10 minutes.`, 'ok', 'history');
+  }).catch((error) => say(error.message || 'Could not prune history.', 'err', 'history'));
 });
 
 async function readPortableState() {
@@ -477,8 +492,8 @@ $('backupJson').addEventListener('click', async () => {
       `StarBoard-backup-${exportDate()}.json`,
       'application/json',
     );
-    say('Checksummed JSON backup downloaded. No personal access token was included.', 'ok');
-  }).catch((error) => say(error.message || 'Could not create the backup.', 'err'));
+    say('Checksummed JSON backup downloaded. No personal access token was included.', 'ok', 'transfer');
+  }).catch((error) => say(error.message || 'Could not create the backup.', 'err', 'transfer'));
 });
 
 $('exportCsv').addEventListener('click', async () => {
@@ -488,8 +503,8 @@ $('exportCsv').addEventListener('click', async () => {
       ...exportSelection(),
     });
     downloadText(csv, `StarBoard-repositories-${exportDate()}.csv`, 'text/csv;charset=utf-8');
-    say('Timestamped repository CSV downloaded.', 'ok');
-  }).catch((error) => say(error.message || 'Could not create the CSV.', 'err'));
+    say('Timestamped repository CSV downloaded.', 'ok', 'transfer');
+  }).catch((error) => say(error.message || 'Could not create the CSV.', 'err', 'transfer'));
 });
 
 let pendingImportRecords = null;
@@ -532,10 +547,10 @@ $('importFile').addEventListener('change', async () => {
       `${summary.notificationConfig ? 'Notification settings are included.' : 'No notification settings.'} ` +
       `${summary.savedViews} saved view${summary.savedViews === 1 ? '' : 's'}.`;
     $('importPreview').hidden = false;
-    say('Backup validated. Review the dry-run summary before applying it.', 'ok');
+    say('Backup validated. Review the dry-run summary before applying it.', 'ok', 'transfer');
   } catch (error) {
     resetImportPreview();
-    say(error.message || 'Could not validate that backup.', 'err');
+    say(error.message || 'Could not validate that backup.', 'err', 'transfer');
   }
 });
 
@@ -547,6 +562,7 @@ $('applyImport').addEventListener('click', async () => {
     say(
       'Applying this backup replaces the selected local records. Activate again within 8 seconds to confirm.',
       'err',
+      'transfer',
     );
     applyImportResetTimer = setTimeout(resetApplyImportConfirmation, 8000);
     return;
@@ -561,8 +577,8 @@ $('applyImport').addEventListener('click', async () => {
     resetImportPreview();
     await load();
     $('undoClear').hidden = !response.undo?.available;
-    say('Backup restored. The prior local state is undoable for 10 minutes.', 'ok');
-  }).catch((error) => say(error.message || 'Could not restore backup.', 'err'));
+    say('Backup restored. The prior local state is undoable for 10 minutes.', 'ok', 'transfer');
+  }).catch((error) => say(error.message || 'Could not restore backup.', 'err', 'transfer'));
 });
 
 let diagnosticsText = '';
@@ -577,8 +593,8 @@ $('buildDiagnostics').addEventListener('click', async () => {
     $('diagnosticsOutput').textContent = diagnosticsText;
     $('diagnosticsOutput').hidden = false;
     $('copyDiagnostics').disabled = false;
-    say('Redacted diagnostics built locally.', 'ok');
-  }).catch((error) => say(error.message || 'Could not build diagnostics.', 'err'));
+    say('Redacted diagnostics built locally.', 'ok', 'diagnostics');
+  }).catch((error) => say(error.message || 'Could not build diagnostics.', 'err', 'diagnostics'));
 });
 
 async function copyDiagnosticsText() {
@@ -602,7 +618,11 @@ async function copyDiagnosticsText() {
 $('copyDiagnostics').addEventListener('click', async () => {
   if (!diagnosticsText) return;
   const copied = await copyDiagnosticsText();
-  say(copied ? 'Diagnostics copied.' : 'Copy was blocked; select the diagnostics text manually.', copied ? 'ok' : 'err');
+  say(
+    copied ? 'Diagnostics copied.' : 'Copy was blocked; select the diagnostics text manually.',
+    copied ? 'ok' : 'err',
+    'diagnostics',
+  );
 });
 
 $('notificationsEnabled').addEventListener('change', async () => {
@@ -669,10 +689,10 @@ $('undoClear').addEventListener('click', async () => {
     if (!response?.ok) throw new Error(response?.error?.message || 'Undo is no longer available.');
     await load();
     $('undoClear').hidden = true;
-    say('Last data action undone.', 'ok');
+    say('Last data action undone.', 'ok', 'clear');
   }).catch((error) => {
     $('undoClear').hidden = true;
-    say(error.message || 'Undo is no longer available.', 'err');
+    say(error.message || 'Undo is no longer available.', 'err', 'clear');
   });
 });
 
@@ -727,6 +747,17 @@ const INSTANT_SETTING_KEYS = [
   'showForkStats',
   'showSourceStatus',
 ];
+const INSTANT_SETTING_LABELS = {
+  refreshMinutes: 'Refresh interval',
+  baselineHours: 'Baseline window',
+  badgeMode: 'Badge display',
+  theme: 'Theme',
+  showFollowers: 'Follower count',
+  showDescriptions: 'Repository descriptions',
+  showMetadata: 'Language and activity',
+  showForkStats: 'Fork statistics',
+  showSourceStatus: 'Source and quota status',
+};
 
 for (const key of INSTANT_SETTING_KEYS) {
   fields[key].addEventListener('change', () => {
@@ -741,7 +772,7 @@ for (const key of INSTANT_SETTING_KEYS) {
         await patchSettings(patch);
         if (key === 'theme') applyTheme(values.theme);
         await chrome.runtime.sendMessage({ type: 'settings-changed' });
-        say('Saved.', 'ok');
+        say(`${INSTANT_SETTING_LABELS[key]} saved.`, 'ok');
       })
       .catch((err) => say(err.message || 'Could not save that setting.', 'err'))
       .finally(() => {

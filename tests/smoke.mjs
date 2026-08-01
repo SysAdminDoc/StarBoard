@@ -1302,11 +1302,11 @@ async function main() {
     try {
       await firstRunOptions.click('#backupJson');
       await firstRunOptions.waitForFunction(() =>
-        /restorable backup without it/i.test(document.querySelector('#status')?.textContent || ''),
+        /restorable backup without it/i.test(document.querySelector('#transferError')?.textContent || ''),
       );
       oversizeBackupResult = {
         historySelected: await firstRunOptions.isChecked('#includeHistoryExport'),
-        status: await firstRunOptions.textContent('#status'),
+        status: await firstRunOptions.textContent('#transferError'),
       };
     } catch (error) {
       oversizeBackupResult = { error: error.message };
@@ -2964,7 +2964,20 @@ async function main() {
     });
     if (permissionMocked) {
       await options.selectOption('#dataSource', 'web');
-      await options.waitForFunction(() => /denied/i.test(document.querySelector('#status').textContent));
+      await options.waitForFunction(() => /denied/i.test(document.querySelector('#statusError').textContent));
+      check(
+        'settings errors persist in a separate assertive live region',
+        await options.evaluate(() => {
+          const polite = document.querySelector('#status');
+          const assertive = document.querySelector('#statusError');
+          return (
+            assertive.hidden === false &&
+            assertive.getAttribute('role') === 'alert' &&
+            assertive.getAttribute('aria-live') === 'assertive' &&
+            polite.getAttribute('aria-live') === 'polite'
+          );
+        }),
+      );
       check(
         'website permission denial keeps API mode active',
         (await options.inputValue('#dataSource')) === 'api',
@@ -2986,7 +2999,7 @@ async function main() {
     if (permissionMocked) {
       await options.click('#notificationsEnabled');
       await options.waitForFunction(() =>
-        /Notification access was denied/.test(document.querySelector('#status').textContent),
+        /Notification access was denied/.test(document.querySelector('#statusError').textContent),
       );
       check(
         'notification permission denial leaves alerts disabled',
@@ -3011,6 +3024,10 @@ async function main() {
       await options.uncheck(selector);
     }
     await options.waitForFunction(() => document.body.dataset.settingsState === 'saved');
+    check(
+      'setting feedback names the control that was saved',
+      /Source and quota status saved\./.test(await options.textContent('#status')),
+    );
     await options.waitForFunction(async () => {
       const { getSettings } = await import('./lib/storage.js');
       const settings = await getSettings();
@@ -3272,7 +3289,7 @@ async function main() {
     await options.click('#undoClear');
     await waitForCheck('pruned history can be restored during the undo window', async () => {
       await options.waitForFunction(() =>
-        /last data action undone/i.test(document.querySelector('#status').textContent),
+        /last data action undone/i.test(document.querySelector('#clearStatus').textContent),
       );
       const restored = await options.evaluate(async (before) => {
         const { getHistory } = await import('./lib/storage.js');
@@ -3342,7 +3359,11 @@ async function main() {
     );
     await options.click('#copyDiagnostics');
     await options.waitForFunction(() =>
-      /Diagnostics copied|Copy was blocked/.test(document.querySelector('#status').textContent),
+      /Diagnostics copied|Copy was blocked/.test(
+        document.querySelector('#diagnosticsStatus')?.textContent ||
+          document.querySelector('#diagnosticsError')?.textContent ||
+          '',
+      ),
     );
     check(
       'redacted diagnostics remain inspectable and copyable without remote telemetry',
@@ -3468,7 +3489,7 @@ async function main() {
             document.querySelector('#theme').value === 'light' &&
             document.querySelector('#token').value === 'smoke-export-secret' &&
             window.__importedSavedView === true &&
-            /backup restored/i.test(document.querySelector('#status').textContent)
+            /backup restored/i.test(document.querySelector('#transferStatus').textContent)
           );
         });
         await options.waitForSelector('#undoClear:not([hidden])');
@@ -3494,7 +3515,7 @@ async function main() {
           return (
             document.querySelector('#theme').value === 'dark' &&
             window.__rolledBackSavedViews === true &&
-            /last data action undone/i.test(document.querySelector('#status').textContent)
+            /last data action undone/i.test(document.querySelector('#clearStatus').textContent)
           );
         });
         await options.waitForFunction(() => {
@@ -3560,7 +3581,7 @@ async function main() {
           button.hidden &&
           !button.disabled &&
           button.getAttribute('aria-busy') !== 'true' &&
-          /last data action undone/i.test(document.querySelector('#status').textContent)
+          /last data action undone/i.test(document.querySelector('#clearStatus').textContent)
         );
       });
       const restored = await options.evaluate(async (before) => {

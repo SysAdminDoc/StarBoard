@@ -96,6 +96,14 @@
               aria-live="polite"
               aria-atomic="true"
             ></span>
+            <span
+              id="statusError"
+              class="status err"
+              role="alert"
+              aria-live="assertive"
+              aria-atomic="true"
+              hidden
+            ></span>
           </div>
         </section>
 
@@ -382,6 +390,10 @@
                 Prune history
               </button>
             </div>
+            <div class="action-feedback">
+              <span id="historyStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></span>
+              <span id="historyError" class="status err" role="alert" aria-live="assertive" aria-atomic="true" hidden></span>
+            </div>
             <p id="pruneScope" class="note destructive-scope" hidden></p>
           </div>
           <div class="data-tool transfer-tool">
@@ -422,6 +434,10 @@
                 <button id="cancelImport" class="secondary-btn" type="button">Cancel</button>
               </div>
             </div>
+            <div class="action-feedback">
+              <span id="transferStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></span>
+              <span id="transferError" class="status err" role="alert" aria-live="assertive" aria-atomic="true" hidden></span>
+            </div>
           </div>
           <div id="localDiagnostics" class="data-tool diagnostics-tool">
             <div>
@@ -441,6 +457,10 @@
               </button>
             </div>
             <pre id="diagnosticsOutput" tabindex="0" hidden></pre>
+            <div class="action-feedback">
+              <span id="diagnosticsStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></span>
+              <span id="diagnosticsError" class="status err" role="alert" aria-live="assertive" aria-atomic="true" hidden></span>
+            </div>
           </div>
           <div class="actions">
             <button id="clear" class="danger-btn" type="button">
@@ -449,6 +469,10 @@
             <button id="undoClear" class="secondary-btn" type="button" hidden>
               Undo last data action
             </button>
+          </div>
+          <div class="action-feedback">
+            <span id="clearStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></span>
+            <span id="clearError" class="status err" role="alert" aria-live="assertive" aria-atomic="true" hidden></span>
           </div>
           <p id="clearScope" class="note destructive-scope" hidden>
             This removes the cached repository snapshot, comparison baseline and all trend
