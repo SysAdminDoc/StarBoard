@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Store and README screenshots now show the current UI at 1280x800. A
+  reproducible renderer and repository check prevent stale or mis-sized images
+  from shipping after popup or options changes.
 - Options-page contrast is now regression-tested in dark and light themes;
   disabled notification labels remain readable and the token-mode choice no
   longer clips at the page's own width.

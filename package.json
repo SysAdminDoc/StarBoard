@@ -7,6 +7,7 @@
   "type": "module",
   "scripts": {
     "icons": "py -3.12 scripts/make_icons.py",
+    "screenshots:store": "node scripts/render_store_screenshots.mjs",
     "build": "py -3.12 scripts/build.py",
     "check": "node scripts/check.mjs",
     "test": "npm run test:unit && npm run test:release && npm run test:smoke",

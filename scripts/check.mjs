@@ -134,11 +134,57 @@ for (const entry of storeListing.permissions || []) {
     );
   }
 }
-for (const shot of storeListing.screenshots || []) {
+const readmeScreenshots = [...readme.matchAll(/(?:src="|]\()(docs\/screenshot[^"')]+\.png)/g)].map(
+  (match) => match[1],
+);
+const referencedScreenshots = [
+  ...new Set([...(storeListing.screenshots || []), ...readmeScreenshots]),
+];
+const uiCommit = spawnSync(
+  'git',
+  [
+    'log',
+    '-1',
+    '--format=%ct',
+    '--',
+    'src/popup.css',
+    'src/popup.html',
+    'src/options.css',
+    'src/options.html',
+  ],
+  { cwd: ROOT, encoding: 'utf8' },
+);
+const uiCommitTime = Number.parseInt(uiCommit.stdout.trim(), 10);
+for (const shot of referencedScreenshots) {
+  let bytes;
   try {
-    statSync(resolve(ROOT, shot));
+    bytes = readFileSync(resolve(ROOT, shot));
   } catch {
-    failures.push(`store listing references a missing screenshot: ${shot}`);
+    failures.push(`listing or README references a missing screenshot: ${shot}`);
+    continue;
+  }
+  const isPng = bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  const width = isPng && bytes.length >= 24 ? bytes.readUInt32BE(16) : 0;
+  const height = isPng && bytes.length >= 24 ? bytes.readUInt32BE(20) : 0;
+  if (width !== 1280 || height !== 800) {
+    failures.push(`${shot}: expected a 1280x800 PNG, found ${width || '?'}x${height || '?'}`);
+  }
+  if (Number.isFinite(uiCommitTime)) {
+    const dirty = spawnSync(
+      'git',
+      ['status', '--porcelain=v1', '--untracked-files=all', '--', shot],
+      { cwd: ROOT, encoding: 'utf8' },
+    );
+    if (!dirty.stdout.trim()) {
+      const imageCommit = spawnSync('git', ['log', '-1', '--format=%ct', '--', shot], {
+        cwd: ROOT,
+        encoding: 'utf8',
+      });
+      const imageCommitTime = Number.parseInt(imageCommit.stdout.trim(), 10);
+      if (!Number.isFinite(imageCommitTime) || imageCommitTime < uiCommitTime) {
+        failures.push(`${shot}: screenshot is older than the current popup/options UI`);
+      }
+    }
   }
 }
 
@@ -146,4 +192,4 @@ if (failures.length) {
   console.error(failures.join('\n\n'));
   process.exit(1);
 }
-console.log('PASS  syntax, JSON, and version alignment checks');
+console.log('PASS  syntax, JSON, version, and screenshot freshness checks');

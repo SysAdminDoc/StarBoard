@@ -9,7 +9,7 @@ One click on the toolbar shows every repo you own, ranked most stars to least â€
 and how many stars and forks each one has picked up since you last looked.
 
 <p align="center">
-  <img src="docs/screenshot-deltas.png" width="440" alt="StarBoard's night-observatory popup showing repositories ranked by star momentum" />
+  <img src="docs/screenshot-deltas.png" width="1000" alt="StarBoard showing repositories ranked by recent star momentum" />
 </p>
 
 ## Why
@@ -138,7 +138,7 @@ abbreviating, affected repos are labeled approximate rather than silently
 rounded.
 
 <p align="center">
-  <img src="docs/screenshot-web-mode.png" width="440" alt="StarBoard running in web mode, footer reading via github.com" />
+  <img src="docs/screenshot-web-mode.png" width="1000" alt="StarBoard running in web mode, footer reading via github.com" />
 </p>
 
 ### GitHub API (secondary)
