@@ -26,7 +26,7 @@ def snapshot(dist: Path) -> dict[str, str]:
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="starboard-release-") as temporary:
         clean_root = Path(temporary)
-        for entry in ("manifest.json", "src", "icons", "LICENSE"):
+        for entry in ("manifest.json", "src", "icons", "_locales", "LICENSE"):
             source = ROOT / entry
             destination = clean_root / entry
             if source.is_dir():
