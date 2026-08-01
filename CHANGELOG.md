@@ -21,6 +21,15 @@
   tile's heading at the 440px popup width. The badge now occupies the band the
   panel already reserves along its bottom edge, and both are covered by
   geometry checks in the test suite rather than by eye.
+- The release archive is now reproducible across operating systems, not just
+  across repeated builds on one machine. `create_system` was left at zipfile's
+  default — 0 on Windows, 3 elsewhere — so identical sources published a
+  different checksum depending on who built them, and the compression level
+  was silently inert. Both are pinned, and the release test asserts the fixed
+  timestamps, sorted entry order and pinned fields directly instead of
+  inferring reproducibility from two same-host builds. The sidecar hash
+  manifest and the SBOM are now verified against the bytes actually shipped
+  rather than checked for line count.
 - Three failure modes with real user impact had no test at any level and now
   do: a partial snapshot must never report the repositories it did not fetch
   as deleted; a quiet-hours window that wraps midnight — which every realistic

@@ -70,18 +70,57 @@ def main() -> None:
                 raise SystemExit("ZIP includes development-only files")
             if any(name.endswith((".crx", ".pem")) for name in names):
                 raise SystemExit("ZIP includes signing material")
+            # Building twice on one machine cannot see a field that varies by
+            # operating system, so assert the pinned values directly. The
+            # shipped v1.2.0 archive carried create_system=0 on all 26 entries
+            # purely because it was built on Windows.
+            if names != sorted(names):
+                raise SystemExit("ZIP entries are not in sorted order")
+            for info in archive.infolist():
+                if info.date_time != (1980, 1, 1, 0, 0, 0):
+                    raise SystemExit(f"{info.filename} carries a build timestamp")
+                if info.create_system != 3:
+                    raise SystemExit(
+                        f"{info.filename} records create_system={info.create_system},"
+                        " which varies by build host"
+                    )
+                if info.compress_type != zipfile.ZIP_DEFLATED:
+                    raise SystemExit(f"{info.filename} is not deflated")
+                if info.external_attr >> 16 != 0o644:
+                    raise SystemExit(f"{info.filename} carries host file permissions")
+            members = {info.filename: archive.read(info.filename) for info in archive.infolist()}
 
         sbom = json.loads((dist / f"{stem}.spdx.json").read_text(encoding="utf-8"))
         if sbom.get("spdxVersion") != "SPDX-2.3":
             raise SystemExit("SBOM is not SPDX 2.3")
-        if len(sbom.get("files", [])) != len(names):
-            raise SystemExit("SBOM file inventory does not match ZIP")
+        sbom_files = {
+            entry["fileName"].removeprefix("./"): {
+                item["algorithm"]: item["checksumValue"] for item in entry["checksums"]
+            }
+            for entry in sbom.get("files", [])
+        }
+        if set(sbom_files) != set(members):
+            raise SystemExit("SBOM inventory does not name the same files as the ZIP")
 
+        # Counting lines proved only that the sidecars were the right length.
+        # Check that every recorded hash is the hash of the shipped bytes.
         manifest_lines = (
             dist / f"{stem}.files.sha256"
         ).read_text(encoding="utf-8").splitlines()
-        if len(manifest_lines) != len(names):
-            raise SystemExit("per-file hash manifest does not match ZIP")
+        recorded = {}
+        for line in manifest_lines:
+            value, _, name = line.partition("  ")
+            recorded[name] = value
+        if set(recorded) != set(members):
+            raise SystemExit("per-file hash manifest does not name the same files as the ZIP")
+        for name, payload in members.items():
+            actual = hashlib.sha256(payload).hexdigest()
+            if recorded[name] != actual:
+                raise SystemExit(f"{name}: recorded hash does not match the shipped bytes")
+            if sbom_files[name]["SHA256"] != actual:
+                raise SystemExit(f"{name}: SBOM hash does not match the shipped bytes")
+            if sbom_files[name]["SHA1"] != hashlib.sha1(payload).hexdigest():
+                raise SystemExit(f"{name}: SBOM SHA1 does not match the shipped bytes")
 
     print("PASS  clean release is unsigned, complete, and byte-reproducible")
 
