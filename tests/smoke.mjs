@@ -107,6 +107,19 @@ function check(name, pass, detail = '') {
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
 }
 
+/**
+ * The popup paints the first screen of rows synchronously and the rest in
+ * frame-sized chunks, so reading the whole collection means waiting for the
+ * last one. Anything asserting on a subset can read immediately.
+ */
+function listPainted(page) {
+  return page.waitForFunction(
+    () => document.body.dataset.listState === 'painted',
+    undefined,
+    { timeout: 20000 },
+  );
+}
+
 function captureErrors(target, label) {
   target.on('console', (message) => {
     if (message.type() === 'error') console.error(`${label} console: ${message.text()}`);
@@ -246,6 +259,7 @@ async function testWebMode(source) {
       { timeout: 120000 },
     );
 
+    await listPainted(popup);
     const webRows = await popup.$$eval('.row', (nodes) =>
       nodes.map((n) => ({
         name: n.querySelector('.name').textContent,
@@ -886,6 +900,7 @@ async function main() {
 
       await popup.reload();
       await popup.waitForSelector('.row', { timeout: 15000 });
+      await listPainted(popup);
       const rendered = await popup.$$eval('.row .name', (nodes) =>
         nodes.map((node) => node.textContent),
       );
@@ -1187,6 +1202,7 @@ async function main() {
     );
     check('avatar loaded', true);
 
+    await listPainted(popup);
     const rows = await popup.$$eval('.row', (nodes) =>
       nodes.map((n) => ({
         name: n.querySelector('.name').textContent,
@@ -1196,6 +1212,65 @@ async function main() {
     );
     check('repos rendered', rows.length > 0, `${rows.length} rows`);
     apiRows = rows;
+
+    // Blocking render cost must not scale with the portfolio. Measured against
+    // the documented 1,500-repository safety cap, not just the live account.
+    const liveCache = await popup.evaluate(async () => {
+      const { getCache } = await import('./lib/storage.js');
+      return getCache();
+    });
+    const paintCost = [];
+    for (const count of [200, 1500]) {
+      await popup.evaluate(
+        async ([base, size]) => {
+          const { setCache } = await import('./lib/storage.js');
+          await setCache({
+            ...base,
+            generation: `bulk-${size}`,
+            fetchedAt: Date.now(),
+            repos: Array.from({ length: size }, (_, i) => ({
+              id: 100000 + i,
+              name: `bulk-${i}`,
+              full_name: `octocat/bulk-${i}`,
+              html_url: `https://github.com/octocat/bulk-${i}`,
+              description: 'Synthetic repository used to measure render cost.',
+              language: ['JavaScript', 'Python', 'Rust', 'Go'][i % 4],
+              stargazers_count: size - i,
+              forks_count: i % 7,
+              private: false,
+              fork: false,
+              archived: false,
+              pushed_at: new Date(Date.now() - i * 60_000).toISOString(),
+            })),
+          });
+        },
+        [liveCache, count],
+      );
+      await popup.reload();
+      await popup.waitForSelector('.row', { timeout: 20000 });
+      await listPainted(popup);
+      paintCost.push(
+        await popup.evaluate(() => ({
+          rows: document.querySelectorAll('.row').length,
+          paintMs: Number(document.body.dataset.listPaintMs),
+        })),
+      );
+    }
+    const [small, capped] = paintCost;
+    check(
+      'blocking render cost stays flat at the 1,500-repository cap',
+      small.rows === 200 &&
+        capped.rows === 1500 &&
+        capped.paintMs <= Math.max(small.paintMs * 3, 25),
+      JSON.stringify(paintCost),
+    );
+    await popup.evaluate(async (base) => {
+      const { setCache } = await import('./lib/storage.js');
+      await setCache({ ...base, fetchedAt: Date.now() });
+    }, liveCache);
+    await popup.reload();
+    await popup.waitForSelector('.row', { timeout: 20000 });
+    await listPainted(popup);
     const undersizedTargets = await popup.evaluate(() => {
       const targets = [
         ...['refresh', 'settings', 'search', 'sort', 'rebase'].map((id) =>

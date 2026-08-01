@@ -21,6 +21,13 @@
   tile's heading at the 440px popup width. The badge now occupies the band the
   panel already reserves along its bottom edge, and both are covered by
   geometry checks in the test suite rather than by eye.
+- The repository list no longer gets slower as the portfolio grows. Every
+  render rebuilt every row synchronously, derived the same delta data three
+  times, scanned the lifecycle event list once per row, and rebuilt the
+  language dropdown — collapsing it if the user had it open. Rows now paint a
+  first screen immediately and the rest in frame-sized chunks. Measured at the
+  documented 1,500-repository cap the blocking cost is unchanged from 200
+  repositories (6 ms either way, against 19 ms and 162 ms before).
 - The release archive is now reproducible across operating systems, not just
   across repeated builds on one machine. `create_system` was left at zipfile's
   default — 0 on Windows, 3 elsewhere — so identical sources published a

@@ -359,14 +359,28 @@ const SORTERS = {
   name: (a, b) => a.name.localeCompare(b.name),
 };
 
-function visibleRepos() {
+/**
+ * Derived rows for the whole portfolio.
+ *
+ * `withDeltas` walks every repository and, for a day range, looks each one up
+ * in the retained history. It ran three times per render — once for the list,
+ * once for the totals' unfiltered count and once for the footer count — on
+ * every keystroke commit, filter change and background refresh.
+ */
+function visibleRepos(all = withDeltas(state.cache)) {
   const filters = state.portfolioViews?.active || DEFAULT_PORTFOLIO_FILTERS;
-  const rows = filterRepositories(
-    withDeltas(state.cache),
-    filters,
-    state.cache?.lifecycleEvents || [],
-  );
+  const rows = filterRepositories(all, filters, state.cache?.lifecycleEvents || []);
   return rows.sort(SORTERS[filters.sortKey] || SORTERS.stars);
+}
+
+/** Repository full name -> the lifecycle change to badge on its row, if any. */
+function lifecycleIndex() {
+  const index = new Map();
+  for (const event of state.cache?.lifecycleEvents || []) {
+    if (event.type !== 'added' && event.type !== 'renamed') continue;
+    if (!index.has(event.to)) index.set(event.to, event);
+  }
+  return index;
 }
 
 /* ---------- rendering ---------- */
@@ -390,7 +404,7 @@ function statNode(kind, value, delta, approx = false, comparisonMissing = false)
   return wrap;
 }
 
-function rowNode(repo, rank) {
+function rowNode(repo, rank, changes) {
   const a = document.createElement('a');
   a.className = 'row';
   a.href = repo.html_url;
@@ -412,11 +426,9 @@ function rowNode(repo, rank) {
   nameText.className = 'name-text';
   nameText.textContent = repo.name;
   name.appendChild(nameText);
-  const lifecycle = (state.cache?.lifecycleEvents || []).find(
-    (event) =>
-      (event.type === 'added' || event.type === 'renamed') &&
-      event.to === repo.full_name,
-  );
+  // Indexed once per render. Scanning the event list per row made this
+  // quadratic in the portfolio size for no gain.
+  const lifecycle = changes.get(repo.full_name);
   if (lifecycle) {
     const change = document.createElement('span');
     change.className = `lifecycle-tag ${lifecycle.type}`;
@@ -494,6 +506,45 @@ function rowNode(repo, rank) {
   return a;
 }
 
+// Only the rows that can be on screen are built before the popup paints; the
+// rest arrive in frame-sized chunks. Building all of them up front was ~3,000
+// nodes at 206 repositories and ~22,000 at the documented 1,500 cap, on every
+// keystroke commit, filter change and background refresh.
+const FIRST_PAINT_ROWS = 60;
+const CHUNK_ROWS = 120;
+let paintFrame = 0;
+
+/** `painting` until every row is in the DOM. The browser suite waits on this. */
+function paintRows(rows, changes, restoreScroll) {
+  cancelAnimationFrame(paintFrame);
+  const started = performance.now();
+  const initial = Math.min(rows.length, FIRST_PAINT_ROWS);
+  const first = document.createDocumentFragment();
+  for (let i = 0; i < initial; i += 1) first.appendChild(rowNode(rows[i], i + 1, changes));
+  el.list.replaceChildren(first);
+  el.list.scrollTop = restoreScroll;
+  document.body.dataset.listPaintMs = String(Math.round(performance.now() - started));
+  if (initial >= rows.length) {
+    document.body.dataset.listState = 'painted';
+    return;
+  }
+  document.body.dataset.listState = 'painting';
+  let next = initial;
+  const step = () => {
+    const end = Math.min(rows.length, next + CHUNK_ROWS);
+    const chunk = document.createDocumentFragment();
+    for (let i = next; i < end; i += 1) chunk.appendChild(rowNode(rows[i], i + 1, changes));
+    el.list.appendChild(chunk);
+    // A restored position can exceed the content height until enough chunks
+    // have landed, so it is re-applied until it sticks.
+    if (el.list.scrollTop < restoreScroll) el.list.scrollTop = restoreScroll;
+    next = end;
+    if (next < rows.length) paintFrame = requestAnimationFrame(step);
+    else document.body.dataset.listState = 'painted';
+  };
+  paintFrame = requestAnimationFrame(step);
+}
+
 function renderSkeleton() {
   el.list.replaceChildren();
   for (let i = 0; i < 7; i++) {
@@ -529,7 +580,7 @@ function renderEmpty(title, message, action) {
   el.list.appendChild(box);
 }
 
-function renderTotals(rows) {
+function renderTotals(rows, allRows) {
   const stars = rows.reduce((s, r) => s + r.stargazers_count, 0);
   const forks = rows.reduce((s, r) => s + r.forks_count, 0);
   const dStars = rows.reduce((s, r) => s + r.starsDelta, 0);
@@ -551,7 +602,7 @@ function renderTotals(rows) {
   el.totalForksDelta = $('total-forks-delta');
   el.totalForksWrap.hidden = !state.settings.showForkStats;
   el.totals.classList.toggle('fork-stats-hidden', !state.settings.showForkStats);
-  const unfilteredCount = withDeltas(state.cache).length;
+  const unfilteredCount = allRows.length;
   const filtered =
     !!state.portfolioViews?.active.query.trim() || rows.length !== unfilteredCount;
   el.totalStarsLabel.textContent = filtered ? 'Visible stars' : 'Total stars';
@@ -787,6 +838,23 @@ function setSelectOptions(select, options, selected) {
   select.value = selected;
 }
 
+// The snapshot generation the language list was built from, plus the selected
+// value, so an unchanged portfolio does not rebuild the dropdown.
+let lastLanguageSignature = null;
+let languageCache = { generation: null, languages: [] };
+
+function languageChoices() {
+  const generation = state.cache?.generation ?? state.cache?.fetchedAt ?? null;
+  if (generation !== null && generation === languageCache.generation) {
+    return languageCache.languages;
+  }
+  const languages = [
+    ...new Set((state.cache?.repos || []).map((repo) => repo.language).filter(Boolean)),
+  ].sort((a, b) => a.localeCompare(b));
+  languageCache = { generation, languages };
+  return languages;
+}
+
 function syncPortfolioViewControls() {
   if (!state.portfolioViews) return;
   const { active, activeViewId, views } = state.portfolioViews;
@@ -809,25 +877,32 @@ function syncPortfolioViewControls() {
     activeViewId || '',
   );
 
-  const languages = [
-    ...new Set((state.cache?.repos || []).map((repo) => repo.language).filter(Boolean)),
-  ].sort((a, b) => a.localeCompare(b));
-  const languageOptions = [
-    { value: 'all', label: 'All languages' },
-    { value: NO_LANGUAGE, label: 'No language' },
-    ...languages.map((language) => ({ value: language, label: language })),
-  ];
-  if (
-    active.language !== 'all' &&
-    active.language !== NO_LANGUAGE &&
-    !languages.includes(active.language)
-  ) {
-    languageOptions.push({
-      value: active.language,
-      label: `${active.language} (not present)`,
-    });
+  // Rebuilding these options on every render collapsed the dropdown while the
+  // user had it open, and cost a full pass over the portfolio each time. The
+  // languages can only change when the snapshot does.
+  const languages = languageChoices();
+  const signature = [active.language].concat(languages).join('|');
+  if (signature !== lastLanguageSignature) {
+    const languageOptions = [
+      { value: 'all', label: 'All languages' },
+      { value: NO_LANGUAGE, label: 'No language' },
+      ...languages.map((language) => ({ value: language, label: language })),
+    ];
+    if (
+      active.language !== 'all' &&
+      active.language !== NO_LANGUAGE &&
+      !languages.includes(active.language)
+    ) {
+      languageOptions.push({
+        value: active.language,
+        label: `${active.language} (not present)`,
+      });
+    }
+    setSelectOptions(el.filterLanguage, languageOptions, active.language);
+    lastLanguageSignature = signature;
+  } else if (el.filterLanguage.value !== active.language) {
+    el.filterLanguage.value = active.language;
   }
-  setSelectOptions(el.filterLanguage, languageOptions, active.language);
   el.filterVisibility.value = active.visibility;
   el.filterForks.value = active.forkStatus;
   el.filterArchived.value = active.archivedStatus;
@@ -851,6 +926,10 @@ function syncPortfolioViewControls() {
 
 function render() {
   const { settings, cache } = state;
+  // A chunk queued by the previous render would otherwise append rows on top
+  // of a skeleton or an empty state.
+  cancelAnimationFrame(paintFrame);
+  document.body.dataset.listState = 'painted';
   // Every early return below leaves the totals hidden, and the quality notes
   // describe those totals. `renderTotals` refills them on the normal path.
   el.quality.replaceChildren();
@@ -907,10 +986,11 @@ function render() {
     return;
   }
 
-  const rows = visibleRepos();
-  renderTotals(rows);
+  const allRows = withDeltas(cache);
+  const rows = visibleRepos(allRows);
+  renderTotals(rows, allRows);
 
-  const allCount = withDeltas(cache).length;
+  const allCount = allRows.length;
   el.count.textContent =
     rows.length === allCount
       ? `${nf.format(rows.length)} shown`
@@ -944,14 +1024,10 @@ function render() {
   // Scrolling back to the top is only correct when the user is looking at a
   // different set of repositories. A background refresh landing while they
   // read row 40 must not yank them away from it.
-  const identity = rows.map((repo) => repo.full_name).join(' ');
+  const identity = rows.map((repo) => repo.full_name).join('\n');
   const sameResults = identity === lastRenderedIdentity;
   const previousScroll = el.list.scrollTop;
-
-  const frag = document.createDocumentFragment();
-  rows.forEach((repo, i) => frag.appendChild(rowNode(repo, i + 1)));
-  el.list.replaceChildren(frag);
-  el.list.scrollTop = sameResults ? previousScroll : 0;
+  paintRows(rows, lifecycleIndex(), sameResults ? previousScroll : 0);
   lastRenderedIdentity = identity;
 }
 
