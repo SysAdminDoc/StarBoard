@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Off-screen repository rows now use `content-visibility` with a measured
+  intrinsic height, preserving scroll anchoring while bounding first-paint work
+  at the 1,500-row safety cap.
 - Settings feedback now appears beside local-data actions, keeps errors visible
   until superseded, and uses dedicated assertive live regions. Save messages
   identify the setting that changed.

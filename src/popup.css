@@ -1058,6 +1058,8 @@ select:disabled {
 .row {
   position: relative;
   display: grid;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 56px;
   grid-template-columns: 28px minmax(0, 1fr) auto;
   gap: 8px;
   margin: 4px 0;

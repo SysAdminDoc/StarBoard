@@ -2144,6 +2144,28 @@ async function main() {
         capped.paintMs <= Math.max(small.paintMs * 3, 25),
       JSON.stringify(paintCost),
     );
+    const rowLayoutPolicy = await popup.evaluate(() => {
+      const list = document.querySelector('#list');
+      const row = document.querySelector('.row');
+      const style = row && getComputedStyle(row);
+      const before = list.scrollTop;
+      list.scrollTop = Math.min(240, Math.max(0, list.scrollHeight - list.clientHeight));
+      const positioned = list.scrollTop;
+      list.scrollTop = before;
+      return {
+        contentVisibility: style?.contentVisibility,
+        intrinsicSize: style?.containIntrinsicSize,
+        positioned,
+        restored: list.scrollTop === before,
+      };
+    });
+    check(
+      'off-screen rows skip paint without losing scroll anchoring',
+      rowLayoutPolicy.contentVisibility === 'auto' &&
+        /56px/.test(rowLayoutPolicy.intrinsicSize || '') &&
+        rowLayoutPolicy.restored,
+      JSON.stringify(rowLayoutPolicy),
+    );
     await popup.evaluate(async (base) => {
       const { setCache } = await import('./lib/storage.js');
       await setCache({ ...base, fetchedAt: Date.now() });
