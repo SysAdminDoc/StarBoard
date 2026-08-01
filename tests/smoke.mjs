@@ -709,6 +709,65 @@ async function main() {
       `${errorBanner.role} / ${errorBanner.action}`,
     );
 
+    const settingsRecoveryCases = [
+      ['TOKEN_REJECTED', 'Token rejected (401).', 'token'],
+      ['USER_NOT_FOUND', 'User not found (404).', 'username'],
+      ['FORBIDDEN', 'GitHub refused the request (403).', 'token'],
+      ['SETUP_REQUIRED', 'Set a GitHub username to get started.', 'username'],
+    ];
+    const settingsRecovery = [];
+    for (const [code, message, setting] of settingsRecoveryCases) {
+      await popup.evaluate(
+        async ([nextCode, nextMessage]) => {
+          const { getCache, setCache } = await import('./lib/storage.js');
+          const cache = await getCache();
+          await setCache({
+            ...cache,
+            stale: true,
+            confidence: 'stale',
+            error: {
+              message: nextMessage,
+              code: nextCode,
+              status: 0,
+              rateLimited: false,
+              resetAt: null,
+              retryAt: Date.now() + 60_000,
+              at: Date.now(),
+            },
+          });
+        },
+        [code, message],
+      );
+      await popup.reload();
+      await popup.waitForFunction(
+        (expectedSetting) => {
+          const banner = document.querySelector('#banner');
+          return (
+            !banner.hidden &&
+            banner.querySelector('.banner-action')?.textContent === 'Open settings' &&
+            banner.querySelector('.banner-text')?.textContent.toLowerCase().includes(expectedSetting)
+          );
+        },
+        setting,
+        { timeout: 10000 },
+      );
+      settingsRecovery.push(
+        await popup.$eval('#banner', (node) => ({
+          action: node.querySelector('.banner-action')?.textContent || '',
+          text: node.querySelector('.banner-text')?.textContent || '',
+        })),
+      );
+    }
+    check(
+      'a rejected token and other setup errors open settings instead of retrying',
+      settingsRecovery[0].action !== 'Try again' &&
+        settingsRecovery.every((banner) => banner.action === 'Open settings') &&
+        settingsRecovery.every((banner, index) =>
+          banner.text.toLowerCase().includes(settingsRecoveryCases[index][2]),
+        ),
+      JSON.stringify(settingsRecovery),
+    );
+
     // Losing connectivity swaps the banner without discarding the snapshot.
     await ctx.setOffline(true);
     await popup.evaluate(() => window.dispatchEvent(new Event('offline')));

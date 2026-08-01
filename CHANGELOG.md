@@ -4,12 +4,14 @@
 
 ### Fixed
 
+- Token, username, access, and initial-setup failures now name the setting that
+  needs attention and open Settings instead of offering a futile retry.
 - Source and ZIP checks now reject missing HTML assets, relative module imports,
   and the offscreen page with the exact referring file and line.
 - Browser regressions now print named failures and continue through the
   remaining checks, with state-backed waits replacing fixed settle delays.
 - The complete deterministic browser suite now runs headlessly in CI against
-  the shipped ZIP, covering 131 offline checks without live GitHub traffic.
+  the shipped ZIP, covering 132 offline checks without live GitHub traffic.
 - GitHub REST requests now pin the current `2026-03-10` API contract, with
   wire-level regression coverage and a corrected repository-count rationale.
 - Store and README screenshots now show the current UI at 1280x800. A

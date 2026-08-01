@@ -750,6 +750,12 @@ function withId(node, id) {
 // already looking at when the popup opens.
 let bannerMessage = null;
 let announcedBanner; // undefined until the first render completes
+const SETTINGS_RECOVERY_MESSAGES = Object.freeze({
+  TOKEN_REJECTED: 'GitHub rejected the configured token. Check or replace the token in Settings.',
+  USER_NOT_FOUND: 'GitHub could not find the configured username. Check the username in Settings.',
+  FORBIDDEN: 'GitHub refused access for the configured token. Check its permissions in Settings.',
+  SETUP_REQUIRED: 'No GitHub username is configured. Add a username in Settings.',
+});
 
 /** Fill the banner with a message and, when recovery is possible, one action. */
 function showBanner(message, action) {
@@ -846,6 +852,13 @@ function renderBannerContent() {
     if (err.code === 'STORAGE_QUOTA_EXCEEDED') {
       // Retrying cannot help; the user has to free space.
       showBanner(`${sentence(err.message)}${suffix}`, {
+        label: 'Open settings',
+        onClick: () => chrome.runtime.openOptionsPage(),
+      });
+      return;
+    }
+    if (Object.hasOwn(SETTINGS_RECOVERY_MESSAGES, err.code)) {
+      showBanner(`${SETTINGS_RECOVERY_MESSAGES[err.code]}${suffix}`, {
         label: 'Open settings',
         onClick: () => chrome.runtime.openOptionsPage(),
       });
