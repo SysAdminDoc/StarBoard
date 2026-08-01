@@ -9,6 +9,7 @@
 import { RequestPolicyError, parseRetryAfter, requestWithRetry } from './request.js';
 
 const API = 'https://api.github.com';
+const API_VERSION = '2026-03-10';
 const PER_PAGE = 100;
 const MAX_PAGES = 20;
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -38,7 +39,7 @@ export class GitHubError extends Error {
 function headers(token, etag = null) {
   const result = {
     Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
+    'X-GitHub-Api-Version': API_VERSION,
   };
   if (token) result.Authorization = `Bearer ${token}`;
   if (etag) result['If-None-Match'] = etag;
@@ -411,11 +412,11 @@ export async function fetchAccount({ username, token }, options = {}) {
   // not a complete picture — say so rather than letting the difference surface
   // later as phantom repository removals.
   //
-  // The comparison is deliberately one-directional. `public_repos` counts only
-  // public repositories while the owner listing also carries forks and private
-  // repositories, so `declared` routinely *undercounts* (measured 2026-07-31:
-  // 209 declared against 343 listed). Only a genuine shortfall is meaningful;
-  // a surplus is normal and must never mark the snapshot partial.
+  // The comparison is deliberately one-directional. `public_repos` counts every
+  // public repository the account owns, including forks, but excludes private
+  // repositories. An authenticated owner listing can include private rows even
+  // when the profile exposes no private-repository count, so `declared` can
+  // undercount. Only a genuine shortfall is meaningful; a surplus is normal.
   const declared =
     (Number(profile.public_repos) || 0) +
     (Number(profile.owned_private_repos ?? profile.total_private_repos) || 0);

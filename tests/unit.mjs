@@ -805,6 +805,10 @@ await test('REST adapter follows Link pagination and reuses ETag snapshots', asy
   assert.equal(first.repos.length, 2);
   assert.equal(first.pagesFetched, 2);
   assert.equal(first.complete, true);
+  assert.ok(
+    requests.every(({ headers }) => headers['X-GitHub-Api-Version'] === '2026-03-10'),
+    'every REST request must pin the current GitHub API version',
+  );
 
   const conditionalHeaders = [];
   const second = await fetchAccount(

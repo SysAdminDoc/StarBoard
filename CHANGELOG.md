@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- GitHub REST requests now pin the current `2026-03-10` API contract, with
+  wire-level regression coverage and a corrected repository-count rationale.
 - Store and README screenshots now show the current UI at 1280x800. A
   reproducible renderer and repository check prevent stale or mis-sized images
   from shipping after popup or options changes.
