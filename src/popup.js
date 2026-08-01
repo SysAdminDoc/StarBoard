@@ -577,14 +577,14 @@ function renderTotals(rows) {
   const notes = renderQuality(rows, comparable, trendDays, confidence);
   // The badge names the state; the notes say what it means for the numbers on
   // screen. Neither is announced by itself, so a change in either speaks once.
-  const signature = `${confidenceLabel} ${notes.join(' ')}`;
+  const signature = `${confidenceLabel} ${notes.join(' ')}`;
   if (lastQualitySignature !== null && signature !== lastQualitySignature) {
     announce([confidenceLabel, ...notes].join('. '));
   }
   lastQualitySignature = signature;
 
   const at = state.baseline?.at;
-  el.since.textContent = at ? `Δ since ${relative(at)}` : 'Δ since —';
+  el.since.textContent = at ? `since ${relative(at)}` : 'since —';
   el.rebase.title = at
     ? `Baseline set ${relative(at)}. Click to reset it to now.`
     : 'Click to set the comparison baseline to now.';
@@ -944,7 +944,7 @@ function render() {
   // Scrolling back to the top is only correct when the user is looking at a
   // different set of repositories. A background refresh landing while they
   // read row 40 must not yank them away from it.
-  const identity = rows.map((repo) => repo.full_name).join(' ');
+  const identity = rows.map((repo) => repo.full_name).join(' ');
   const sameResults = identity === lastRenderedIdentity;
   const previousScroll = el.list.scrollTop;
 
@@ -1091,7 +1091,7 @@ function resetRebaseConfirmation() {
   rebaseArmedUntil = 0;
   el.rebase.classList.remove('confirming');
   const at = state.baseline?.at;
-  el.since.textContent = at ? `Δ since ${relative(at)}` : 'Δ since —';
+  el.since.textContent = at ? `since ${relative(at)}` : 'since —';
 }
 
 el.rebase.addEventListener('click', () => {

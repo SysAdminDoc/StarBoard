@@ -23,6 +23,19 @@ for (const file of SOURCE_ROOTS.flatMap((path) => walk(resolve(ROOT, path)))) {
     encoding: 'utf8',
   });
   if (checked.status !== 0) failures.push(`${file}\n${checked.stderr || checked.stdout}`);
+  // A NUL inside a string literal parses fine and runs fine, so nothing else
+  // catches it — but git and grep then treat the file as binary, which hides
+  // every subsequent diff. Two had reached `src/popup.js` this way.
+  const bytes = readFileSync(file);
+  const control = [...bytes].findIndex(
+    (byte) => byte < 9 || (byte > 13 && byte < 32),
+  );
+  if (control !== -1) {
+    const line = bytes.subarray(0, control).toString('utf8').split('\n').length;
+    failures.push(
+      `${file}:${line}: control byte 0x${bytes[control].toString(16).padStart(2, '0')} in source`,
+    );
+  }
 }
 
 for (const file of [

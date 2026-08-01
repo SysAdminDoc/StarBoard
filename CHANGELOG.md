@@ -15,6 +15,15 @@
   changed silently.
 - Typing in the search box announces once, after typing stops. Each 120 ms
   debounce settle used to restart the same sentence mid-utterance.
+- Two defects in the totals panel. The baseline button rendered two delta
+  markers — a CSS triangle in front of a literal one in its own text — and
+  said both out loud, and the snapshot-quality badge sat on top of the third
+  tile's heading at the 440px popup width. The badge now occupies the band the
+  panel already reserves along its bottom edge, and both are covered by
+  geometry checks in the test suite rather than by eye.
+- Two NUL bytes had reached `src/popup.js` inside string literals. They parse
+  and run, but git and grep treat the file as binary and stop showing diffs
+  for it. `npm run check` now rejects any control byte in a source file.
 - Trend history survives a change of data source. Repositories were keyed on
   the numeric GitHub id under the API and on their name under website mode, so
   switching source moved every repository into an empty key space and every

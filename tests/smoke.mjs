@@ -1437,6 +1437,55 @@ async function main() {
         n.some((node) => /comparison point/.test(node.textContent)),
       )),
     );
+    // The confidence badge was anchored to the panel's top-right corner and
+    // sat on top of the first secondary tile's heading at the 440px width.
+    const badgePlacement = await popup.evaluate(async () => {
+      const { applyTheme, getSettings } = await import('./lib/storage.js');
+      const overlaps = (a, b) =>
+        a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      const results = [];
+      for (const theme of ['dark', 'light']) {
+        applyTheme(theme);
+        const badge = document.getElementById('confidence');
+        const box = badge.getBoundingClientRect();
+        const neighbours = [
+          ...document.querySelectorAll('.totals .total-label, .totals .total-row'),
+          document.getElementById('rebase'),
+        ].map((node) => node.getBoundingClientRect());
+        results.push({
+          theme,
+          label: badge.textContent,
+          painted: box.width > 0 && box.height > 0,
+          bodyWidth: document.body.getBoundingClientRect().width,
+          collides: neighbours.filter((rect) => overlaps(box, rect)).length,
+        });
+      }
+      applyTheme((await getSettings()).theme);
+      return results;
+    });
+    check(
+      'the confidence badge clears every totals tile in both themes',
+      badgePlacement.length === 2 &&
+        badgePlacement.every(
+          (state) => state.painted && state.bodyWidth === 440 && state.collides === 0,
+        ),
+      JSON.stringify(badgePlacement),
+    );
+    // Two delta markers used to appear: a CSS `::before` triangle in front of a
+    // literal one in the button's own text.
+    const baselineMarkers = await popup.evaluate(() => {
+      const button = document.getElementById('rebase');
+      const generated = getComputedStyle(button, '::before').content;
+      return {
+        generated,
+        text: button.textContent,
+      };
+    });
+    check(
+      'the baseline button carries exactly one delta marker',
+      /Δ/.test(baselineMarkers.generated) && !/[Δ△]/.test(baselineMarkers.text),
+      JSON.stringify(baselineMarkers),
+    );
     await popup.screenshot({ path: `${SHOTS}/02-popup.png` });
 
     // Filtering narrows the list.

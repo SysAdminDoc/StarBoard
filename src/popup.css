@@ -400,11 +400,17 @@ select:disabled {
   border-radius: 50%;
 }
 
+/*
+ * The badge sits in the band the panel already reserves along its bottom edge
+ * (`.totals` pads 31px there for the baseline button, which is anchored to the
+ * opposite corner). Anchored top-right it overlapped the first secondary tile's
+ * heading at the 440px popup width.
+ */
 .confidence-badge {
   position: absolute;
   z-index: 3;
-  top: 8px;
-  right: 12px;
+  bottom: 8px;
+  left: 14px;
   padding: 2px 7px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -557,10 +563,16 @@ select:disabled {
   white-space: nowrap;
 }
 
+/*
+ * One delta marker only. This triangle used to sit in front of a literal `Δ`
+ * in the button's own text, so the control read "△ Δ since just now" — and
+ * because generated content is exposed to assistive technology, it said that
+ * out loud too.
+ */
 .ghost-btn::before {
   margin-right: 5px;
   color: var(--accent);
-  content: '△';
+  content: 'Δ';
 }
 
 .ghost-btn:hover {
