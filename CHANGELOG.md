@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- CSV exports now guard ASCII, control-character, and full-width formula
+  prefixes with an Excel-resistant tab while preserving numeric deltas.
 - Refresh retries now survive Manifest V3 worker teardown. Recovery alarms are
   persisted before backoff, long waits keep the worker alive, and event-driven
   failures no longer escape as unhandled rejections.

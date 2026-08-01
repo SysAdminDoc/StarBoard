@@ -325,8 +325,9 @@ export async function validateBackupText(text) {
  * RFC 4180 quoting plus the full OWASP formula-injection guard.
  *
  * Repository names and descriptions are attacker-influencable, and a
- * spreadsheet treats a leading `=`, `+`, `-`, `@`, tab or carriage return as
- * the start of a formula. The leading apostrophe is the documented mitigation.
+ * spreadsheet treats a leading `=`, `+`, `-`, `@`, control character or its
+ * full-width equivalent as the start of a formula. A tab inside the quoted
+ * field survives Excel save/reopen, where a leading apostrophe may not.
  * Keep the whole set here even if a given column cannot currently carry one —
  * columns get added, and this is the only place that decides.
  */
@@ -337,7 +338,7 @@ function csvCell(value) {
   // negative — prefixing those would turn -3 into the text "'-3" and break
   // every consumer. Guard everything else.
   const numeric = /^-?\d+(?:\.\d+)?$/.test(text);
-  if (!numeric && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  if (!numeric && /^[=+\-@\t\r\n＝＋－＠]/.test(text)) text = `\t${text}`;
   return `"${text.replaceAll('"', '""')}"`;
 }
 

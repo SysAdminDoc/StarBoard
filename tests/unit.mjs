@@ -989,6 +989,13 @@ await test('CSV quoting and formula guards follow RFC 4180 and OWASP', async () 
       { full_name: '+add/x', stargazers_count: 2, forks_count: 0, private: false },
       { full_name: '-minus/x', stargazers_count: 3, forks_count: 0, private: false },
       { full_name: '@at/x', stargazers_count: 4, forks_count: 0, private: false },
+      { full_name: '\ttab/x', stargazers_count: 5, forks_count: 0, private: false },
+      { full_name: '\rcarriage/x', stargazers_count: 6, forks_count: 0, private: false },
+      { full_name: '\nline-feed/x', stargazers_count: 7, forks_count: 0, private: false },
+      { full_name: '＝full-equals/x', stargazers_count: 8, forks_count: 0, private: false },
+      { full_name: '＋full-plus/x', stargazers_count: 9, forks_count: 0, private: false },
+      { full_name: '－full-minus/x', stargazers_count: 10, forks_count: 0, private: false },
+      { full_name: '＠full-at/x', stargazers_count: 11, forks_count: 0, private: false },
       { full_name: 'octocat/a,comma', stargazers_count: 5, forks_count: 0, private: false },
       { full_name: 'octocat/a"quote', stargazers_count: 6, forks_count: 0, private: false },
       { full_name: 'octocat/a\r\nnewline', stargazers_count: 7, forks_count: 0, private: false },
@@ -1000,9 +1007,23 @@ await test('CSV quoting and formula guards follow RFC 4180 and OWASP', async () 
   };
   const csv = createCsv({ cache, baseline, includePrivate: true });
 
-  for (const dangerous of ['"\'=cmd|calc', '"\'+add', '"\'-minus', '"\'@at']) {
-    assert.ok(csv.includes(dangerous), `formula prefix missing for ${dangerous}`);
+  for (const dangerous of [
+    '=cmd|calc',
+    '+add',
+    '-minus',
+    '@at',
+    '\ttab',
+    '\rcarriage',
+    '\nline-feed',
+    '＝full-equals',
+    '＋full-plus',
+    '－full-minus',
+    '＠full-at',
+  ]) {
+    const guarded = `"\t${dangerous}`;
+    assert.ok(csv.includes(guarded), `formula prefix missing for ${JSON.stringify(dangerous)}`);
   }
+  assert.ok(!csv.includes('"\'='), 'an apostrophe is not a durable Excel guard');
   // RFC 4180: quotes double, and commas/CRLF survive inside a quoted field.
   assert.ok(csv.includes('"octocat/a""quote"'));
   assert.ok(csv.includes('"octocat/a,comma"'));
