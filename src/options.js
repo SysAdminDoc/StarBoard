@@ -44,7 +44,7 @@ const notificationFields = {
 };
 
 const SOURCE_HINTS = {
-  web: 'The default. Reads your github.com repositories page using the session you are already signed in with — no token. GitHub abbreviates counts at 1,000+ ("1.2k"), so deltas on repos that large are approximate.',
+  web: 'The default. Reads your github.com repositories page using the session you are already signed in with — no token. Uses one page load per 30 repositories, so larger portfolios use more bandwidth and take longer to refresh.',
   api: 'The secondary option. Reads api.github.com with exact counts and 3-4 requests per refresh. Without a token GitHub allows 60 requests/hour and shows public repos only.',
 };
 

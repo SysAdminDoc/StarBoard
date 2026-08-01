@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- The website-source hint in Settings now states its real bandwidth tradeoff —
+  one page load per 30 repositories — instead of repeating the retracted claim
+  that GitHub rounds repository-tab counts above 1,000.
 - Published the missing v1.3.0 and v1.4.0 GitHub releases from their exact
   version-bump commits with reproducible ZIPs, checksums, per-file manifests,
   and SPDX SBOMs. Validation now rejects a newest changelog release without

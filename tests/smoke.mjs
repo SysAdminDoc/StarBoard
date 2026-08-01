@@ -725,6 +725,24 @@ async function main() {
       'token field is hidden for the default source',
       await firstRunOptions.$eval('#tokenField', (node) => node.style.display === 'none'),
     );
+    const visibleHints = await firstRunOptions.$$eval('.hint', (nodes) =>
+      nodes
+        .filter((node) => {
+          const style = getComputedStyle(node);
+          return (
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            node.getClientRects().length
+          );
+        })
+        .map((node) => node.textContent.trim()),
+    );
+    check(
+      'website source hint states its page-load cost without the retracted accuracy claim',
+      visibleHints.some((hint) => /one page load per 30 repositories/i.test(hint)) &&
+        visibleHints.every((hint) => !/(?:1\.2k|abbreviat)/i.test(hint)),
+      visibleHints.join(' | '),
+    );
     check(
       'PAT storage defaults to the browser session',
       (await firstRunOptions.inputValue('#tokenMode')) === 'session',
