@@ -129,6 +129,23 @@ const readme = readFileSync(resolve(ROOT, 'README.md'), 'utf8');
 const changelog = readFileSync(resolve(ROOT, 'CHANGELOG.md'), 'utf8');
 const version = manifest.version;
 
+const englishMessages = JSON.parse(
+  readFileSync(resolve(ROOT, '_locales/en/messages.json'), 'utf8'),
+);
+const pseudoMessages = JSON.parse(
+  readFileSync(resolve(ROOT, '_locales/en_XA/messages.json'), 'utf8'),
+);
+if (manifest.default_locale !== 'en') {
+  failures.push(`manifest default_locale ${manifest.default_locale} does not match the English catalog`);
+}
+for (const [key, entry] of Object.entries(englishMessages)) {
+  const pseudo = pseudoMessages[key]?.message;
+  if (!entry?.message) failures.push(`English catalog message ${key} is empty`);
+  if (!pseudo || !pseudo.startsWith('［') || !pseudo.endsWith('］')) {
+    failures.push(`pseudo-locale is missing a wrapped message for ${key}`);
+  }
+}
+
 if (version !== packageJson.version) {
   failures.push(`version mismatch: manifest ${version}, package ${packageJson.version}`);
 }

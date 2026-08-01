@@ -58,7 +58,7 @@ const WINDOW_ARGS = WINDOW_POSITION
 function buildWebVariant(source) {
   rmSync(WEB_BUILD, { recursive: true, force: true });
   mkdirSync(WEB_BUILD, { recursive: true });
-  for (const entry of ['manifest.json', 'src', 'icons']) {
+  for (const entry of ['manifest.json', 'src', 'icons', '_locales']) {
     cpSync(resolve(source, entry), resolve(WEB_BUILD, entry), { recursive: true });
   }
   const manifestPath = resolve(WEB_BUILD, 'manifest.json');
@@ -72,7 +72,7 @@ function buildWebVariant(source) {
 function buildNotificationVariant(source) {
   rmSync(NOTIFICATION_BUILD, { recursive: true, force: true });
   mkdirSync(NOTIFICATION_BUILD, { recursive: true });
-  for (const entry of ['manifest.json', 'src', 'icons']) {
+  for (const entry of ['manifest.json', 'src', 'icons', '_locales']) {
     cpSync(resolve(source, entry), resolve(NOTIFICATION_BUILD, entry), { recursive: true });
   }
   const manifestPath = resolve(NOTIFICATION_BUILD, 'manifest.json');
@@ -576,6 +576,17 @@ async function main() {
     check(
       'unconfigured popup shows setup prompt',
       (await popup.textContent('.empty h3')) === 'Set up StarBoard',
+    );
+    const localization = await popup.evaluate(() => ({
+      locale: chrome.i18n.getUILanguage(),
+      portfolioSignal: chrome.i18n.getMessage('text_8bb79ba5'),
+      actionTitle: chrome.i18n.getMessage('actionTitle'),
+    }));
+    check(
+      'Chrome i18n resolves the checked-in English catalog',
+      localization.portfolioSignal === 'Portfolio signal' &&
+        localization.actionTitle === 'StarBoard — GitHub repo standings',
+      JSON.stringify(localization),
     );
     check(
       'setup-only popup controls start disabled',

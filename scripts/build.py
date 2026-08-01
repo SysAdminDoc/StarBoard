@@ -34,10 +34,13 @@ ALLOWED_FILES = (
     "icons/icon32.png",
     "icons/icon48.png",
     "manifest.json",
+    "_locales/en/messages.json",
+    "_locales/en_XA/messages.json",
     "src/background.js",
     "src/lib/diagnostics.js",
     "src/lib/github.js",
     "src/lib/history.js",
+    "src/lib/i18n.js",
     "src/lib/install.js",
     "src/lib/lifecycle.js",
     "src/lib/notifications.js",
@@ -56,7 +59,7 @@ ALLOWED_FILES = (
     "src/popup.html",
     "src/popup.js",
 )
-SHIPPING_ROOTS = ("src", "icons")
+SHIPPING_ROOTS = ("src", "icons", "_locales")
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 # 3 = Unix. Pinned so a Windows build and a Linux build agree byte for byte.
 ZIP_CREATE_SYSTEM = 3

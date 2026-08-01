@@ -42,6 +42,7 @@ import {
   markNotificationsNotified,
   notificationAvailability,
 } from './lib/notifications.js';
+import { message } from './lib/i18n.js';
 
 const ALARM = 'starboard-refresh';
 const RETRY_ALARM = 'starboard-retry';
@@ -200,9 +201,14 @@ async function hasNotificationPermission() {
 }
 
 function createSystemNotification(options) {
+  const localized = {
+    ...options,
+    title: message(options.title),
+    message: message(options.message),
+  };
   return new Promise((resolve, reject) => {
     const id = `starboard-${Date.now()}-${crypto.randomUUID()}`;
-    chrome.notifications.create(id, options, (createdId) => {
+    chrome.notifications.create(id, localized, (createdId) => {
       const error = chrome.runtime.lastError;
       if (error) reject(new Error(error.message));
       else resolve(createdId);

@@ -20,11 +20,13 @@ import {
 } from './lib/transfer.js';
 import { testApiConnection } from './lib/github.js';
 import { testWebsiteConnection } from './lib/scrape.js';
+import { localizeDocument, message as i18nMessage } from './lib/i18n.js';
 
 const GITHUB_ORIGIN = 'https://github.com/*';
 const WEB_MIN_REFRESH_MINUTES = 360;
 
 const $ = (id) => document.getElementById(id);
+localizeDocument();
 const fields = {
   username: $('username'),
   token: $('token'),
@@ -96,6 +98,7 @@ async function patchSettings(changes) {
 }
 
 function say(message, kind = '', target = 'account') {
+  message = message ? i18nMessage(message) : message;
   const regions = feedback[target] || feedback.account;
   clearTimeout(feedbackTimers.get(target));
   regions.ok.textContent = '';

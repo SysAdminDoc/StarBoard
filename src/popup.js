@@ -23,6 +23,7 @@ import {
   STORAGE_KEYS,
   applyTheme,
 } from './lib/storage.js';
+import { localizeDocument, message } from './lib/i18n.js';
 import {
   historyPointsForRepos,
   historyRetainedDays,
@@ -66,6 +67,7 @@ const LANG_COLORS = {
 };
 
 const $ = (id) => document.getElementById(id);
+localizeDocument();
 
 const el = {
   avatar: $('avatar'),
@@ -208,7 +210,7 @@ let quietAnnounceTimer = 0;
  * message wins instead of the two overlapping.
  */
 function announce(message) {
-  const text = sentence(message);
+  const text = sentence(message ? messageText(message) : message);
   if (!text) return;
   clearTimeout(quietAnnounceTimer);
   if (
@@ -224,6 +226,8 @@ function announce(message) {
     el.liveStatus.textContent = text;
   });
 }
+
+const messageText = (text) => message(text);
 
 /**
  * Announce only once the user stops typing.
