@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Project notes now match the current schema, history format, verification
+  commands and website capability evidence; the remaining website blocker is
+  explicitly the robots.txt/AUP decision.
 - Off-screen repository rows now use `content-visibility` with a measured
   intrinsic height, preserving scroll anchoring while bounding first-paint work
   at the 1,500-row safety cap.

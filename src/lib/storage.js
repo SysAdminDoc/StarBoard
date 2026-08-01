@@ -387,7 +387,8 @@ export function normalizeSettings(value, { validate = true } = {}) {
 
 /**
  * Pure migration entry point used by runtime reads and fixture tests.
- * Legacy raw records are accepted; the returned value is always current.
+ * Legacy raw records are accepted; the returned value is always current
+ * (`SCHEMA_VERSION`, currently 6).
  */
 export function migrateRecord(key, raw, now = Date.now()) {
   assert(raw != null, `${key} is missing`);

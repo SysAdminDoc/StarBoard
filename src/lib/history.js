@@ -1,7 +1,7 @@
 /**
  * StarBoard's bounded, local-only daily history.
  *
- * Format 2 stores a repository dictionary once and one positional array of
+ * Format 3 stores a repository dictionary once and one positional array of
  * counts per day, instead of repeating every repository's name and flags in
  * every daily snapshot. Format 1 did the latter and cost ~26 KB per day at 206
  * repositories, so the 2 MiB cap held about 78 days — the shipped 90-day trend
