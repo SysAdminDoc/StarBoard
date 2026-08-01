@@ -613,14 +613,14 @@ function renderTotals(rows, allRows) {
   const trendDays = trendSelected ? Number.parseInt(state.trendRange, 10) : null;
   el.trendRange.title = trendSelected
     ? `${comparable} of ${rows.length} visible repositories have a retained ${trendDays}-day comparison point`
-    : 'Compare against the resettable baseline';
+    : 'Compare against the point you last reset';
 
   const confidence = state.cache?.confidence || 'exact';
   const confidenceLabel = {
     exact: 'Exact snapshot',
     approximate: 'Approximate counts',
     partial: 'Partial snapshot',
-    stale: 'Last-known-good',
+    stale: 'Not a live read',
   }[confidence] || 'Snapshot';
   el.confidence.textContent = confidenceLabel;
   el.confidence.className = `confidence-badge ${confidence}`;
@@ -637,8 +637,8 @@ function renderTotals(rows, allRows) {
   const at = state.baseline?.at;
   el.since.textContent = at ? `since ${relative(at)}` : 'since —';
   el.rebase.title = at
-    ? `Baseline set ${relative(at)}. Click to reset it to now.`
-    : 'Click to set the comparison baseline to now.';
+    ? `Changes are measured from ${relative(at)}. Activate to measure from now instead.`
+    : 'Activate to start measuring changes from now.';
   el.totals.hidden = false;
 }
 
@@ -1334,7 +1334,7 @@ el.acknowledgeLifecycle.addEventListener('click', async () => {
     if (!response?.ok) throw new Error(response?.error?.message || 'StarBoard could not update.');
     state.cache = response.cache;
     render();
-    announce('Repository changes acknowledged.');
+    announce('Repository changes dismissed.');
   } catch (error) {
     // Silence here left the button looking broken with no explanation.
     announce(`Could not acknowledge those changes. ${sentence(error.message)}`);

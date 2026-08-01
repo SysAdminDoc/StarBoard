@@ -21,6 +21,15 @@
   tile's heading at the 440px popup width. The badge now occupies the band the
   panel already reserves along its bottom edge, and both are covered by
   geometry checks in the test suite rather than by eye.
+- Labels that only made sense after reading the source. The theme is now
+  Dark / Light / Match the system setting rather than "Night observatory" and
+  "Daylight"; the filter reads "Count accuracy — exact and rounded" rather
+  than "Count precision — exact + approximate", and "Recent change" rather
+  than "Lifecycle"; the snapshot badge says "Not a live read" rather than
+  "Last-known-good"; the button that clears pending repository changes says
+  "Dismiss these" rather than "Acknowledge"; and the baseline button, whose
+  entire accessible name was the symbol and a date, now announces itself as
+  "Reset the comparison point to now".
 - The repository list no longer gets slower as the portfolio grows. Every
   render rebuilt every row synchronously, derived the same delta data three
   times, scanned the lifecycle event list once per row, and rebuilt the

@@ -82,7 +82,9 @@
       <button
         id="rebase"
         class="ghost-btn"
+        type="button"
         title="Start measuring changes from right now"
+        aria-label="Reset the comparison point to now"
         disabled
       >
         <span id="since">since —</span>
@@ -198,21 +200,21 @@
         </select>
       </label>
       <label>
-        <span>Count precision</span>
+        <span>Count accuracy</span>
         <select id="filterPrecision" disabled>
-          <option value="all">Exact + approximate</option>
-          <option value="exact">Exact only</option>
-          <option value="approximate">Approximate only</option>
+          <option value="all">Exact and rounded</option>
+          <option value="exact">Exact counts only</option>
+          <option value="approximate">Rounded counts only</option>
         </select>
       </label>
       <label>
-        <span>Lifecycle</span>
+        <span>Recent change</span>
         <select id="filterLifecycle" disabled>
-          <option value="all">Any lifecycle</option>
+          <option value="all">Changed or not</option>
           <option value="changed">New or renamed</option>
           <option value="added">New only</option>
           <option value="renamed">Renamed only</option>
-          <option value="unchanged">No current change</option>
+          <option value="unchanged">Unchanged only</option>
         </select>
       </label>
       <label>
@@ -240,7 +242,7 @@
     <section id="lifecycle" class="lifecycle" aria-labelledby="lifecycle-title" hidden>
       <div class="lifecycle-heading">
         <b id="lifecycle-title">Repository changes</b>
-        <button id="ack-lifecycle" type="button">Acknowledge</button>
+        <button id="ack-lifecycle" type="button">Dismiss these</button>
       </div>
       <ul id="lifecycle-list"></ul>
     </section>
