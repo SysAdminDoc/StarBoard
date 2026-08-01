@@ -282,6 +282,36 @@ await test('equivalent refreshes coalesce and repeated rebases queue exactly onc
   assert.equal(calls.length, 2);
 });
 
+await test('synchronous refresh requests keep source and account generations isolated', async () => {
+  for (const intents of [
+    [
+      { source: 'api', accountKey: 'api:alice:public' },
+      { source: 'api', accountKey: 'api:bob:public' },
+    ],
+    [
+      { source: 'web', accountKey: 'alice:public' },
+      { source: 'api', accountKey: 'alice:public' },
+    ],
+  ]) {
+    const calls = [];
+    const coordinator = createRefreshCoordinator(async (intent) => {
+      calls.push(intent);
+      return `${intent.source}/${intent.accountKey}`;
+    });
+
+    const results = await Promise.all(intents.map((intent) => coordinator.request(intent)));
+    assert.equal(calls.length, 2);
+    assert.deepEqual(
+      calls.map(({ source, accountKey }) => ({ source, accountKey })),
+      intents,
+    );
+    assert.deepEqual(
+      results,
+      intents.map((intent) => `${intent.source}/${intent.accountKey}`),
+    );
+  }
+});
+
 await test('Retry-After is honored before a bounded retry', async () => {
   const sleeps = [];
   let attempt = 0;

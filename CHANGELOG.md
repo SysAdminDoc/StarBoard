@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Refresh requests for different sources or accounts are isolated even when
+  they arrive in the same microtask before the coordinator starts draining.
+  Each caller now receives its own requested generation while compatible
+  manual, alarm, force, and rebase requests continue to coalesce.
 - Retained repository-rename events are applied to trend history only once.
   Recreating a repository under a name freed by an earlier rename no longer
   merges it into the renamed repository, and renaming a repository back to its

@@ -2,8 +2,8 @@
  * Serialize refresh generations while coalescing equivalent callers.
  *
  * Alarm/manual overlaps share the active request. A source/account change or
- * rebase gets one queued generation, and repeated queued intents merge into
- * that generation with the latest settings and an OR-ed rebase flag.
+ * rebase gets its own queued generation, and compatible queued intents merge
+ * with the latest settings and an OR-ed rebase flag.
  */
 
 function mergeIntent(current, next) {
@@ -19,16 +19,18 @@ function mergeIntent(current, next) {
   };
 }
 
-function needsOwnGeneration(active, next) {
-  if (next.rebase || next.force) return true;
-  if (next.source && next.source !== active.source) return true;
-  if (next.accountKey && next.accountKey !== active.accountKey) return true;
+function needsOwnGeneration(current, next, { running = false } = {}) {
+  // A queued forced/rebase request may absorb another compatible request, but
+  // neither can share work that has already started.
+  if (running && (next.rebase || next.force)) return true;
+  if (next.source && next.source !== current.source) return true;
+  if (next.accountKey && next.accountKey !== current.accountKey) return true;
   return false;
 }
 
 export function createRefreshCoordinator(run) {
   let active = null;
-  let pending = null;
+  const pending = [];
   let drainScheduled = false;
 
   function scheduleDrain() {
@@ -41,18 +43,19 @@ export function createRefreshCoordinator(run) {
   }
 
   function enqueue(intent, waiter) {
-    if (!pending) pending = { intent, waiters: [waiter] };
-    else {
-      pending.intent = mergeIntent(pending.intent, intent);
-      pending.waiters.push(waiter);
+    const queued = pending.at(-1);
+    if (!queued || needsOwnGeneration(queued.intent, intent)) {
+      pending.push({ intent, waiters: [waiter] });
+    } else {
+      queued.intent = mergeIntent(queued.intent, intent);
+      queued.waiters.push(waiter);
     }
     scheduleDrain();
   }
 
   async function drain() {
-    if (active || !pending) return;
-    active = pending;
-    pending = null;
+    if (active || pending.length === 0) return;
+    active = pending.shift();
     try {
       const result = await run(active.intent);
       active.waiters.forEach(({ resolve }) => resolve(result));
@@ -60,7 +63,7 @@ export function createRefreshCoordinator(run) {
       active.waiters.forEach(({ reject }) => reject(error));
     } finally {
       active = null;
-      if (pending) scheduleDrain();
+      if (pending.length) scheduleDrain();
     }
   }
 
@@ -73,16 +76,7 @@ export function createRefreshCoordinator(run) {
     };
     return new Promise((resolve, reject) => {
       const waiter = { resolve, reject };
-      if (!active) {
-        enqueue(normalized, waiter);
-        return;
-      }
-      if (pending) {
-        pending.intent = mergeIntent(pending.intent, normalized);
-        pending.waiters.push(waiter);
-        return;
-      }
-      if (needsOwnGeneration(active.intent, normalized)) {
+      if (!active || needsOwnGeneration(active.intent, normalized, { running: true })) {
         enqueue(normalized, waiter);
         return;
       }
@@ -95,7 +89,7 @@ export function createRefreshCoordinator(run) {
     getState() {
       return {
         active: active ? { ...active.intent } : null,
-        pending: pending ? { ...pending.intent } : null,
+        pending: pending.length ? { ...pending[0].intent } : null,
       };
     },
   };
