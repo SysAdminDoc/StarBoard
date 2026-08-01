@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- The popup footer — including the undo control — is reachable again. The
+  layout measured taller than Chrome's 600px popup ceiling while body scrolling
+  was disabled, so the bottom of the window was silently unreachable. The list
+  now absorbs the space the optional panels leave instead of carrying a
+  hand-maintained height for each combination of them.
 - Repaired an unreachable wait predicate in the browser suite that made every
   online run time out roughly a third of the way through, leaving deltas,
   badge, alarms, credentials, diagnostics, backup/restore and notifications

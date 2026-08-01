@@ -107,14 +107,31 @@ html {
   transition: none !important;
 }
 
+/*
+ * Chrome caps extension popups at 800x600. The layout is a fixed-height flex
+ * column so the list absorbs whatever space the optional panels leave, and the
+ * footer stays reachable no matter which of them are open. Do not reintroduce
+ * fixed `.list` heights per panel combination — they cannot cover every state
+ * and silently pushed the footer past the ceiling.
+ */
 body {
   width: 440px;
+  height: 600px;
+  max-height: 600px;
   margin: 0;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--bg);
   color: var(--text);
   font: 13px/1.45 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Chrome sizes the popup to the document, so html must not add a second box. */
+body > * {
+  flex: none;
 }
 
 button,
@@ -916,38 +933,21 @@ select:disabled {
   margin-top: 2px;
 }
 
-body:has(.lifecycle:not([hidden])) .list {
-  height: 248px;
-}
 
-body:has(.filter-panel:not([hidden])) .list {
-  height: 190px;
-}
 
-body:has(.view-editor:not([hidden])) .list {
-  height: 280px;
-}
 
-body:has(.lifecycle:not([hidden])):has(.filter-panel:not([hidden])) .list {
-  height: 114px;
-}
 
-body:has(.lifecycle:not([hidden])):has(.view-editor:not([hidden])) .list {
-  height: 204px;
-}
 
-body:has(.filter-panel:not([hidden])):has(.view-editor:not([hidden])) .list {
-  height: 146px;
-}
 
-body:has(.lifecycle:not([hidden])):has(.filter-panel:not([hidden])):has(.view-editor:not([hidden])) .list {
-  height: 70px;
-}
 
 /* ---------- ranked repositories ---------- */
 
 .list {
-  height: 324px;
+  /* Absorbs whatever the optional panels leave, but never collapses to nothing
+     — if every panel is open the body scrolls instead so the footer stays
+     reachable. */
+  flex: 1 1 auto;
+  min-height: 120px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 5px 7px 7px;

@@ -457,6 +457,56 @@ async function main() {
       'footer is neutral before the first successful fetch',
       !(await popup.$eval('#footer', (node) => node.classList.contains('is-healthy'))),
     );
+
+    // Chrome caps popups at 800x600. Every combination of the optional panels
+    // must leave the footer reachable — either it fits, or the body scrolls to
+    // it. A fixed-height list silently pushed it out of the popup entirely.
+    const CEILING = 600;
+    const panelReach = await popup.evaluate((ceiling) => {
+      const panels = ['lifecycle', 'filterPanel', 'viewEditor', 'banner'];
+      const original = panels.map((id) => document.getElementById(id)?.hidden);
+      const results = [];
+      for (let mask = 0; mask < 1 << panels.length; mask += 1) {
+        panels.forEach((id, index) => {
+          const node = document.getElementById(id);
+          if (node) node.hidden = !(mask & (1 << index));
+        });
+        document.body.getBoundingClientRect();
+        const footer = document.getElementById('footer');
+        const list = document.getElementById('list');
+        // Reachable = inside the viewport, or scrollable into it.
+        const reachable =
+          footer.offsetTop + footer.offsetHeight <=
+          Math.max(ceiling, document.body.scrollHeight);
+        results.push({
+          mask,
+          reachable,
+          listHeight: list.clientHeight,
+          scrollable: document.body.scrollHeight > document.body.clientHeight
+            ? document.body.scrollHeight - document.body.clientHeight
+            : 0,
+        });
+      }
+      panels.forEach((id, index) => {
+        const node = document.getElementById(id);
+        if (node && original[index] !== undefined) node.hidden = original[index];
+      });
+      return results;
+    }, CEILING);
+    const trapped = panelReach.filter((r) => !r.reachable);
+    const collapsed = panelReach.filter((r) => r.listHeight <= 0);
+    check(
+      'footer stays reachable in all 16 optional-panel combinations',
+      trapped.length === 0 && collapsed.length === 0,
+      `${panelReach.length} combinations, ${trapped.length} trapped, ${collapsed.length} collapsed`,
+    );
+    check(
+      'popup viewport never exceeds the 600px ceiling',
+      await popup.evaluate(
+        (ceiling) => document.body.clientHeight <= ceiling,
+        CEILING,
+      ),
+    );
     await popup.emulateMedia({ reducedMotion: 'reduce' });
     const reducedMotion = await popup.$eval('#refresh', (button) => {
       button.classList.add('spinning');
