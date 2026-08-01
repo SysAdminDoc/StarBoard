@@ -678,6 +678,99 @@ await test('REST adapter pages over an immutable ordering', async () => {
   assert.doesNotMatch(listUrls[0], /sort=(updated|stargazers|pushed)/);
 });
 
+await test('a token belonging to someone else never lists its own repositories', async () => {
+  // `/user/repos` returns the *token owner's* repositories regardless of the
+  // pinned username. Without resolving the owner first, pinning `octocat` with
+  // a `hubot` token silently ranks hubot's portfolio under octocat's name.
+  const seen = [];
+  const profileFor = (login) => ({
+    login,
+    name: login,
+    avatar_url: '',
+    html_url: `https://github.com/${login}`,
+    public_repos: 1,
+    followers: 0,
+  });
+  const respond = async (url) => {
+    const { pathname, search } = new URL(url);
+    seen.push(pathname + search);
+    if (pathname === '/user') return new Response(JSON.stringify(profileFor('hubot')), { status: 200 });
+    if (pathname === '/users/octocat') {
+      return new Response(JSON.stringify(profileFor('octocat')), { status: 200 });
+    }
+    return new Response(
+      JSON.stringify([
+        { id: 1, name: 'a', full_name: 'octocat/a', stargazers_count: 5, forks_count: 0 },
+      ]),
+      { status: 200 },
+    );
+  };
+  const result = await fetchAccount(
+    { username: 'octocat', token: 'ghp_someone_else' },
+    { fetchImpl: respond, sleep: async () => {}, now: () => 1000 },
+  );
+  assert.equal(result.profile.login, 'octocat');
+  assert.ok(seen.includes('/user'), 'the token owner is resolved before the listing');
+  assert.ok(
+    seen.some((path) => path.startsWith('/users/octocat/repos')),
+    `expected the pinned account's listing, got ${JSON.stringify(seen)}`,
+  );
+  assert.ok(
+    !seen.some((path) => path.startsWith('/user/repos')),
+    'the token owner\'s own listing must not be used for a different account',
+  );
+
+  // The self case still takes the authenticated listing, which is the only one
+  // that can see private repositories.
+  const own = [];
+  await fetchAccount(
+    { username: 'hubot', token: 'ghp_own' },
+    {
+      fetchImpl: async (url) => {
+        own.push(new URL(url).pathname);
+        return respond(url);
+      },
+      sleep: async () => {},
+      now: () => 1000,
+    },
+  );
+  assert.ok(own.includes('/user/repos'), `expected the authenticated listing, got ${own}`);
+  assert.ok(!own.some((path) => path.startsWith('/users/hubot')), 'no redundant public fetch');
+});
+
+await test('a partial snapshot never reports repositories as removed', async () => {
+  // Website mode demonstrably produces `complete: false` — a cap, a parser
+  // drift, a timed-out later page. Diffing that against a complete generation
+  // would announce every unfetched repository as deleted.
+  const repo = (id, name) => ({ id, full_name: name, stargazers_count: 1, forks_count: 0 });
+  const complete = {
+    source: 'web',
+    complete: true,
+    repos: [repo('octocat/a', 'octocat/a'), repo('octocat/b', 'octocat/b')],
+  };
+  const truncated = {
+    source: 'web',
+    complete: false,
+    partialReason: 'cap',
+    repos: [repo('octocat/a', 'octocat/a')],
+  };
+  const options = { generation: 'g2', now: 1000, source: 'web' };
+  assert.deepEqual(deriveLifecycleEvents(complete, truncated, options), []);
+  // And the reverse: a complete generation following a partial one must not
+  // announce the repositories the partial one simply never saw as new.
+  assert.deepEqual(deriveLifecycleEvents(truncated, complete, options), []);
+  // The same comparison between two complete generations is the real signal.
+  const events = deriveLifecycleEvents(
+    complete,
+    { ...complete, repos: [repo('octocat/a', 'octocat/a')] },
+    options,
+  );
+  assert.deepEqual(
+    events.map((event) => [event.type, event.to]),
+    [['removed', 'octocat/b']],
+  );
+});
+
 await test('REST adapter flags repositories dropped between pages', async () => {
   // GitHub says the account owns three; pagination hands back two. That gap is
   // exactly what a mutating sort key used to produce silently, and what
@@ -1701,6 +1794,43 @@ await test('notification milestones and deltas deduplicate across worker restart
     noRepeat.pending.filter((event) => event.id.includes('milestone')).length,
     0,
   );
+});
+
+await test('a quiet window that wraps midnight holds on both sides of it', async () => {
+  // Every realistic configuration wraps: the default is 22:00 to 08:00. Only
+  // the non-wrapping case had a test, and that is the branch that cannot fail.
+  const config = {
+    ...DEFAULT_NOTIFICATION_CONFIG,
+    enabled: true,
+    quietStart: '22:00',
+    quietEnd: '07:00',
+    cooldownMinutes: 0,
+  };
+  const at = (hour, minute = 0) => new Date(2026, 6, 29, hour, minute, 0, 0).getTime();
+  const check = (hour, minute = 0) =>
+    notificationAvailability(config, emptyNotificationState(), at(hour, minute));
+
+  assert.equal(check(21, 59).allowed, true, 'a minute before the window');
+  assert.equal(check(22, 0).allowed, false, 'the window is inclusive at its start');
+  assert.equal(check(6, 59).allowed, false, 'still quiet a minute before the end');
+  assert.equal(check(7, 0).allowed, true, 'the window is exclusive at its end');
+  assert.equal(check(12, 0).allowed, true, 'the middle of the day is never quiet');
+
+  // Before midnight the window ends tomorrow; after midnight it ends today.
+  // Getting this backwards schedules a retry ~24 hours late or immediately.
+  const evening = notificationAvailability(config, emptyNotificationState(), at(23, 30));
+  assert.equal(evening.nextAt, new Date(2026, 6, 30, 7, 0, 0, 0).getTime());
+  const smallHours = notificationAvailability(config, emptyNotificationState(), at(3, 0));
+  assert.equal(smallHours.nextAt, new Date(2026, 6, 29, 7, 0, 0, 0).getTime());
+
+  // Equal endpoints mean "no quiet hours", not "quiet all day".
+  const always = notificationAvailability(
+    { ...config, quietStart: '09:00', quietEnd: '09:00' },
+    emptyNotificationState(),
+    at(9, 0),
+  );
+  assert.equal(always.allowed, true);
+  assert.equal(always.nextAt, null);
 });
 
 await test('notification quiet hours, cooldowns, and approximation guards are deterministic', async () => {

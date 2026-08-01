@@ -21,6 +21,13 @@
   tile's heading at the 440px popup width. The badge now occupies the band the
   panel already reserves along its bottom edge, and both are covered by
   geometry checks in the test suite rather than by eye.
+- Three failure modes with real user impact had no test at any level and now
+  do: a partial snapshot must never report the repositories it did not fetch
+  as deleted; a quiet-hours window that wraps midnight — which every realistic
+  configuration does, including the 22:00–08:00 default — must hold on both
+  sides of the boundary and schedule its retry on the right day; and a token
+  belonging to a different account than the pinned username must never cause
+  the token owner's own repositories to be ranked under that name.
 - Two NUL bytes had reached `src/popup.js` inside string literals. They parse
   and run, but git and grep treat the file as binary and stop showing diffs
   for it. `npm run check` now rejects any control byte in a source file.
