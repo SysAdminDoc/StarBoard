@@ -2,8 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- The popup reports when the browser is offline and refreshes automatically on
+  reconnect, keeping the stored snapshot visible instead of showing a failure.
+- Errors are announced as alerts and carry a recovery action: a **Try again**
+  button for transient failures, and **Grant access** when the optional
+  github.com permission has been revoked, requested straight from the popup.
+
 ### Fixed
 
+- An account that owns no repositories is now told so, instead of being advised
+  to reset a search and filters it never set.
 - The popup footer — including the undo control — is reachable again. The
   layout measured taller than Chrome's 600px popup ceiling while body scrolling
   was disabled, so the bottom of the window was silently unreachable. The list

@@ -507,6 +507,104 @@ async function main() {
         CEILING,
       ),
     );
+
+    // A synced account owning nothing is not a filtering problem. `repos: []`
+    // is truthy, so this used to fall through to "Nothing matches — reset the
+    // search", advising the user to fix a filter they never set.
+    const emptyAccount = await popup.evaluate(async () => {
+      const { setSettings, setCache } = await import('./lib/storage.js');
+      await setSettings({ username: 'emptyaccount', dataSource: 'api' });
+      await setCache({
+        profile: {
+          login: 'emptyaccount',
+          name: 'emptyaccount',
+          avatar_url: '',
+          html_url: 'https://github.com/emptyaccount',
+          public_repos: 0,
+          followers: 0,
+        },
+        repos: [],
+        fetchedAt: Date.now(),
+        source: 'api',
+        complete: true,
+        confidence: 'exact',
+        stale: false,
+        error: null,
+      });
+      location.reload();
+    });
+    void emptyAccount;
+    await popup.waitForSelector('.empty h3', { timeout: 10000 });
+    const emptyCopy = await popup.$eval('.empty', (node) => ({
+      title: node.querySelector('h3').textContent,
+      body: node.querySelector('p').textContent,
+    }));
+    check(
+      'a repository-less account gets its own message, not filter advice',
+      emptyCopy.title === 'No repositories yet' &&
+        !/filter/i.test(emptyCopy.body) &&
+        !/search/i.test(emptyCopy.body),
+      emptyCopy.title,
+    );
+
+    // Errors must be announced and recoverable, not a dead line of text.
+    const bannerState = await popup.evaluate(async () => {
+      const { getCache, setCache } = await import('./lib/storage.js');
+      const cache = await getCache();
+      await setCache({
+        ...cache,
+        stale: true,
+        confidence: 'stale',
+        error: {
+          message: 'GitHub API is temporarily unavailable',
+          code: 'UPSTREAM_UNAVAILABLE',
+          status: 503,
+          rateLimited: false,
+          resetAt: null,
+          retryAt: null,
+          at: Date.now(),
+        },
+      });
+      location.reload();
+    });
+    void bannerState;
+    await popup.waitForSelector('#banner:not([hidden])', { timeout: 10000 });
+    const errorBanner = await popup.$eval('#banner', (node) => ({
+      role: node.getAttribute('role'),
+      action: node.querySelector('.banner-action')?.textContent || '',
+      text: node.querySelector('.banner-text')?.textContent || '',
+    }));
+    check(
+      'error banner is an alert and offers a retry',
+      errorBanner.role === 'alert' &&
+        errorBanner.action === 'Try again' &&
+        !errorBanner.text.includes('..'),
+      `${errorBanner.role} / ${errorBanner.action}`,
+    );
+
+    // Losing connectivity swaps the banner without discarding the snapshot.
+    await ctx.setOffline(true);
+    await popup.evaluate(() => window.dispatchEvent(new Event('offline')));
+    const offlineBanner = await popup.$eval(
+      '#banner .banner-text',
+      (node) => node.textContent,
+    );
+    check(
+      'offline state is reported without discarding the stored snapshot',
+      /offline/i.test(offlineBanner),
+      offlineBanner,
+    );
+    await ctx.setOffline(false);
+
+    // Restore the pristine first-run state the following assertions rely on.
+    await popup.evaluate(async () => {
+      const { setSettings, DEFAULTS } = await import('./lib/storage.js');
+      await chrome.storage.local.remove('cache');
+      await setSettings({ ...DEFAULTS });
+    });
+    await popup.reload();
+    await popup.waitForSelector('.empty h3', { timeout: 10000 });
+
     await popup.emulateMedia({ reducedMotion: 'reduce' });
     const reducedMotion = await popup.$eval('#refresh', (button) => {
       button.classList.add('spinning');

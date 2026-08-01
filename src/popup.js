@@ -201,6 +201,13 @@ function relative(ts) {
   return 'just now';
 }
 
+/** Terminate a message with exactly one sentence-ending mark. */
+function sentence(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return '';
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
 function svg(path) {
   const node = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   node.setAttribute('viewBox', '0 0 16 16');
@@ -522,18 +529,70 @@ function withId(node, id) {
   return node;
 }
 
+/** Fill the banner with a message and, when recovery is possible, one action. */
+function showBanner(message, action) {
+  el.banner.hidden = false;
+  const text = document.createElement('span');
+  text.className = 'banner-text';
+  text.textContent = message;
+  el.banner.replaceChildren(text);
+  if (action) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'banner-action';
+    button.textContent = action.label;
+    button.addEventListener('click', action.onClick);
+    el.banner.appendChild(button);
+  }
+}
+
+/** Ask for the github.com origin from this click, then refresh. */
+async function requestWebPermission() {
+  try {
+    const granted = await chrome.permissions.request({
+      origins: ['https://github.com/*'],
+    });
+    if (granted) await doRefresh();
+    else announce('StarBoard still has no access to github.com.');
+  } catch (error) {
+    announce(`Could not request access. ${error.message}`);
+  }
+}
+
 function renderBanner() {
+  if (!navigator.onLine) {
+    showBanner(
+      state.cache?.repos
+        ? 'You are offline. Showing the last snapshot StarBoard stored locally.'
+        : 'You are offline. StarBoard will load your repositories once the connection returns.',
+    );
+    return;
+  }
   const err = state.cache?.error;
   if (err) {
-    el.banner.hidden = false;
     const retained =
       state.cache?.pendingSource
         ? ` Showing the last successful ${state.cache.source === 'web' ? 'website' : 'API'} snapshot.`
         : ' Showing the last successful snapshot.';
-    el.banner.textContent =
-      err.rateLimited && err.resetAt
-        ? `${err.message} Retry ${relative(err.resetAt)}.${retained}`
-        : `${err.message}.${retained}`.replace('..', '.');
+    const hasSnapshot = !!state.cache?.repos?.length;
+    const suffix = hasSnapshot ? retained : '';
+    if (err.code === 'WEB_PERMISSION_REQUIRED') {
+      showBanner(`${err.message}${suffix}`, {
+        label: 'Grant access',
+        onClick: requestWebPermission,
+      });
+      return;
+    }
+    if (err.rateLimited && err.resetAt) {
+      // The service worker already scheduled a retry alarm for resetAt; this
+      // only tells the user when that will happen.
+      showBanner(`${err.message} Retrying automatically ${relative(err.resetAt)}.${suffix}`);
+      return;
+    }
+    showBanner(`${sentence(err.message)}${suffix}`, {
+      label: 'Try again',
+      onClick: () => doRefresh(),
+    });
     return;
   }
   if (state.cache?.complete === false) {
@@ -544,11 +603,14 @@ function renderBanner() {
       timeout: 'a later GitHub page timed out',
       network: 'a later GitHub page could not be loaded',
     }[state.cache.partialReason] || 'the refresh could not finish';
-    el.banner.hidden = false;
-    el.banner.textContent = `Partial snapshot: ${reason}. Loaded data remains usable and is labeled partial.`;
+    showBanner(`Partial snapshot: ${reason}. What loaded is still usable.`, {
+      label: 'Try again',
+      onClick: () => doRefresh(),
+    });
     return;
   }
   el.banner.hidden = true;
+  el.banner.replaceChildren();
 }
 
 function setSelectOptions(select, options, selected) {
@@ -654,6 +716,21 @@ function render() {
   if (!cache?.repos) {
     el.totals.hidden = true;
     renderSkeleton();
+    return;
+  }
+
+  // A synced account that genuinely owns nothing is not a filtering problem —
+  // `repos` is an empty array here, which is truthy, so it must be caught
+  // before the no-match branch below.
+  if (!cache.repos.length) {
+    el.totals.hidden = true;
+    el.count.textContent = '';
+    el.updated.textContent = `${cache.stale ? 'Last successful update' : 'Updated'} ${relative(cache.fetchedAt)}`;
+    renderEmpty(
+      'No repositories yet',
+      `${cache.profile?.login ? `@${cache.profile.login}` : 'This account'} does not own any repositories that StarBoard can see. Create one on GitHub, or check the username in settings.`,
+      { label: 'Open settings', onClick: () => chrome.runtime.openOptionsPage() },
+    );
     return;
   }
 
@@ -990,6 +1067,18 @@ el.undo.addEventListener('click', async () => {
   render();
   el.undo.hidden = true;
   announce('Last data action undone.');
+});
+
+// Connectivity is a render input, not an error: dropping offline swaps the
+// banner without discarding the cached snapshot, and reconnecting refreshes.
+window.addEventListener('offline', () => {
+  renderBanner();
+  announce('You are offline. StarBoard is showing its stored snapshot.');
+});
+window.addEventListener('online', () => {
+  renderBanner();
+  announce('Back online. Refreshing.');
+  doRefresh();
 });
 
 /* ---------- boot ---------- */

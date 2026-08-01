@@ -105,9 +105,11 @@ async function fetchAccountViaWeb(username) {
     throw new GitHubError('Web mode needs a GitHub username. Add one in Settings.');
   }
   if (!(await hasWebPermission())) {
-    throw new GitHubError(
-      'StarBoard needs permission to read github.com. Open Settings and re-select "GitHub website".',
-    );
+    // Coded so the popup can offer to re-request the origin from a user
+    // gesture rather than sending the user to Settings.
+    throw new GitHubError('StarBoard needs permission to read github.com.', {
+      code: 'WEB_PERMISSION_REQUIRED',
+    });
   }
 
   await ensureOffscreen();
