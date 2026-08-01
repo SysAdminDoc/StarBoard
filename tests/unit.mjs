@@ -540,6 +540,58 @@ await test('hostile backup documents are rejected without touching stored state'
   assert.equal(valid.records.settings.username, 'octocat');
 });
 
+await test('backup import replaces off-origin profile, avatar, and repository URLs', async () => {
+  const cache = {
+    profile: {
+      login: 'octocat',
+      name: 'The Octocat',
+      avatar_url: 'https://attacker.example/pixel?profile=octocat',
+      html_url: 'https://phish.example/sign-in',
+      public_repos: 1,
+      followers: 0,
+    },
+    repos: [
+      {
+        id: 1,
+        name: 'demo',
+        full_name: 'octocat/demo',
+        html_url: 'https://phish.example/octocat/demo',
+        description: '',
+        language: null,
+        stargazers_count: 1,
+        forks_count: 0,
+        private: false,
+        fork: false,
+        archived: false,
+      },
+    ],
+    fetchedAt: Date.UTC(2026, 7, 1),
+    source: 'api',
+    confidence: 'exact',
+    lifecycleEvents: [],
+  };
+  const document = await createBackup({
+    settings: { ...storage.DEFAULTS, username: 'octocat', dataSource: 'api' },
+    cache,
+    baseline: storage.snapshotOf(cache.repos, { now: cache.fetchedAt }),
+    now: cache.fetchedAt,
+  });
+
+  const preview = await validateBackupText(JSON.stringify(document));
+  await storage.applyImportedState(preview.records);
+  const restored = await storage.getCache();
+  assert.equal(restored.profile.html_url, 'https://github.com/octocat');
+  assert.equal(restored.profile.avatar_url, 'https://github.com/octocat.png?size=80');
+  assert.equal(restored.repos[0].html_url, 'https://github.com/octocat/demo');
+  assert.ok(
+    [restored.profile.html_url, restored.profile.avatar_url, restored.repos[0].html_url].every(
+      (value) => ['https://github.com', 'https://avatars.githubusercontent.com'].includes(
+        new URL(value).origin,
+      ),
+    ),
+  );
+});
+
 await test('CSV quoting and formula guards follow RFC 4180 and OWASP', async () => {
   const cache = {
     profile: { login: 'octocat' },

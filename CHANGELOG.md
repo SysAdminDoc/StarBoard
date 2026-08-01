@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- Imported cache links are now constrained to GitHub origins before they reach
+  the popup. Off-origin or malformed profile, avatar, and repository URLs are
+  replaced with safe links derived from the validated account and repository
+  names, preventing a crafted backup from becoming a persistent beacon or
+  spoofed row link.
 - Refresh requests for different sources or accounts are isolated even when
   they arrive in the same microtask before the coordinator starts draining.
   Each caller now receives its own requested generation while compatible

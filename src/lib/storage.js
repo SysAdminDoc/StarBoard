@@ -110,6 +110,58 @@ function assertFinite(value, name, { min = 0 } = {}) {
   assert(Number.isFinite(value) && value >= min, `${name} must be a finite number >= ${min}`);
 }
 
+const GITHUB_ORIGIN = 'https://github.com';
+const GITHUB_ORIGINS = new Set([GITHUB_ORIGIN]);
+const AVATAR_ORIGINS = new Set([GITHUB_ORIGIN, 'https://avatars.githubusercontent.com']);
+
+function githubUrl(path) {
+  const encoded = String(path || '')
+    .split('/')
+    .map((part) => encodeURIComponent(part))
+    .join('/');
+  return `${GITHUB_ORIGIN}/${encoded}`;
+}
+
+function allowlistedUrl(value, fallback, origins) {
+  try {
+    const parsed = new URL(String(value || ''));
+    if (origins.has(parsed.origin)) return parsed.href;
+  } catch {
+    // Malformed input takes the same safe fallback as an off-origin URL.
+  }
+  return fallback;
+}
+
+/** Replace untrusted cache links with values derived from validated identities. */
+function normalizeCacheUrls(value) {
+  if (!isObject(value)) return value;
+  const profile = isObject(value.profile) ? value.profile : {};
+  const profileUrl = githubUrl(profile.login);
+  return {
+    ...value,
+    profile: {
+      ...profile,
+      html_url: allowlistedUrl(profile.html_url, profileUrl, GITHUB_ORIGINS),
+      // An absent avatar is a supported no-image state. Only a supplied but
+      // unsafe URL needs replacing, otherwise fixtures/offline snapshots would
+      // gain a network request they never contained.
+      avatar_url: profile.avatar_url
+        ? allowlistedUrl(profile.avatar_url, `${profileUrl}.png?size=80`, AVATAR_ORIGINS)
+        : '',
+    },
+    repos: Array.isArray(value.repos)
+      ? value.repos.map((repo) => ({
+          ...repo,
+          html_url: allowlistedUrl(
+            repo?.html_url,
+            githubUrl(repo?.full_name),
+            GITHUB_ORIGINS,
+          ),
+        }))
+      : value.repos,
+  };
+}
+
 function inferLegacyVersion(key, data) {
   if (key !== STORAGE_KEYS.settings) return 1;
   if (!Object.hasOwn(data, 'dataSource')) return 1;
@@ -289,6 +341,8 @@ export function migrateRecord(key, raw, now = Date.now()) {
     else if (version === 5) value = migrateV5ToV6(key, value);
     version += 1;
   }
+
+  if (key === STORAGE_KEYS.cache) value = normalizeCacheUrls(value);
 
   if (key === STORAGE_KEYS.settings) {
     if (wrapped && raw.schemaVersion === SCHEMA_VERSION) validateSettings(value);
