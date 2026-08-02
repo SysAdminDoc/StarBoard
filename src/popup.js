@@ -31,6 +31,7 @@ import { formatters, localizeDocument, message } from './lib/i18n.js';
 import {
   SPARKLINE_MIN_POINTS,
   historyPointsForRepos,
+  historyDeltaForRepo,
   historyRepoIndex,
   historyRetainedDays,
   historySeriesForRepo,
@@ -728,13 +729,16 @@ function renderTrendTable(rows) {
   const compared = rows
     .map((repo) => ({
       repo,
-      stars: historySeriesForRepo(state.history, repo, days, { index }),
-      forks: historySeriesForRepo(state.history, repo, days, { index, metric: 'forks' }),
+      stars: historyDeltaForRepo(state.history, repo, days, { index }),
     }))
     // Biggest movers first: a comparison ordered by current stars answers a
     // different question than the one this table is for.
     .sort((a, b) => (b.stars.delta ?? -Infinity) - (a.stars.delta ?? -Infinity));
-  const shown = compared.slice(0, TREND_TABLE_MAX_ROWS);
+  const shown = compared.slice(0, TREND_TABLE_MAX_ROWS).map(({ repo }) => ({
+    repo,
+    stars: historySeriesForRepo(state.history, repo, days, { index }),
+    forks: historySeriesForRepo(state.history, repo, days, { index, metric: 'forks' }),
+  }));
   const dropped = compared.length - shown.length;
 
   el.trendTableCaption.textContent =

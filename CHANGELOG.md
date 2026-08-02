@@ -42,6 +42,8 @@
   open instead of pinning a feature off indefinitely.
 - Aggregate trend deltas now show an explicit partial marker and accessible
   coverage count when some visible repositories have no retained comparison.
+- The trend table now sorts with a delta-only pass and builds full star/fork
+  series only for its 50 displayed rows, keeping large portfolios bounded.
 - API authentication now records a redacted active, expired, revoked, denied,
   or rate-limited state with its last successful timestamp; confirmed expiry or
   revocation clears only a session token and offers replacement/Forget actions.

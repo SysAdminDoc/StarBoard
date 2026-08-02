@@ -670,6 +670,57 @@ export function historySeriesForRepo(
   };
 }
 
+/**
+ * Return only the comparison values needed to order a trend table.
+ *
+ * Sorting a large table should not allocate a complete day-by-day series for
+ * every row that will be dropped by the 50-row display cap. The renderer uses
+ * this cheap pass for ordering, then builds full series only for rows shown.
+ */
+export function historyDeltaForRepo(
+  history,
+  repo,
+  days,
+  { now = Date.now(), metric = 'stars', index = null } = {},
+) {
+  assert(Number.isInteger(days) && days >= 1, 'invalid trend range');
+  assert(metric === 'stars' || metric === 'forks', 'invalid history metric');
+  const key = repositoryHistoryKey(repo);
+  const at = index
+    ? index.get(key) ?? -1
+    : history?.repos?.findIndex((entry) => entry[0] === key) ?? -1;
+  if (at === -1 || !history?.snapshots?.length) {
+    return { key, metric, days, first: null, last: null, delta: null, measured: 0, approximate: false };
+  }
+  const today = utcDay(now);
+  const todayStart = Date.parse(`${today}T00:00:00.000Z`);
+  const oldestDay = utcDay(todayStart - (days - 1) * DAY_MS);
+  const measuredByDay = new Map();
+  for (const snapshot of history.snapshots) {
+    if (snapshot.day < oldestDay) continue;
+    if (snapshot.day > today) break;
+    const value = snapshot[metric][at];
+    if (value === null || value === undefined) continue;
+    measuredByDay.set(snapshot.day, {
+      value,
+      approximate: snapshot.approx.includes(at),
+    });
+  }
+  const values = [...measuredByDay.values()];
+  const first = values[0]?.value ?? null;
+  const last = values.at(-1)?.value ?? null;
+  return {
+    key,
+    metric,
+    days,
+    first,
+    last,
+    delta: first === null || last === null ? null : last - first,
+    measured: values.length,
+    approximate: values.some((point) => point.approximate),
+  };
+}
+
 /** One key→slot map for a whole board render, so per-row reads stay linear. */
 export function historyRepoIndex(history) {
   return new Map((history?.repos || []).map((entry, at) => [entry[0], at]));

@@ -123,6 +123,7 @@ const {
 const {
   HISTORY_MAX_BYTES,
   historyByteSize,
+  historyDeltaForRepo,
   historyMaxBytesForQuota,
   historyPointForRepo,
   historyRetainedDays,
@@ -633,6 +634,30 @@ await test('storage records are restricted to trusted extension contexts', async
     { accessLevel: 'TRUSTED_CONTEXTS' },
     { accessLevel: 'TRUSTED_CONTEXTS' },
   ]);
+});
+
+await test('trend ordering can read deltas without allocating full series', async () => {
+  const history = {
+    repos: [['name:repo-1', 'repo-1']],
+    snapshots: [
+      { day: '2026-08-01', stars: [10], forks: [1], approx: [] },
+      { day: '2026-08-02', stars: [14], forks: [2], approx: [] },
+    ],
+  };
+  const delta = historyDeltaForRepo(history, { full_name: 'repo-1' }, 2, {
+    now: Date.parse('2026-08-02T12:00:00Z'),
+  });
+  assert.deepEqual(delta, {
+    key: 'name:repo-1',
+    metric: 'stars',
+    days: 2,
+    first: 10,
+    last: 14,
+    delta: 4,
+    measured: 2,
+    approximate: false,
+  });
+  assert.equal('values' in delta, false);
 });
 
 await test('refresh cache and baseline commit with one generation', async () => {
