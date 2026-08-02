@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.7.0 — 2026-08-02
+
+### Added
+
+- Bounded repository attention checks and explicit local account switching,
+  including redacted account metadata, two-step account-data forgetting, and
+  ten-minute undo.
+- Network destination disclosures, signed capability-manifest verification,
+  semantic accessibility smoke coverage, release tracking, local labels, and
+  pinned trend comparisons are now part of the shipped release contract.
+
 ## v1.6.0 — 2026-08-02
 
 ### Added
