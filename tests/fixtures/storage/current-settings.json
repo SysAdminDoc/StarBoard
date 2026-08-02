@@ -18,6 +18,7 @@
     "showDescriptions": true,
     "showMetadata": true,
     "showForkStats": true,
+    "showReleaseStats": false,
     "showSourceStatus": true
   }
 }

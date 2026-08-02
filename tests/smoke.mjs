@@ -306,6 +306,7 @@ async function testWebMode(source) {
           sortKey: 'stars',
           badgeMode: 'stars',
           theme: 'dark',
+          showReleaseStats: true,
         },
       });
     }, USERNAME);
@@ -331,6 +332,16 @@ async function testWebMode(source) {
 
     const banner = await popup.$('#banner:not([hidden])');
     check('web mode has no error banner', !banner, banner ? await banner.textContent() : '');
+
+    const webRelease = await popup.evaluate(() => ({
+      count: document.querySelectorAll('.row .release').length,
+      text: document.querySelector('.row .release')?.textContent || '',
+    }));
+    check(
+      'website mode labels release details unavailable',
+      webRelease.count === webRows.length && /unavailable/i.test(webRelease.text),
+      JSON.stringify(webRelease),
+    );
 
     const sorted = webRows.every((r, i) => i === 0 || webRows[i - 1].stars >= r.stars);
     check('web mode sorted by stars, descending', sorted, `top: ${webRows[0]?.name}`);
@@ -1576,9 +1587,15 @@ async function main() {
         if (url.startsWith('chrome-extension://')) return route.continue();
         if (offlineApiFixture && url.startsWith('https://api.github.com/')) {
           const { pathname } = new URL(url);
-          const body = pathname.endsWith('/repos')
-            ? offlineApiFixture.repos
-            : offlineApiFixture.profile;
+          const body = pathname.endsWith('/releases/latest')
+            ? {
+                tag_name: 'v1.5.0',
+                published_at: '2026-08-01T12:00:00Z',
+                assets: [{ download_count: 12 }, { download_count: 5 }],
+              }
+            : pathname.endsWith('/repos')
+              ? offlineApiFixture.repos
+              : offlineApiFixture.profile;
           return route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -1623,10 +1640,19 @@ async function main() {
       const installFixtures = async (repos, profile = FIXTURE_PROFILE) => {
         await worker.evaluate(
           ([profile, list]) => {
-            globalThis.__starboardOriginalFetch ||= globalThis.fetch;
-            globalThis.fetch = async (input) => {
-              const url = String(input?.url || input);
-              const body = url.includes('/repos') ? list : profile;
+          globalThis.__starboardOriginalFetch ||= globalThis.fetch;
+          globalThis.fetch = async (input) => {
+            const url = String(input?.url || input);
+            const release = /\/releases\/latest(?:\?|$)/.test(url);
+            const body = release
+              ? {
+                  tag_name: 'v1.5.0',
+                  published_at: '2026-08-01T12:00:00Z',
+                  assets: [{ download_count: 12 }, { download_count: 5 }],
+                }
+              : url.includes('/repos')
+                ? list
+                : profile;
               return new Response(JSON.stringify(body), {
                 status: 200,
                 headers: {
@@ -3962,7 +3988,7 @@ async function main() {
     );
     check(
       'detail switches expose accessible names and states',
-      switchNames.length === 5 && switchNames.every(Boolean),
+      switchNames.length === 6 && switchNames.every(Boolean),
       switchNames.join(' | '),
     );
     check(
@@ -4182,6 +4208,7 @@ async function main() {
       '#showDescriptions',
       '#showMetadata',
       '#showForkStats',
+      ...(OFFLINE ? ['#showReleaseStats'] : []),
       '#showSourceStatus',
     ]) {
       await options.uncheck(selector);
@@ -4199,6 +4226,7 @@ async function main() {
         settings.showDescriptions === false &&
         settings.showMetadata === false &&
         settings.showForkStats === false &&
+        settings.showReleaseStats === false &&
         settings.showSourceStatus === false
       );
     });
@@ -4242,6 +4270,7 @@ async function main() {
       '#showDescriptions',
       '#showMetadata',
       '#showForkStats',
+      ...(OFFLINE ? ['#showReleaseStats'] : []),
       '#showSourceStatus',
     ]) {
       await options.check(selector);
@@ -4255,11 +4284,29 @@ async function main() {
         settings.showDescriptions &&
         settings.showMetadata &&
         settings.showForkStats &&
+        settings.showReleaseStats === OFFLINE &&
         settings.showSourceStatus
       );
     });
     await popup.reload();
     await popup.waitForSelector('.row .stat.forks');
+    if (OFFLINE) {
+      await popup.waitForFunction(
+        () => /v1\.5\.0/.test(document.querySelector('.row .release')?.textContent || ''),
+        { timeout: 30000 },
+      );
+      const releaseUi = await popup.evaluate(() => ({
+        rows: document.querySelectorAll('.row .release').length,
+        text: document.querySelector('.row .release')?.textContent || '',
+      }));
+      check(
+        'release toggle shows tag, age and cumulative asset downloads',
+        releaseUi.rows > 0 &&
+          /v1\.5\.0/.test(releaseUi.text) &&
+          /cumulative downloads/.test(releaseUi.text),
+        JSON.stringify(releaseUi),
+      );
+    }
 
     // Baseline reset must move the baseline forward without wiping the list.
     await popup.bringToFront();

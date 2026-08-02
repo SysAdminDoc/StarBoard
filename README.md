@@ -81,6 +81,10 @@ telemetry — the API token, if you choose to use one, is sent only to
   named views, then rename or delete them with undo.
 - **Two data sources** — your signed-in github.com session with **no token at
   all** by default, or the GitHub API for lower bandwidth and private repos.
+- **Release details** — opt in to the latest release tag, relative age and
+  cumulative downloads across its assets. API mode reads the metadata through
+  GraphQL or one REST request per repository; website mode labels it explicitly
+  unavailable instead of showing a blank column.
 - **Private repos** — supported when you add a token.
 - **Background refresh** — configurable interval, with a conservative 12-hour
   website default and six-hour automatic minimum.

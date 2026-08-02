@@ -371,6 +371,9 @@
   "optionsSetting_showMetadata": {
     "message": "Language and activity"
   },
+  "optionsSetting_showReleaseStats": {
+    "message": "Release details"
+  },
   "optionsSetting_showSourceStatus": {
     "message": "Source and quota status"
   },
@@ -653,6 +656,9 @@
   "popupNoPoints": {
     "message": "—"
   },
+  "popupNoRelease": {
+    "message": "No published release"
+  },
   "popupNoRepositories": {
     "message": "No repositories yet"
   },
@@ -760,6 +766,12 @@
   },
   "popupRefreshNow": {
     "message": "Refresh now"
+  },
+  "popupReleaseDownloads": {
+    "message": "$1 cumulative downloads across $2 release assets"
+  },
+  "popupReleaseUnavailable": {
+    "message": "Release data unavailable in website mode"
   },
   "popupRemoteSourceDisabled": {
     "message": "A remote capability rule disabled website mode."
@@ -1307,6 +1319,9 @@
   "text_59f8a2fc": {
     "message": "Account"
   },
+  "text_5d3110dd": {
+    "message": "Show the latest tag, age and cumulative asset downloads. Website mode reports this as unavailable."
+  },
   "text_5d72fcaa": {
     "message": "Days"
   },
@@ -1324,6 +1339,9 @@
   },
   "text_61dc8dec": {
     "message": "+N"
+  },
+  "text_620bf5c8": {
+    "message": "Release details"
   },
   "text_63e62a39": {
     "message": "500 stars"

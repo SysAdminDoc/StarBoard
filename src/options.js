@@ -58,6 +58,7 @@ const fields = {
   showDescriptions: $('showDescriptions'),
   showMetadata: $('showMetadata'),
   showForkStats: $('showForkStats'),
+  showReleaseStats: $('showReleaseStats'),
   showSourceStatus: $('showSourceStatus'),
 };
 const notificationFields = {
@@ -434,6 +435,7 @@ async function load() {
   fields.showDescriptions.checked = s.showDescriptions;
   fields.showMetadata.checked = s.showMetadata;
   fields.showForkStats.checked = s.showForkStats;
+  fields.showReleaseStats.checked = s.showReleaseStats;
   fields.showSourceStatus.checked = s.showSourceStatus;
   syncSourceUI();
   applyTheme(s.theme);
@@ -477,6 +479,7 @@ function collect() {
     showDescriptions: fields.showDescriptions.checked,
     showMetadata: fields.showMetadata.checked,
     showForkStats: fields.showForkStats.checked,
+    showReleaseStats: fields.showReleaseStats.checked,
     showSourceStatus: fields.showSourceStatus.checked,
   };
 }
@@ -1261,6 +1264,7 @@ const INSTANT_SETTING_KEYS = [
   'showDescriptions',
   'showMetadata',
   'showForkStats',
+  'showReleaseStats',
   'showSourceStatus',
 ];
 for (const key of INSTANT_SETTING_KEYS) {
@@ -1275,7 +1279,11 @@ for (const key of INSTANT_SETTING_KEYS) {
         );
         await patchSettings(patch);
         if (key === 'theme') applyTheme(values.theme);
-        await chrome.runtime.sendMessage({ type: 'settings-changed' });
+        await chrome.runtime.sendMessage({
+          type: 'settings-changed',
+          refresh: key === 'showReleaseStats' && values.showReleaseStats,
+          reason: key === 'showReleaseStats' ? 'release-details' : undefined,
+        });
         sayT('optionsSettingSaved', [t(`optionsSetting_${key}`)], 'ok');
       })
       .catch((err) => reportError(err, 'account', t('optionsSettingSaveError')))

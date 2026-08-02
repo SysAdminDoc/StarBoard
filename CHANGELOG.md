@@ -26,6 +26,9 @@
   point per 100 repositories, ranked server-side, where REST needed one request
   per 100 and silently ignored `sort=stars`. Tokenless reads are unchanged, and
   every GraphQL failure REST can survive falls back to REST.
+- Release details are an opt-in row setting: API mode shows the latest tag,
+  relative age and cumulative downloads across release assets, while website
+  mode says the data is unavailable rather than presenting an empty field.
 - A static kill-switch: StarBoard reads one small JSON from its own GitHub Pages
   branch at most every six hours and can disable a named capability until the
   install reaches a stated version, so a field break no longer waits out a store

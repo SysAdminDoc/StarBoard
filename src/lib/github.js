@@ -297,6 +297,14 @@ query StarBoardRepositories($login: String!, $cursor: String) {
         isArchived
         updatedAt
         pushedAt
+        latestRelease {
+          tagName
+          publishedAt
+          releaseAssets(first: 100) {
+            totalCount
+            nodes { downloadCount }
+          }
+        }
       }
     }
   }
@@ -310,8 +318,23 @@ query StarBoardRepositories($login: String!, $cursor: String) {
  * REST counts open pull requests as issues, GraphQL does not — so the two
  * GraphQL counts are summed to reproduce the REST number.
  */
-export function trimGraphRepo(node) {
+export function trimGraphRelease(release) {
+  if (!release) return null;
+  const assets = release.releaseAssets || {};
+  const nodes = Array.isArray(assets.nodes) ? assets.nodes : [];
   return {
+    tag: String(release.tagName || '').slice(0, 200),
+    publishedAt: release.publishedAt || null,
+    downloads: nodes.reduce(
+      (total, asset) => total + (Number.isFinite(asset?.downloadCount) ? asset.downloadCount : 0),
+      0,
+    ),
+    assetCount: Number.isFinite(assets.totalCount) ? assets.totalCount : nodes.length,
+  };
+}
+
+export function trimGraphRepo(node, { includeReleaseStats = false } = {}) {
+  const repo = {
     id: node.databaseId,
     name: node.name,
     full_name: node.nameWithOwner,
@@ -327,6 +350,8 @@ export function trimGraphRepo(node) {
     updated_at: node.updatedAt || null,
     pushed_at: node.pushedAt || null,
   };
+  if (includeReleaseStats) repo.release = trimGraphRelease(node.latestRelease);
+  return repo;
 }
 
 export function trimGraphProfile(user) {
@@ -462,7 +487,9 @@ async function fetchAccountGraphQL({ username, token }, options = {}) {
     const page = user.repositories;
     declared = Number(page?.totalCount) || declared;
     for (const node of page?.nodes || []) {
-      const repo = trimGraphRepo(node);
+      const repo = trimGraphRepo(node, {
+        includeReleaseStats: options.includeReleaseStats === true,
+      });
       byKey.set(repo.id ?? repo.full_name, repo);
     }
     hasNextPage = !!page?.pageInfo?.hasNextPage;
@@ -535,8 +562,8 @@ function copy(value) {
 }
 
 /** Keep only the fields the UI needs. */
-function trimRepo(repository) {
-  return {
+function trimRepo(repository, { includeReleaseStats = false } = {}) {
+  const repo = {
     id: repository.id,
     name: repository.name,
     full_name: repository.full_name,
@@ -552,6 +579,79 @@ function trimRepo(repository) {
     updated_at: repository.updated_at || null,
     pushed_at: repository.pushed_at || null,
   };
+  if (includeReleaseStats) repo.release = trimRestRelease(repository);
+  return repo;
+}
+
+function trimRestRelease(release) {
+  if (!release) return null;
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  return {
+    tag: String(release.tag_name || '').slice(0, 200),
+    publishedAt: release.published_at || null,
+    downloads: assets.reduce(
+      (total, asset) => total + (Number.isFinite(asset?.download_count) ? asset.download_count : 0),
+      0,
+    ),
+    assetCount: assets.length,
+  };
+}
+
+function releasePath(fullName) {
+  const parts = String(fullName || '').split('/');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  return `/repos/${encodeURIComponent(parts[0])}/${encodeURIComponent(parts[1])}/releases/latest`;
+}
+
+/** Fetch opt-in release metadata without making it part of the base refresh. */
+async function fetchReleaseMetadata(repos, token, options = {}) {
+  const requestOptions = {
+    fetchImpl: options.fetchImpl,
+    sleep: options.sleep,
+    random: options.random,
+    now: options.now,
+    timeoutMs: options.timeoutMs,
+    retries: options.retries,
+    signal: options.signal,
+  };
+  let attempts = 0;
+  let rate = null;
+  const enriched = [];
+
+  for (let index = 0; index < repos.length; index += 1) {
+    const repo = repos[index];
+    const path = releasePath(repo.full_name);
+    if (!path) {
+      enriched.push({ ...repo, release: null, releaseUnavailable: true });
+      continue;
+    }
+    try {
+      const result = await request(path, token, requestOptions);
+      attempts += result.attempts;
+      rate = result.rate;
+      enriched.push({ ...repo, release: trimRestRelease(result.body) });
+    } catch (error) {
+      if (error?.code === 'USER_NOT_FOUND') {
+        // GitHub uses 404 for a repository with no published release as well
+        // as for a repository the token cannot see. Both are safely empty.
+        enriched.push({ ...repo, release: null });
+        continue;
+      }
+      enriched.push({ ...repo, release: null, releaseUnavailable: true });
+      if (error?.code === 'RATE_LIMITED') {
+        for (let rest = index + 1; rest < repos.length; rest += 1) {
+          enriched.push({
+            ...repos[rest],
+            release: null,
+            releaseUnavailable: true,
+          });
+        }
+        break;
+      }
+    }
+  }
+
+  return { repos: enriched, rate, attempts };
 }
 
 function trimProfile(profile) {
@@ -588,6 +688,7 @@ async function fetchAllPages(
     now,
     timeoutMs,
     retries,
+    includeReleaseStats = false,
   } = {},
 ) {
   const previousByName = new Map(previousRepos.map((repo) => [repo.full_name, repo]));
@@ -626,7 +727,9 @@ async function fetchAllPages(
         code: 'INVALID_RESPONSE',
       });
     }
-    const pageRepos = result.notModified ? result.body : result.body.map(trimRepo);
+    const pageRepos = result.notModified
+      ? result.body
+      : result.body.map((repo) => trimRepo(repo, { includeReleaseStats }));
     for (const repo of pageRepos) byId.set(repo.id ?? repo.full_name, repo);
     pagesFetched += 1;
 
@@ -698,6 +801,7 @@ export async function fetchAccount({ username, token }, options = {}) {
     now: options.now,
     timeoutMs: options.timeoutMs,
     retries: options.retries,
+    signal: options.signal,
   };
   let attempts = 0;
 
@@ -748,9 +852,15 @@ export async function fetchAccount({ username, token }, options = {}) {
     ...requestOptions,
     validators,
     previousRepos: previous?.repos || [],
+    includeReleaseStats: options.includeReleaseStats === true,
   });
   Object.assign(nextValidators, listed.validators);
   attempts += listed.attempts;
+
+  const releaseData = options.includeReleaseStats
+    ? await fetchReleaseMetadata(listed.repos, token, requestOptions)
+    : { repos: listed.repos, rate: listed.rate, attempts: 0 };
+  attempts += releaseData.attempts;
 
   // GitHub states how many repositories the account owns. If pagination
   // returned fewer, something was dropped between pages and the snapshot is
@@ -772,8 +882,8 @@ export async function fetchAccount({ username, token }, options = {}) {
   return {
     profile: trimProfile(profile),
     authProfile: tokenProfile ? trimProfile(tokenProfile) : null,
-    repos: listed.repos,
-    rate: listed.rate,
+    repos: releaseData.repos,
+    rate: releaseData.rate || listed.rate,
     source: 'api',
     transport: 'rest',
     authenticated: !!token,

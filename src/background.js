@@ -359,13 +359,25 @@ async function runRefresh(intent) {
       effective: useWeb ? 'web' : 'api',
       reason: settings.dataSource === 'web' && webOff ? 'web-source-disabled' : null,
     };
-    const result = useWeb
+    const fetched = useWeb
       ? await fetchAccountViaWeb(settings.username)
       : await fetchAccount(settings, {
           previous: stored,
           sleep: waitForRetry,
           graphql: !graphqlOff,
+          includeReleaseStats: settings.showReleaseStats,
         });
+    const result =
+      useWeb && settings.showReleaseStats
+        ? {
+            ...fetched,
+            repos: fetched.repos.map((repo) => ({
+              ...repo,
+              release: null,
+              releaseUnavailable: true,
+            })),
+          }
+        : fetched;
 
     // Comparing one account's live counts against another account's snapshot
     // produces confident nonsense, and blending both into one history series

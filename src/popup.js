@@ -924,6 +924,35 @@ function rowNode(repo, rank, changes) {
     main.appendChild(meta);
   }
 
+  if (
+    state.settings.showReleaseStats &&
+    (Object.hasOwn(repo, 'release') || repo.releaseUnavailable)
+  ) {
+    const release = document.createElement('div');
+    release.className = 'release';
+    if (repo.releaseUnavailable) {
+      release.textContent = t('popupReleaseUnavailable');
+    } else if (!repo.release) {
+      release.textContent = t('popupNoRelease');
+    } else {
+      const tag = document.createElement('b');
+      tag.className = 'release-tag';
+      tag.textContent = repo.release.tag || t('popupNoRelease');
+      const age = document.createElement('span');
+      age.textContent = relative(repo.release.publishedAt);
+      const downloads = document.createElement('span');
+      downloads.textContent = t('popupReleaseDownloads', [
+        nf.format(repo.release.downloads),
+        nf.format(repo.release.assetCount),
+      ]);
+      release.append(tag, age, downloads);
+      if (repo.release.publishedAt) {
+        release.title = dateTime.format(new Date(repo.release.publishedAt));
+      }
+    }
+    main.appendChild(release);
+  }
+
   a.appendChild(main);
 
   const series = seriesFor(repo);

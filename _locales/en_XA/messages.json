@@ -377,6 +377,9 @@
   "optionsSetting_showMetadata": {
     "message": "［Láñgúágé áñd áçtívítý ······］"
   },
+  "optionsSetting_showReleaseStats": {
+    "message": "［Réléášé détáílš ·····］"
+  },
   "optionsSetting_showSourceStatus": {
     "message": "［Šóúrçé áñd qúótá štátúš ·······］"
   },
@@ -653,6 +656,9 @@
   "popupNoPoints": {
     "message": "［— ·］"
   },
+  "popupNoRelease": {
+    "message": "［Ñó públíšhéd réléášé ······］"
+  },
   "popupNoRepositories": {
     "message": "［Ñó répóšítóríéš ýét ······］"
   },
@@ -760,6 +766,12 @@
   },
   "popupRefreshing": {
     "message": "［Réfréšhíñg répóšítóríéš ·······］"
+  },
+  "popupReleaseDownloads": {
+    "message": "［$1 çúmúlátívé dówñlóádš áçróšš $2 réléášé áššétš ··············］"
+  },
+  "popupReleaseUnavailable": {
+    "message": "［Réléášé dátá úñáváíláblé íñ wébšíté módé ············］"
   },
   "popupRemoteSourceDisabled": {
     "message": "［Á rémóté çápábílítý rúlé díšábléd wébšíté módé. ··············］"
@@ -1307,6 +1319,9 @@
   "text_59f8a2fc": {
     "message": "［Áççóúñt ··］"
   },
+  "text_5d3110dd": {
+    "message": "［Šhów thé látéšt tág, ágé áñd çúmúlátívé áššét dówñlóádš. Wébšíté módé répórtš thíš áš úñáváíláblé. ·····························］"
+  },
   "text_5d72fcaa": {
     "message": "［Dáýš ·］"
   },
@@ -1324,6 +1339,9 @@
   },
   "text_61dc8dec": {
     "message": "［+Ñ ·］"
+  },
+  "text_620bf5c8": {
+    "message": "［Réléášé détáílš ·····］"
   },
   "text_63e62a39": {
     "message": "［500 štárš ···］"

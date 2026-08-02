@@ -1333,6 +1333,29 @@ select:disabled {
   white-space: nowrap;
 }
 
+.release {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+
+.release > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.release-tag {
+  max-width: 16ch;
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .lang {
   display: inline-flex;
   min-width: 0;

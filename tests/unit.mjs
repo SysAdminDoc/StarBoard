@@ -2221,6 +2221,123 @@ await test('the GraphQL and REST listings normalize to identical records', async
   );
 });
 
+await test('release details normalize GraphQL assets and REST latest releases', async () => {
+  const repo = {
+    id: 4242,
+    name: 'starboard',
+    full_name: 'octocat/starboard',
+    html_url: 'https://github.com/octocat/starboard',
+    description: 'Portfolio signal',
+    language: 'JavaScript',
+    stargazers_count: 52,
+    forks_count: 7,
+    open_issues_count: 5,
+    private: false,
+    fork: false,
+    archived: false,
+    updated_at: '2026-07-30T10:00:00Z',
+    pushed_at: '2026-07-31T09:00:00Z',
+  };
+  const release = {
+    tag_name: 'v1.5.0',
+    published_at: '2026-08-01T12:00:00Z',
+    assets: [
+      { download_count: 7 },
+      { download_count: 5 },
+    ],
+  };
+  const graphNode = {
+    databaseId: 4242,
+    name: 'starboard',
+    nameWithOwner: 'octocat/starboard',
+    url: repo.html_url,
+    description: repo.description,
+    primaryLanguage: { name: repo.language },
+    stargazerCount: repo.stargazers_count,
+    forkCount: repo.forks_count,
+    openIssues: { totalCount: 3 },
+    openPullRequests: { totalCount: 2 },
+    isPrivate: false,
+    isFork: false,
+    isArchived: false,
+    updatedAt: repo.updated_at,
+    pushedAt: repo.pushed_at,
+    latestRelease: {
+      tagName: release.tag_name,
+      publishedAt: release.published_at,
+      releaseAssets: {
+        totalCount: 2,
+        nodes: release.assets.map(({ download_count }) => ({ downloadCount: download_count })),
+      },
+    },
+  };
+  const profile = {
+    login: 'octocat',
+    name: 'The Octocat',
+    avatar_url: 'https://avatars.githubusercontent.com/u/1',
+    html_url: 'https://github.com/octocat',
+    public_repos: 1,
+    followers: 12,
+  };
+  const graphUser = {
+    login: 'octocat',
+    name: 'The Octocat',
+    avatarUrl: profile.avatar_url,
+    url: profile.html_url,
+    followers: { totalCount: 12 },
+    publicRepositories: { totalCount: 1 },
+    privateRepositories: { totalCount: 0 },
+    repositories: {
+      totalCount: 1,
+      pageInfo: { hasNextPage: false, endCursor: null },
+      nodes: [graphNode],
+    },
+  };
+  const json = (body, headers = {}) =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json', ...headers },
+    });
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    const path = new URL(String(url)).pathname;
+    calls.push(`${init.method || 'GET'} ${path}`);
+    if (path === '/graphql') {
+      return json({
+        data: {
+          rateLimit: { limit: 5000, remaining: 4998, resetAt: '2033-05-18T03:33:20.000Z' },
+          viewer: { ...graphUser, repositories: { totalCount: 1 } },
+          user: graphUser,
+        },
+      });
+    }
+    if (path === '/users/octocat') return json(profile);
+    if (path.endsWith('/releases/latest')) return json(release);
+    if (path.endsWith('/repos')) return json([repo]);
+    throw new Error(`unexpected request: ${path}`);
+  };
+
+  const graph = await fetchAccount(
+    { username: 'octocat', token: 'ghp_release' },
+    { fetchImpl, retries: 0, includeReleaseStats: true },
+  );
+  assert.deepEqual(graph.repos[0].release, {
+    tag: 'v1.5.0',
+    publishedAt: '2026-08-01T12:00:00Z',
+    downloads: 12,
+    assetCount: 2,
+  });
+  assert.deepEqual(calls, ['POST /graphql']);
+
+  calls.length = 0;
+  const rest = await fetchAccount(
+    { username: 'octocat', token: '' },
+    { fetchImpl, retries: 0, graphql: false, includeReleaseStats: true },
+  );
+  assert.deepEqual(rest.repos[0].release, graph.repos[0].release);
+  assert.ok(calls.includes('GET /repos/octocat/starboard/releases/latest'));
+});
+
 await test('trend annotations use only bounded local lifecycle and history facts', async () => {
   const day = (offset) => Date.UTC(2026, 7, 2 - offset);
   const history = {

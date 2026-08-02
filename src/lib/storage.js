@@ -128,6 +128,7 @@ export const DEFAULTS = Object.freeze({
   showDescriptions: true,
   showMetadata: true,
   showForkStats: true,
+  showReleaseStats: false,
   showSourceStatus: true,
 });
 
@@ -390,8 +391,10 @@ function validateSettings(value) {
     'showDescriptions',
     'showMetadata',
     'showForkStats',
+    'showReleaseStats',
     'showSourceStatus',
   ]) {
+    if (key === 'showReleaseStats' && !Object.hasOwn(value, key)) continue;
     assert(typeof value[key] === 'boolean', `${key} must be boolean`);
   }
 }
@@ -401,6 +404,19 @@ function validateRepo(repo) {
   assert(typeof repo.full_name === 'string' && repo.full_name.includes('/'), 'invalid repository name');
   assertFinite(repo.stargazers_count, 'repository stars');
   assertFinite(repo.forks_count, 'repository forks');
+  if (repo.release != null) {
+    assert(isObject(repo.release), 'invalid repository release');
+    assert(typeof repo.release.tag === 'string' && repo.release.tag.length <= 200, 'invalid release tag');
+    assert(
+      repo.release.publishedAt == null || typeof repo.release.publishedAt === 'string',
+      'invalid release publication date',
+    );
+    assertFinite(repo.release.downloads, 'release downloads');
+    assertFinite(repo.release.assetCount, 'release asset count');
+  }
+  if (repo.releaseUnavailable != null) {
+    assert(typeof repo.releaseUnavailable === 'boolean', 'invalid release availability');
+  }
 }
 
 function validateCache(value) {
