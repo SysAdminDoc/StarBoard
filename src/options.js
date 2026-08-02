@@ -12,6 +12,7 @@ import {
 } from './lib/storage.js';
 import { historyStats } from './lib/history.js';
 import {
+  CSV_FORMAT_VERSION,
   assertBackupSize,
   createBackup,
   createCsv,
@@ -684,7 +685,14 @@ $('exportCsv').addEventListener('click', async () => {
       ...(await readPortableState()),
       ...exportSelection(),
     });
-    downloadText(csv, `StarBoard-repositories-${exportDate()}.csv`, 'text/csv;charset=utf-8');
+    // The version is in the name as well as in every row: a renamed file still
+    // declares its contract, and one that has not been opened can be sorted by
+    // it.
+    downloadText(
+      csv,
+      `StarBoard-repositories-v${CSV_FORMAT_VERSION}-${exportDate()}.csv`,
+      'text/csv;charset=utf-8',
+    );
     say('Timestamped repository CSV downloaded.', 'ok', 'transfer');
   }).catch((error) => reportError(error, 'transfer', 'Could not create the CSV.'));
 });

@@ -188,6 +188,33 @@ hosts described above, and API mode does not request host access for either.
   known private repository names are redacted from view names and searches.
   PATs are always omitted, and restore preserves the credential already held by
   this browser profile.
+
+### CSV column contract
+
+The CSV export is meant to be scripted against, so its columns are a versioned
+contract rather than whatever the writer happened to emit. Every file — and
+every row in it — declares the version, and the filename carries it too
+(`StarBoard-repositories-v1-YYYY-MM-DD.csv`):
+
+| # | Column | Type | Notes |
+|---|--------|------|-------|
+| 1 | `schema_version` | integer | Currently `1`. Present on every row. |
+| 2 | `captured_at` | ISO 8601 UTC | Snapshot time, or the history point's time. |
+| 3 | `repository` | `owner/name` | |
+| 4 | `visibility` | `public` \| `private` | Private rows require the opt-in. |
+| 5 | `stars` | integer | |
+| 6 | `forks` | integer | |
+| 7 | `stars_delta` | integer or empty | **Empty means no comparable point**, never zero. |
+| 8 | `forks_delta` | integer or empty | Same. |
+| 9 | `source` | `api` \| `web` | |
+| 10 | `confidence` | `exact` \| `approximate` \| `partial` \| `stale` | |
+
+**The promise:** within one `schema_version`, these columns are never removed,
+reordered or retyped, and new columns are only ever appended to the right — so a
+reader indexing by position keeps working. Anything that would break such a
+reader increments the version instead. Files are UTF-8 with a BOM, CRLF line
+endings, every field quoted per RFC 4180, and leading `=+-@` guarded against
+spreadsheet formula injection.
 - **Diagnostics:** the local support snapshot allow-lists only version, browser
   floor, source, permission, schema, storage-size, refresh, retry, confidence,
   normalized error-code and alarm metadata. It excludes tokens, cookies,

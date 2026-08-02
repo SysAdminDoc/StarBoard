@@ -22,6 +22,28 @@ import {
 
 export const BACKUP_FORMAT = 'starboard-backup';
 export const BACKUP_FORMAT_VERSION = 1;
+/**
+ * The CSV column contract, carried in every row so a consumer never has to
+ * infer it from a filename or from a header it may not have read.
+ *
+ * Compatibility promise: within one version these columns are stable — never
+ * removed, reordered or retyped — and new columns are only ever appended to the
+ * right. Anything that would break a reader indexing by position increments
+ * this number instead.
+ */
+export const CSV_FORMAT_VERSION = 1;
+export const CSV_COLUMNS = Object.freeze([
+  'schema_version',
+  'captured_at',
+  'repository',
+  'visibility',
+  'stars',
+  'forks',
+  'stars_delta',
+  'forks_delta',
+  'source',
+  'confidence',
+]);
 export const BACKUP_MAX_BYTES = 5 * 1024 * 1024;
 /** @type {string[]} */
 const PORTABLE_KEYS = [
@@ -356,6 +378,7 @@ function currentCsvRows(cache, baseline, includePrivate) {
     .map((repo) => {
       const previous = counts[repo.full_name];
       return [
+        CSV_FORMAT_VERSION,
         new Date(cache.fetchedAt).toISOString(),
         repo.full_name,
         repo.private ? 'private' : 'public',
@@ -376,6 +399,7 @@ function historyCsvRows(history, includePrivate) {
     if (!includePrivate && row.private) continue;
     const before = previous.get(row.key);
     rows.push([
+      CSV_FORMAT_VERSION,
       new Date(row.at).toISOString(),
       row.fullName,
       row.private ? 'private' : 'public',
@@ -401,20 +425,9 @@ export function createCsv({
   includePrivate = false,
   includeHistory = false,
 } = {}) {
-  const header = [
-    'captured_at',
-    'repository',
-    'visibility',
-    'stars',
-    'forks',
-    'stars_delta',
-    'forks_delta',
-    'source',
-    'confidence',
-  ];
   const rows =
     includeHistory && history?.snapshots?.length
       ? historyCsvRows(history, includePrivate)
       : currentCsvRows(cache, baseline, includePrivate);
-  return `\uFEFF${[header, ...rows].map(csvLine).join('\r\n')}\r\n`;
+  return `\uFEFF${[[...CSV_COLUMNS], ...rows].map(csvLine).join('\r\n')}\r\n`;
 }

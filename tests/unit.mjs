@@ -1076,6 +1076,72 @@ await test('backup import replaces off-origin profile, avatar, and repository UR
   );
 });
 
+await test('the CSV export carries a versioned, positionally stable column contract', async () => {
+  const { CSV_COLUMNS, CSV_FORMAT_VERSION, createCsv } = await import('../src/lib/transfer.js');
+  // Pinned literally: this is the promise consumers script against, so a
+  // reorder or a rename has to fail here rather than in someone's pipeline.
+  assert.deepEqual(
+    [...CSV_COLUMNS],
+    [
+      'schema_version',
+      'captured_at',
+      'repository',
+      'visibility',
+      'stars',
+      'forks',
+      'stars_delta',
+      'forks_delta',
+      'source',
+      'confidence',
+    ],
+  );
+
+  const cache = {
+    profile: { login: 'octocat' },
+    fetchedAt: Date.UTC(2026, 6, 31, 12),
+    source: 'api',
+    confidence: 'exact',
+    repos: [
+      {
+        full_name: 'octocat/alpha',
+        private: false,
+        stargazers_count: 12,
+        forks_count: 3,
+      },
+    ],
+  };
+  const csv = createCsv({ cache, baseline: null, includePrivate: false });
+  const lines = csv.replace(/^﻿/, '').trim().split('\r\n');
+  // Every field is quoted, per the writer's RFC 4180 discipline.
+  const quoted = CSV_COLUMNS.map((name) => `"${name}"`).join(',');
+  assert.equal(lines[0], quoted);
+  // Every row declares the contract, so a consumer that never read the header
+  // — or received the file renamed — still knows what it is holding.
+  assert.equal(lines[1].split(',')[0], `"${CSV_FORMAT_VERSION}"`);
+  assert.equal(lines[1].split(',').length, CSV_COLUMNS.length);
+
+  const history = {
+    formatVersion: 3,
+    repos: [['name:octocat/alpha', 'octocat/alpha', 0]],
+    snapshots: [
+      {
+        day: '2026-07-30',
+        at: Date.UTC(2026, 6, 30),
+        source: 'api',
+        confidence: 'exact',
+        stars: [10],
+        forks: [2],
+        approx: [],
+      },
+    ],
+  };
+  const historyCsv = createCsv({ cache, baseline: null, history, includeHistory: true });
+  const historyLines = historyCsv.replace(/^﻿/, '').trim().split('\r\n');
+  assert.equal(historyLines[0], quoted);
+  assert.equal(historyLines[1].split(',')[0], `"${CSV_FORMAT_VERSION}"`);
+  assert.equal(historyLines[1].split(',').length, CSV_COLUMNS.length);
+});
+
 await test('CSV quoting and formula guards follow RFC 4180 and OWASP', async () => {
   const cache = {
     profile: { login: 'octocat' },
