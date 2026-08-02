@@ -300,6 +300,8 @@ export const RUNTIME_MESSAGES = Object.freeze({
   optionsSetting_showReleaseStats: 'Release details',
   optionsSetting_showSourceStatus: 'Source and quota status',
   optionsSettingSaved: '$1 saved.',
+  optionsLabelSaved: 'Repository labels saved locally.',
+  optionsLabelSaveError: 'Could not save repository labels.',
   optionsSettingsLoadFailed: 'Settings could not be loaded, so the controls stay locked to avoid overwriting them. $1',
   optionsSaveSettingsError: 'Could not save settings.',
   optionsPruneQuotaAdvice: 'Prune trend history below to free space, then try again.',

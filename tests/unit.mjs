@@ -180,8 +180,10 @@ const {
   emptyPortfolioViewState,
   filterRepositories,
   patchActivePortfolioFilters,
+  repositoryLabelKey,
   renamePortfolioView,
   savePortfolioView,
+  setRepositoryLabels,
 } = await import('../src/lib/portfolio-views.js');
 
 async function fixture(name) {
@@ -3089,6 +3091,29 @@ await test('portfolio filters cover language, visibility, state, lifecycle, and 
   assert.deepEqual(names({ activity: '30' }), ['active-js']);
   assert.deepEqual(names({ activity: 'stale', forkStatus: 'all' }), ['old-python-fork']);
   assert.deepEqual(names({ activity: 'unknown' }), ['no-language']);
+  const labels = {
+    [repositoryLabelKey(repos[0])]: ['priority', 'public'],
+    [repositoryLabelKey(repos[1])]: ['maintenance'],
+  };
+  const withLabels = (patch) =>
+    filterRepositories(repos, { ...emptyPortfolioViewState().active, ...patch }, events, {
+      now,
+      labels,
+    }).map((repo) => repo.name);
+  assert.deepEqual(withLabels({ label: 'priority' }), ['active-js']);
+  assert.deepEqual(withLabels({ label: 'maintenance', forkStatus: 'all' }), ['old-python-fork']);
+});
+
+await test('repository labels are bounded, case-insensitive, identity-keyed, and undo-compatible', async () => {
+  let state = emptyPortfolioViewState();
+  state = setRepositoryLabels(state, repositoryLabelKey({ id: 42, full_name: 'octocat/demo' }), [
+    ' priority ',
+    'Priority',
+    'maintenance',
+  ]);
+  assert.deepEqual(state.labels['id:42'], ['priority', 'maintenance']);
+  state = setRepositoryLabels(state, 'id:42', []);
+  assert.equal(Object.hasOwn(state.labels, 'id:42'), false);
 });
 
 await test('saved portfolio views activate, rename, delete, and reject duplicates', async () => {
@@ -3935,6 +3960,16 @@ await test('portable backups are checksummed, credential-free, and privacy-filte
     'private-demo focus',
     'portable-view-1',
   );
+  portfolioViews = setRepositoryLabels(
+    portfolioViews,
+    repositoryLabelKey(repos[0]),
+    ['public-label'],
+  );
+  portfolioViews = setRepositoryLabels(
+    portfolioViews,
+    repositoryLabelKey(repos[1]),
+    ['private-label'],
+  );
 
   const publicBackup = await createBackup({
     settings,
@@ -3949,7 +3984,11 @@ await test('portable backups are checksummed, credential-free, and privacy-filte
     now: exportedAt,
   });
   const publicText = JSON.stringify(publicBackup);
-  assert.doesNotMatch(publicText, /must-never-export|private-demo|private-removed/);
+  assert.doesNotMatch(
+    publicText,
+    /must-never-export|private-demo|private-removed|private-label/,
+  );
+  assert.match(publicText, /public-label/);
   const publicPreview = await validateBackupText(publicText);
   assert.equal(publicPreview.summary.repositories, 1);
   assert.equal(publicPreview.summary.historyDays, 0);
@@ -3977,6 +4016,7 @@ await test('portable backups are checksummed, credential-free, and privacy-filte
   });
   const privateText = JSON.stringify(privateBackup);
   assert.match(privateText, /private-demo/);
+  assert.match(privateText, /public-label|private-label/);
   assert.doesNotMatch(privateText, /must-never-export/);
   const privatePreview = await validateBackupText(privateText);
   assert.equal(privatePreview.summary.privateRepositories, 1);

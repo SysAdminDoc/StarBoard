@@ -239,6 +239,12 @@
   "optionsHistoryReportSvgDownloaded": {
     "message": "［Šélf-çóñtáíñéd ŠVG tréñd bádgé dówñlóádéd. ·············］"
   },
+  "optionsLabelSaveError": {
+    "message": "［Çóúld ñót šávé répóšítórý lábélš. ··········］"
+  },
+  "optionsLabelSaved": {
+    "message": "［Répóšítórý lábélš šávéd lóçállý. ··········］"
+  },
   "optionsLastActionUndone": {
     "message": "［Lášt dátá áçtíóñ úñdóñé. ·······］"
   },
@@ -1457,6 +1463,9 @@
   "text_80e4b47f": {
     "message": "［30 míñútéš ···］"
   },
+  "text_81bd4efb": {
+    "message": "［Ádd úp tó twélvé lóçál lábélš pér répóšítórý, šépárátéd bý çómmáš. Lábélš ñévér tríggér ñétwórk réqúéštš áñd çáñ bé fíltéréd fróm thé pópúp. ··········································］"
+  },
   "text_8238ecd0": {
     "message": "［Íñšpéçt á rédáçtéd šñápšhót óf véršíóñ, šóúrçé, pérmíššíóñ, štórágé, réfréšh áñd álárm héálth. Répóšítórý ñáméš, tókéñš, çóókíéš, ráw HTML áñd érrór méššágéš áré éxçlúdéd. ···················································］"
   },
@@ -1547,6 +1556,9 @@
   "text_9c1ffb03": {
     "message": "［Láñgúágé áñd áçtívítý ······］"
   },
+  "text_9eccf29d": {
+    "message": "［Lábél ··］"
+  },
   "text_a0fde485": {
     "message": "［Çhóóšé whíçh répóšítóríéš çáñ çréáté íñdívídúál míléštóñé ór grówth álértš. Pórtfólíó álértš áré úñçháñgéd. ································］"
   },
@@ -1570,6 +1582,9 @@
   },
   "text_a8ef9ecd": {
     "message": "［Mátçh thé íñtérfáçé áñd tóólbár šígñál tó ýóúr wórkšpáçé. ·················］"
+  },
+  "text_ac61f863": {
+    "message": "［Lóçál répóšítórý lábélš ·······］"
   },
   "text_adab1a19": {
     "message": "［štár áñd fórk çháñgéš áré méášúréd ágáíñšt. Réšét ít áñý tímé fróm thé pópúp bý çlíçkíñg thé “Δ šíñçé …” búttóñ. ··································］"
@@ -1685,6 +1700,9 @@
   "text_d186334b": {
     "message": "［Wébšíté módé létš thé brówšér áttáçh ýóúr gíthúb.çóm šéššíóñ çóókíéš; ŠtárBóárd ñévér réádš ór štóréš thé çóókíé válúéš. ····································］"
   },
+  "text_d1905cab": {
+    "message": "［Áll lábélš ···］"
+  },
   "text_d3b4ca9d": {
     "message": "［répó ·］"
   },
@@ -1786,6 +1804,9 @@
   },
   "text_f1b54cf5": {
     "message": "［Šávé & réfréšh ····］"
+  },
+  "text_f1be7b6c": {
+    "message": "［Répóšítórý lábélš ·····］"
   },
   "text_f41a3f02": {
     "message": "［GítHúb úšérñámé ·····］"

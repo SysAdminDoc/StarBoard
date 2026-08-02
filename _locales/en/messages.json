@@ -239,6 +239,12 @@
   "optionsHistoryReportSvgDownloaded": {
     "message": "Self-contained SVG trend badge downloaded."
   },
+  "optionsLabelSaved": {
+    "message": "Repository labels saved locally."
+  },
+  "optionsLabelSaveError": {
+    "message": "Could not save repository labels."
+  },
   "optionsLastActionUndone": {
     "message": "Last data action undone."
   },
@@ -1457,6 +1463,9 @@
   "text_80e4b47f": {
     "message": "30 minutes"
   },
+  "text_81bd4efb": {
+    "message": "Add up to twelve local labels per repository, separated by commas. Labels never trigger network requests and can be filtered from the popup."
+  },
   "text_8238ecd0": {
     "message": "Inspect a redacted snapshot of version, source, permission, storage, refresh and alarm health. Repository names, tokens, cookies, raw HTML and error messages are excluded."
   },
@@ -1547,6 +1556,9 @@
   "text_9c1ffb03": {
     "message": "Language and activity"
   },
+  "text_9eccf29d": {
+    "message": "Label"
+  },
   "text_a0fde485": {
     "message": "Choose which repositories can create individual milestone or growth alerts. Portfolio alerts are unchanged."
   },
@@ -1570,6 +1582,9 @@
   },
   "text_a8ef9ecd": {
     "message": "Match the interface and toolbar signal to your workspace."
+  },
+  "text_ac61f863": {
+    "message": "Local repository labels"
   },
   "text_adab1a19": {
     "message": "star and fork changes are measured against. Reset it any time from the popup by clicking the “Δ since …” button."
@@ -1685,6 +1700,9 @@
   "text_d186334b": {
     "message": "Website mode lets the browser attach your github.com session cookies; StarBoard never reads or stores the cookie values."
   },
+  "text_d1905cab": {
+    "message": "All labels"
+  },
   "text_d3b4ca9d": {
     "message": "repo"
   },
@@ -1786,6 +1804,9 @@
   },
   "text_f1b54cf5": {
     "message": "Save & refresh"
+  },
+  "text_f1be7b6c": {
+    "message": "Repository labels"
   },
   "text_f41a3f02": {
     "message": "GitHub username"

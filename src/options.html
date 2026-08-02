@@ -413,6 +413,20 @@
               </a>
             </span>
           </p>
+          <div class="data-tool label-tool">
+            <div>
+              <h3>Repository labels</h3>
+              <p>
+                Add up to twelve local labels per repository, separated by commas. Labels never
+                trigger network requests and can be filtered from the popup.
+              </p>
+            </div>
+            <div id="repositoryLabelsList" class="repository-label-list" role="group" aria-label="Local repository labels"></div>
+            <div class="action-feedback">
+              <span id="labelsStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></span>
+              <span id="labelsError" class="status err" role="alert" aria-live="assertive" aria-atomic="true" hidden></span>
+            </div>
+          </div>
           <div class="privacy-disclosure">
             <h3>Privacy at a glance</h3>
             <ul>

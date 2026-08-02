@@ -36,6 +36,7 @@ import {
   deletePortfolioView as deletePortfolioViewState,
   emptyPortfolioViewState,
   patchActivePortfolioFilters,
+  setRepositoryLabels as setRepositoryLabelsState,
   renamePortfolioView as renamePortfolioViewState,
   savePortfolioView as savePortfolioViewState,
   validatePortfolioViewState,
@@ -1248,6 +1249,10 @@ function updatePortfolioViews(update) {
 
 export async function setActivePortfolioFilters(patch) {
   return updatePortfolioViews((state) => patchActivePortfolioFilters(state, patch));
+}
+
+export async function setRepositoryLabels(key, labels) {
+  return updatePortfolioViews((state) => setRepositoryLabelsState(state, key, labels));
 }
 
 export async function saveCurrentPortfolioView(name) {

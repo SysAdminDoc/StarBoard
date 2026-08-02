@@ -21,6 +21,7 @@ import {
   validateHistory,
 } from './history.js';
 import { repositoryAlertKey } from './notifications.js';
+import { repositoryLabelKey } from './portfolio-views.js';
 
 export const BACKUP_FORMAT = 'starboard-backup';
 export const BACKUP_FORMAT_VERSION = 1;
@@ -124,17 +125,20 @@ function portableRecord(data) {
 function classifiedNames(cache, history) {
   const publicNames = new Set();
   const privateNames = new Set();
+  const privateLabelKeys = new Set();
   for (const repo of cache?.repos || []) {
     (repo.private ? privateNames : publicNames).add(repo.full_name);
+    if (repo.private) privateLabelKeys.add(repositoryLabelKey(repo));
   }
   for (const entry of history?.repos || []) {
     const [, fullName, isPrivate] = entry;
     (isPrivate === 1 ? privateNames : publicNames).add(fullName);
+    if (isPrivate === 1) privateLabelKeys.add(`name:${fullName}`);
   }
   const safePublicNames = new Set(
     [...publicNames].filter((name) => !privateNames.has(name)),
   );
-  return { publicNames: safePublicNames, privateNames };
+  return { publicNames: safePublicNames, privateNames, privateLabelKeys };
 }
 
 function sanitizeCache(cache, includePrivate, names) {
@@ -198,6 +202,11 @@ function sanitizeNotificationConfig(config, includePrivate, cache, history) {
 function sanitizePortfolioViews(state, includePrivate, names) {
   if (!state) return null;
   const clean = copy(state);
+  clean.labels = Object.fromEntries(
+    Object.entries(clean.labels || {}).filter(
+      ([key]) => includePrivate || !names.privateLabelKeys?.has(key),
+    ),
+  );
   if (includePrivate || !names.privateNames.size) return clean;
   const privateTerms = [...names.privateNames]
     .flatMap((name) => [name, name.split('/').at(-1)])

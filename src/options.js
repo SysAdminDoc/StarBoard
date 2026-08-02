@@ -7,10 +7,13 @@ import {
   getHistory,
   getNotificationConfig,
   getPortfolioViewState,
+  setRepositoryLabels,
   getRefreshFailures,
   getStorageDiagnostics,
   getAuthStatus,
   AUTH_STATUS_KEY,
+  STORAGE_KEYS,
+  createUndoSnapshot,
   applyTheme,
 } from './lib/storage.js';
 import { historyStats } from './lib/history.js';
@@ -32,6 +35,7 @@ import { formatters, localizeDocument, message as i18nMessage } from './lib/i18n
 import { runtimeMessage as t } from './lib/i18n-messages.js';
 import { dismissPrivacyNotice, getPrivacyNotice } from './lib/install.js';
 import { repositoryAlertKey } from './lib/notifications.js';
+import { repositoryLabelKey } from './lib/portfolio-views.js';
 
 const GITHUB_ORIGIN = 'https://github.com/*';
 const WEB_MIN_REFRESH_MINUTES = 360;
@@ -207,6 +211,7 @@ const parseHTML = (html) => parser.parseFromString(html, 'text/html');
 const feedback = {
   account: { ok: $('status'), error: $('statusError') },
   history: { ok: $('historyStatus'), error: $('historyError') },
+  labels: { ok: $('labelsStatus'), error: $('labelsError') },
   transfer: { ok: $('transferStatus'), error: $('transferError') },
   diagnostics: { ok: $('diagnosticsStatus'), error: $('diagnosticsError') },
   clear: { ok: $('clearStatus'), error: $('clearError') },
@@ -295,6 +300,7 @@ let pageBusy = true;
 let notificationState = null;
 let notificationCache = null;
 let optionSettings = null;
+let optionPortfolioViews = null;
 
 function setPageBusy(busy) {
   pageBusy = busy;
@@ -314,6 +320,7 @@ function setPageBusy(busy) {
       notificationState.dropped,
     );
   }
+  if (optionPortfolioViews) renderRepositoryLabels(notificationCache, optionPortfolioViews);
   $('copyDiagnostics').disabled = !diagnosticsText;
   syncOfflineState();
 }
@@ -407,6 +414,50 @@ async function showStorageInfo() {
   $('badgePreview').textContent = stars == null ? '—' : formatters.number().format(stars);
 }
 
+function renderRepositoryLabels(cache, views = optionPortfolioViews) {
+  const list = $('repositoryLabelsList');
+  list.replaceChildren();
+  const repos = [...(cache?.repos || [])].sort((a, b) => a.full_name.localeCompare(b.full_name));
+  if (!repos.length) {
+    list.textContent = t('optionsNoRepositoriesForAlerts');
+    return;
+  }
+  for (const repo of repos) {
+    const row = document.createElement('label');
+    row.className = 'repository-label-row';
+    const name = document.createElement('span');
+    name.textContent = repo.full_name;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = 420;
+    input.value = views?.labels?.[repositoryLabelKey(repo)]?.join(', ') || '';
+    input.placeholder = 'labels, separated, by commas';
+    input.setAttribute('aria-label', `Labels for ${repo.full_name}`);
+    input.dataset.repositoryKey = repositoryLabelKey(repo);
+    input.disabled = pageBusy;
+    row.append(name, input);
+    list.append(row);
+  }
+}
+
+let labelSaveQueue = Promise.resolve();
+$('repositoryLabelsList').addEventListener('change', (event) => {
+  if (!(event.target instanceof HTMLInputElement)) return;
+  const input = event.target;
+  const labels = input.value.split(',').map((label) => label.trim()).filter(Boolean);
+  input.disabled = true;
+  labelSaveQueue = labelSaveQueue.then(async () => {
+    await createUndoSnapshot('repository-labels', [STORAGE_KEYS.portfolioViews]);
+    optionPortfolioViews = await setRepositoryLabels(input.dataset.repositoryKey, labels);
+    input.value = optionPortfolioViews.labels?.[input.dataset.repositoryKey]?.join(', ') || '';
+    sayT('optionsLabelSaved', null, 'ok', 'labels');
+  }).catch((error) => {
+    say(error.message || t('optionsLabelSaveError'), 'err', 'labels');
+  }).finally(() => {
+    input.disabled = pageBusy;
+  });
+});
+
 async function load() {
   const [s, cache, privacyNotice] = await Promise.all([
     getSettings(),
@@ -450,6 +501,8 @@ async function load() {
     loadRefreshFailures(),
   ]);
   optionSettings = s;
+  optionPortfolioViews = await getPortfolioViewState();
+  renderRepositoryLabels(cache, optionPortfolioViews);
 }
 
 function renderPrivacyNotice(notice) {

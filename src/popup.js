@@ -45,6 +45,7 @@ import {
   NO_LANGUAGE,
   activeAdvancedFilterCount,
   filterRepositories,
+  repositoryLabelKey,
 } from './lib/portfolio-views.js';
 import {
   annotationSummary,
@@ -125,6 +126,7 @@ const el = {
   filterCount: $('filterCount'),
   filterPanel: $('filterPanel'),
   filterLanguage: $('filterLanguage'),
+  filterLabel: $('filterLabel'),
   filterVisibility: $('filterVisibility'),
   filterForks: $('filterForks'),
   filterArchived: $('filterArchived'),
@@ -308,6 +310,7 @@ function syncControls() {
   el.deleteView.disabled = !hasRows || viewBusy || !selected;
   for (const control of [
     el.filterLanguage,
+    el.filterLabel,
     el.filterVisibility,
     el.filterForks,
     el.filterArchived,
@@ -566,7 +569,9 @@ const SORTERS = {
  */
 function visibleRepos(all = withDeltas(state.cache)) {
   const filters = state.portfolioViews?.active || DEFAULT_PORTFOLIO_FILTERS;
-  const rows = filterRepositories(all, filters, state.cache?.lifecycleEvents || []);
+  const rows = filterRepositories(all, filters, state.cache?.lifecycleEvents || [], {
+    labels: state.portfolioViews?.labels || {},
+  });
   return rows.sort(SORTERS[filters.sortKey] || SORTERS.stars);
 }
 
@@ -884,6 +889,19 @@ function rowNode(repo, rank, changes) {
   }
   main.appendChild(name);
 
+  const labels = state.portfolioViews?.labels?.[repositoryLabelKey(repo)] || [];
+  if (labels.length) {
+    const labelRow = document.createElement('div');
+    labelRow.className = 'labels';
+    for (const label of labels) {
+      const chip = document.createElement('span');
+      chip.className = 'label-chip';
+      chip.textContent = label;
+      labelRow.appendChild(chip);
+    }
+    main.appendChild(labelRow);
+  }
+
   if (state.settings.showDescriptions && repo.description) {
     const desc = document.createElement('div');
     desc.className = 'desc';
@@ -1052,6 +1070,7 @@ function resetAllFilters() {
       precision: DEFAULT_PORTFOLIO_FILTERS.precision,
       lifecycle: DEFAULT_PORTFOLIO_FILTERS.lifecycle,
       activity: DEFAULT_PORTFOLIO_FILTERS.activity,
+      label: DEFAULT_PORTFOLIO_FILTERS.label,
     },
     t('popupResetFilters'),
   ).catch((error) => announce(error.message || t('popupResetFiltersError')));
@@ -1462,6 +1481,12 @@ function languageChoices() {
   return languages;
 }
 
+function labelChoices() {
+  return [...new Set(
+    Object.values(state.portfolioViews?.labels || {}).flat(),
+  )].sort((a, b) => a.localeCompare(b));
+}
+
 function syncPortfolioViewControls() {
   if (!state.portfolioViews) return;
   const { active, activeViewId, views } = state.portfolioViews;
@@ -1510,6 +1535,15 @@ function syncPortfolioViewControls() {
   } else if (el.filterLanguage.value !== active.language) {
     el.filterLanguage.value = active.language;
   }
+  const labels = labelChoices();
+  const labelOptions = [
+    { value: 'all', label: 'All labels' },
+    ...labels.map((label) => ({ value: label, label })),
+  ];
+  if (active.label !== 'all' && !labels.includes(active.label)) {
+    labelOptions.push({ value: active.label, label: `${active.label} (not present)` });
+  }
+  setSelectOptions(el.filterLabel, labelOptions, active.label || 'all');
   el.filterVisibility.value = active.visibility;
   el.filterForks.value = active.forkStatus;
   el.filterArchived.value = active.archivedStatus;
@@ -1885,6 +1919,7 @@ el.sort.addEventListener('change', () => {
 
 for (const [control, key, name] of [
   [el.filterLanguage, 'language', 'Language'],
+  [el.filterLabel, 'label', 'Label'],
   [el.filterVisibility, 'visibility', 'Visibility'],
   [el.filterForks, 'forkStatus', 'Repository type'],
   [el.filterArchived, 'archivedStatus', 'Archive state'],

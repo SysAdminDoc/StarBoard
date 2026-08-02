@@ -79,6 +79,10 @@ telemetry — the API token, if you choose to use one, is sent only to
 - **Saved portfolio views** — combine search and sort with language, visibility,
   fork/archive, count-precision, lifecycle and last-push filters; save up to 12
   named views, then rename or delete them with undo.
+- **Local repository labels** — assign up to 12 bounded labels per repository,
+  filter the board by a label, and edit them in Settings. Labels stay in the
+  account-scoped local portfolio record, never trigger network calls, and are
+  redacted for private repositories unless a backup explicitly includes them.
 - **Two data sources** — your signed-in github.com session with **no token at
   all** by default, or the GitHub API for lower bandwidth and private repos.
 - **Release details** — opt in to the latest release tag, relative age and
@@ -213,7 +217,7 @@ the release check requires every declared entry to opt into Chrome's
 
 - **Data kept locally:** your username, display preferences, repository/profile
   snapshot, comparison baseline, daily/weekly trend points, refresh metadata and
-  recovery metadata, saved portfolio views, alert preferences and bounded
+  recovery metadata, saved portfolio views and repository labels, alert preferences and bounded
   alert-delivery state stay in this Chromium profile until you clear them or
   uninstall StarBoard. Account data is kept in separate local namespaces, so
   switching usernames does not blend their snapshots or history.
@@ -230,7 +234,8 @@ the release check requires every declared entry to opt into Chrome's
   10 minutes. Settings, alert preferences and credentials remain untouched.
 - **Portable files:** JSON backup and CSV export are user-initiated only.
   Private repository names and trend history each require an unchecked-by-
-  default opt-in. Saved views are included; without the private-name opt-in,
+  default opt-in. Saved views and local labels are included; without the
+  private-name opt-in,
   known private repository names are redacted from view names and searches.
   PATs are always omitted, and restore preserves the credential already held by
   this browser profile.
@@ -514,7 +519,7 @@ src/lib/refresh-coordinator.js  refresh intent serialization/coalescing
 src/lib/lifecycle.js repository add/remove/rename event derivation
 src/lib/history.js   bounded daily/weekly history and offline trend comparisons
 src/lib/notifications.js local milestone evaluation and delivery deduplication
-src/lib/portfolio-views.js bounded saved views and repository filter predicates
+src/lib/portfolio-views.js bounded saved views, labels and repository predicates
 src/lib/transfer.js  checksummed backup/restore, CSV and committable history export
 src/lib/diagnostics.js allow-listed local support metadata
 src/lib/storage.js   versioned settings/cache/baseline persistence and recovery

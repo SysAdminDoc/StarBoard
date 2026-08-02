@@ -57,6 +57,9 @@
 - Notification settings can target every repository or a bounded list of
   individually selected or muted repositories, while portfolio alerts remain
   unchanged and private names stay filtered from default backups.
+- Local repository labels can be edited in Settings, shown as chips in the
+  popup, and used as a bounded offline filter. They share account namespaces,
+  undo and backup privacy rules with saved views; labels never trigger a fetch.
 - Account-specific snapshots, baselines, trend history, saved views and local
   alert state now remain separate when the configured GitHub username changes;
   existing single-account data is migrated into its first namespace.

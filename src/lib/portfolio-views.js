@@ -7,6 +7,9 @@
 
 export const PORTFOLIO_VIEW_FORMAT_VERSION = 1;
 export const MAX_SAVED_VIEWS = 12;
+export const MAX_REPOSITORY_LABELS = 1000;
+export const MAX_LABELS_PER_REPOSITORY = 12;
+export const MAX_LABEL_LENGTH = 32;
 export const NO_LANGUAGE = '__none__';
 
 export const DEFAULT_PORTFOLIO_FILTERS = Object.freeze({
@@ -19,6 +22,7 @@ export const DEFAULT_PORTFOLIO_FILTERS = Object.freeze({
   precision: 'all',
   lifecycle: 'all',
   activity: 'all',
+  label: 'all',
 });
 
 const VALUES = Object.freeze({
@@ -39,6 +43,53 @@ function cleanText(value, max) {
   return typeof value === 'string' ? value.slice(0, max) : '';
 }
 
+export function repositoryLabelKey(repo) {
+  const id = String(repo?.id ?? '').trim();
+  return /^\d+$/.test(id) ? `id:${id}` : `name:${repo?.full_name || ''}`;
+}
+
+function normalizedLabels(value) {
+  const seen = new Set();
+  return (Array.isArray(value) ? value : [])
+    .map((label) => cleanText(label, MAX_LABEL_LENGTH).trim())
+    .filter((label) => {
+      const folded = label.toLocaleLowerCase('en-US');
+      if (!label || seen.has(folded)) return false;
+      seen.add(folded);
+      return true;
+    })
+    .slice(0, MAX_LABELS_PER_REPOSITORY);
+}
+
+export function normalizeRepositoryLabels(value = {}) {
+  const labels = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return labels;
+  for (const [key, list] of Object.entries(value).slice(0, MAX_REPOSITORY_LABELS)) {
+    if (typeof key !== 'string' || key.length < 3 || key.length > 240) continue;
+    const clean = normalizedLabels(list);
+    if (clean.length) labels[key] = clean;
+  }
+  return labels;
+}
+
+export function validateRepositoryLabels(value = {}) {
+  assert(value && typeof value === 'object' && !Array.isArray(value), 'invalid repository labels');
+  const keys = Object.keys(value);
+  assert(keys.length <= MAX_REPOSITORY_LABELS, 'too many repository labels');
+  for (const key of keys) {
+    assert(typeof key === 'string' && key.length >= 3 && key.length <= 240, 'invalid repository label key');
+    assert(Array.isArray(value[key]) && value[key].length <= MAX_LABELS_PER_REPOSITORY, 'invalid repository labels');
+    const seen = new Set();
+    for (const label of value[key]) {
+      assert(typeof label === 'string' && label === label.trim() && label.length > 0 && label.length <= MAX_LABEL_LENGTH, 'invalid repository label');
+      const folded = label.toLocaleLowerCase('en-US');
+      assert(!seen.has(folded), 'duplicate repository label');
+      seen.add(folded);
+    }
+  }
+  return value;
+}
+
 export function normalizePortfolioFilters(value = {}) {
   /** @type {any} */
   const next = { ...DEFAULT_PORTFOLIO_FILTERS };
@@ -47,6 +98,7 @@ export function normalizePortfolioFilters(value = {}) {
     typeof value.language === 'string' && value.language.length <= 100
       ? value.language
       : 'all';
+  next.label = cleanText(value.label, MAX_LABEL_LENGTH) || 'all';
   for (const key of [
     'sortKey',
     'visibility',
@@ -69,6 +121,12 @@ export function validatePortfolioFilters(filters) {
     typeof filters.language === 'string' && filters.language.length <= 100,
     'invalid language filter',
   );
+  if (filters.label !== undefined) {
+    assert(
+      typeof filters.label === 'string' && filters.label.length <= MAX_LABEL_LENGTH,
+      'invalid label filter',
+    );
+  }
   for (const key of Object.keys(VALUES)) {
     assert(VALUES[key].has(filters[key]), `invalid ${key} filter`);
   }
@@ -81,6 +139,7 @@ export function emptyPortfolioViewState(filters = {}) {
     activeViewId: null,
     active: normalizePortfolioFilters(filters),
     views: [],
+    labels: {},
   };
 }
 
@@ -96,6 +155,7 @@ export function validatePortfolioViewState(state) {
     'invalid active view',
   );
   validatePortfolioFilters(state.active);
+  if (state.labels !== undefined) validateRepositoryLabels(state.labels);
   assert(Array.isArray(state.views) && state.views.length <= MAX_SAVED_VIEWS, 'too many saved views');
   const ids = new Set();
   const names = new Set();
@@ -125,7 +185,9 @@ export function validatePortfolioViewState(state) {
 
 function cloneState(state) {
   validatePortfolioViewState(state);
-  return structuredClone(state);
+  const next = structuredClone(state);
+  next.labels = normalizeRepositoryLabels(next.labels);
+  return next;
 }
 
 function cleanName(name) {
@@ -149,6 +211,16 @@ export function patchActivePortfolioFilters(state, patch) {
   const next = cloneState(state);
   next.active = normalizePortfolioFilters({ ...next.active, ...patch });
   next.activeViewId = null;
+  validatePortfolioViewState(next);
+  return next;
+}
+
+export function setRepositoryLabels(state, key, labels) {
+  const next = cloneState(state);
+  assert(typeof key === 'string' && key.length >= 3 && key.length <= 240, 'invalid repository label key');
+  const clean = normalizedLabels(labels);
+  if (clean.length) next.labels[key] = clean;
+  else delete next.labels[key];
   validatePortfolioViewState(next);
   return next;
 }
@@ -235,7 +307,7 @@ export function filterRepositories(
   repositories,
   filters,
   lifecycleEvents = [],
-  { now = Date.now() } = {},
+  { now = Date.now(), labels = {} } = {},
 ) {
   const selected = normalizePortfolioFilters(filters);
   const query = selected.query.trim().toLocaleLowerCase();
@@ -256,6 +328,10 @@ export function filterRepositories(
       repo.language !== selected.language
     ) {
       return false;
+    }
+    if (selected.label !== 'all') {
+      const repositoryLabels = labels?.[repositoryLabelKey(repo)] || [];
+      if (!repositoryLabels.includes(selected.label)) return false;
     }
     const lifecycle = changes.get(repo.full_name) || null;
     if (selected.lifecycle === 'changed' && !lifecycle) return false;
@@ -284,5 +360,6 @@ export function activeAdvancedFilterCount(filters) {
     'precision',
     'lifecycle',
     'activity',
+    'label',
   ].filter((key) => selected[key] !== DEFAULT_PORTFOLIO_FILTERS[key]).length;
 }
