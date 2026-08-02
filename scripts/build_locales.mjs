@@ -67,7 +67,10 @@ const english = JSON.parse(readFileSync(SOURCE, 'utf8'));
 const generated = `${JSON.stringify(buildPseudoCatalog(english), null, 2)}\n`;
 
 if (process.argv.includes('--check')) {
-  const current = readFileSync(TARGET, 'utf8');
+  // Git checkouts on Windows may materialize tracked JSON with CRLF while the
+  // generator writes canonical LF. Compare content, not the checkout's EOL
+  // policy, so the same catalog passes on every runner.
+  const current = readFileSync(TARGET, 'utf8').replace(/\r\n/g, '\n');
   if (current !== generated) {
     console.error(
       'FAIL  _locales/en_XA is out of date — run `npm run locales` and commit the result',

@@ -62,6 +62,8 @@
 
 ### Changed
 
+- The pseudo-locale freshness check now ignores Windows line-ending conversion,
+  keeping clean CI checkouts equivalent to the generated catalog.
 - Reading a settled record no longer serializes it three times. A 488 KB history
   read now costs one pass instead of about 1.4 MB of serialization, and the
   migration write-back no longer re-validates what was just validated.
