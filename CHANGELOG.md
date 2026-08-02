@@ -40,6 +40,8 @@
   immediately due for polling, and enforce the notifications capability as
   well as the web and GraphQL lanes. An unreachable manifest therefore fails
   open instead of pinning a feature off indefinitely.
+- Aggregate trend deltas now show an explicit partial marker and accessible
+  coverage count when some visible repositories have no retained comparison.
 - Trend comparison points now stop at the requested day; older measurements
   render as missing instead of being mislabeled as a 7/30/90-day delta, keeping
   the row, sparkline and trend table honest.

@@ -459,7 +459,7 @@ function sourceDowngradeMessage(downgrade) {
   return `The requested ${sourceLabel(downgrade.requested)} source is unavailable. ${why} Using the ${sourceLabel(downgrade.effective)} source instead.`;
 }
 
-function deltaNode(value, cls = 'delta', missing = false) {
+function deltaNode(value, cls = 'delta', missing = false, partial = null) {
   const span = document.createElement('span');
   span.className = cls;
   if (missing) {
@@ -476,6 +476,12 @@ function deltaNode(value, cls = 'delta', missing = false) {
   } else if (value < 0) {
     span.classList.add('down');
     span.textContent = signed.format(value);
+  }
+  if (partial && partial.comparable < partial.total) {
+    const note = `Partial comparison: ${nf.format(partial.comparable)} of ${nf.format(partial.total)} visible repositories have a retained comparison point.`;
+    span.classList.add('partial');
+    span.title = note;
+    span.setAttribute('aria-label', `${signed.format(value) || 'No change'}. ${note}`);
   }
   return span;
 }
@@ -974,16 +980,26 @@ function renderTotals(rows, allRows) {
   const dForks = rows.reduce((s, r) => s + r.forksDelta, 0);
   const comparable = rows.filter((repo) => !repo.comparisonMissing).length;
   const trendSelected = state.trendRange !== 'baseline';
+  const partialComparison =
+    trendSelected && comparable > 0 && comparable < rows.length
+      ? { comparable, total: rows.length }
+      : null;
 
   const approximate = rows.some((repo) => repo.approx);
   el.totalStars.textContent = `${approximate ? '~' : ''}${nf.format(stars)}`;
   el.totalForks.textContent = `${approximate ? '~' : ''}${nf.format(forks)}`;
   el.totalRepos.textContent = nf.format(rows.length);
   el.totalStarsDelta.replaceWith(
-    withId(deltaNode(dStars, 'delta', trendSelected && comparable === 0), 'total-stars-delta'),
+    withId(
+      deltaNode(dStars, 'delta', trendSelected && comparable === 0, partialComparison),
+      'total-stars-delta',
+    ),
   );
   el.totalForksDelta.replaceWith(
-    withId(deltaNode(dForks, 'delta', trendSelected && comparable === 0), 'total-forks-delta'),
+    withId(
+      deltaNode(dForks, 'delta', trendSelected && comparable === 0, partialComparison),
+      'total-forks-delta',
+    ),
   );
   el.totalStarsDelta = $('total-stars-delta');
   el.totalForksDelta = $('total-forks-delta');

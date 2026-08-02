@@ -2550,6 +2550,23 @@ async function main() {
         sparkline: row?.querySelector('.spark-thin')?.textContent || '',
       };
     }, historyFixture.missingAt7);
+    const partialTotals = await popup.evaluate(() => {
+      const delta = document.querySelector('#total-stars-delta');
+      return {
+        partial: delta?.classList.contains('partial'),
+        marker: getComputedStyle(delta, '::before').content,
+        accessible: delta?.getAttribute('aria-label') || '',
+        title: delta?.title || '',
+      };
+    });
+    check(
+      'aggregate trend delta marks a partial comparison',
+      partialTotals.partial &&
+        partialTotals.marker === '"≈"' &&
+        /Partial comparison: 38 of 39 visible repositories/.test(partialTotals.accessible) &&
+        partialTotals.title === partialTotals.accessible.replace(/^\+?[^.]+\. /, ''),
+      JSON.stringify(partialTotals),
+    );
     check(
       'a far older comparison point stays missing on the row and sparkline',
       boundedPoint.deltaMissing && boundedPoint.sparkline === '—',

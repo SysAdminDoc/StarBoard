@@ -555,6 +555,13 @@ select:disabled {
   color: var(--red);
 }
 
+/* A total that excludes repositories without a retained comparison is still
+   useful, but the approximation must be visible without opening a tooltip. */
+.delta.partial::before {
+  content: '≈';
+  margin-inline-end: 2px;
+}
+
 .secondary-totals {
   position: relative;
   z-index: 1;
