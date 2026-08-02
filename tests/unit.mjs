@@ -2688,6 +2688,32 @@ await test('a trend series survives a change of data source', async () => {
   assert.equal(viaWeb.repos[0].stargazers_count - comparison.stars, 7);
 });
 
+await test('a comparison point older than the requested range is missing', async () => {
+  const now = Date.UTC(2026, 2, 31, 12);
+  const oldDay = new Date(now - 30 * 86_400_000).toISOString().slice(0, 10);
+  const history = {
+    formatVersion: 3,
+    repos: [['name:octocat/old', 'octocat/old', 0]],
+    snapshots: [
+      {
+        day: oldDay,
+        at: now - 30 * 86_400_000,
+        source: 'api',
+        confidence: 'exact',
+        stars: [12],
+        forks: [2],
+        approx: [],
+      },
+    ],
+  };
+
+  assert.equal(
+    historyPointForRepo(history, { full_name: 'octocat/old' }, 7, { now }),
+    null,
+    'an older measurement must not be relabeled as a 7-day comparison',
+  );
+});
+
 await test('an id-keyed history merges into one series when it is re-keyed', async () => {
   // What an account that used both sources under format 2 actually holds: the
   // same repository twice, once per key space, each with half the series.

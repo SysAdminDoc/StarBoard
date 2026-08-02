@@ -534,6 +534,10 @@ export function historyPointsForRepos(history, repos, days, { now = Date.now() }
   for (let i = history.snapshots.length - 1; i >= 0 && pending.size; i -= 1) {
     const snapshot = history.snapshots[i];
     if (snapshot.day > targetDay) continue;
+    // A range names one comparison day. Once that day is behind us, an older
+    // measurement would be a real value with a false age label. History is
+    // chronological, so no remaining snapshot can be eligible after this.
+    if (snapshot.day < targetDay) break;
     const approximate = new Set(snapshot.approx);
     for (const [key, at] of [...pending]) {
       if (snapshot.stars[at] === null) continue;

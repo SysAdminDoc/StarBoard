@@ -2434,10 +2434,24 @@ async function main() {
       const { recordDailyHistory } = await import('./lib/history.js');
       const cache = await getCache();
       const current = cache.repos.filter((repo) => !repo.fork);
-      const missingAt90 = [...current].sort(
+      const ranked = [...current].sort(
         (a, b) => b.stargazers_count - a.stargazers_count,
-      )[0].id;
+      );
+      const missingAt90 = ranked[0].id;
+      const missingAt7 = ranked[1].id;
       let history = await getHistory();
+      const missingKey = `name:${ranked[1].full_name}`;
+      const missingAt = history.repos.findIndex(([key]) => key === missingKey);
+      if (missingAt >= 0) {
+        history = {
+          ...history,
+          snapshots: history.snapshots.map((snapshot) => ({
+            ...snapshot,
+            stars: snapshot.stars.map((value, at) => (at === missingAt ? null : value)),
+            forks: snapshot.forks.map((value, at) => (at === missingAt ? null : value)),
+          })),
+        };
+      }
       for (const [days, delta] of [
         [90, 3],
         [30, 2],
@@ -2448,7 +2462,11 @@ async function main() {
           {
             ...cache,
             repos: cache.repos
-              .filter((repo) => days !== 90 || repo.id !== missingAt90)
+              .filter(
+                (repo) =>
+                  (days !== 90 || repo.id !== missingAt90) &&
+                  (days !== 7 || repo.id !== missingAt7),
+              )
               .map((repo) => ({
                 ...repo,
                 stargazers_count: Math.max(0, repo.stargazers_count - delta),
@@ -2462,7 +2480,11 @@ async function main() {
       // Keep subsequent popup reloads from starting an unrelated live refresh
       // while deterministic sort/trend assertions are in flight.
       await setCache({ ...cache, fetchedAt: Date.now() });
-      return { days: history.snapshots.length, missingAt90 };
+      return {
+        days: history.snapshots.length,
+        missingAt90,
+        missingAt7: ranked[1].full_name,
+      };
     });
     await popup.reload();
     await popup.selectOption('#trendRange', '30');
@@ -2475,6 +2497,38 @@ async function main() {
         /retained 30-day comparison/.test(await popup.getAttribute('#trendRange', 'title')),
       JSON.stringify(historyFixture),
     );
+    await popup.selectOption('#trendRange', '7');
+    const boundedPoint = await popup.evaluate((missingFullName) => {
+      const rows = [...document.querySelectorAll('.row')];
+      const row = rows.find((node) => node.href.includes(`/${missingFullName}`));
+      return {
+        deltaMissing: !!row?.querySelector('.stat.stars .delta.missing'),
+        sparkline: row?.querySelector('.spark-thin')?.textContent || '',
+      };
+    }, historyFixture.missingAt7);
+    check(
+      'a far older comparison point stays missing on the row and sparkline',
+      boundedPoint.deltaMissing && boundedPoint.sparkline === '—',
+      JSON.stringify(boundedPoint),
+    );
+    await popup.click('#toggleTrendTable');
+    await popup.waitForSelector('#trendTable:not([hidden]) tbody tr');
+    const boundedTable = await popup.evaluate((missingFullName) => {
+      const row = [...document.querySelectorAll('#trendTable tbody tr')].find((node) =>
+        node.children[0]?.textContent.trim().endsWith(missingFullName),
+      );
+      return {
+        change: row?.children[3]?.textContent.trim() || '',
+        measured: row?.children[6]?.textContent.trim() || '',
+      };
+    }, historyFixture.missingAt7);
+    check(
+      'the trend table agrees that the far older comparison is missing',
+      boundedTable.change === '—' && /^0 of 7$/.test(boundedTable.measured),
+      JSON.stringify(boundedTable),
+    );
+    await popup.click('#toggleTrendTable');
+    await popup.waitForSelector('#trendTable[hidden]', { state: 'attached' });
     await popup.selectOption('#trendRange', '90');
     await popup.waitForFunction(
       () =>
