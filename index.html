@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StarBoard capability status</title>
+    <style>
+      body {
+        margin: 0 auto;
+        max-width: 42rem;
+        padding: 2.5rem 1.25rem;
+        background: #0d1117;
+        color: #f3f6ff;
+        font: 16px/1.6 ui-sans-serif, -apple-system, 'Segoe UI', sans-serif;
+      }
+      h1 { font-size: 1.4rem; }
+      code, pre { background: #101a2d; border-radius: 6px; }
+      code { padding: 0.1rem 0.35rem; }
+      pre { overflow-x: auto; padding: 0.9rem 1rem; }
+      a { color: #7aa2ff; }
+    </style>
+  </head>
+  <body>
+    <h1>StarBoard capability status</h1>
+    <p>
+      This page hosts one static file,
+      <a href="capabilities.json">capabilities.json</a>, which the
+      <a href="https://github.com/SysAdminDoc/StarBoard">StarBoard</a> browser
+      extension reads at most once every six hours.
+    </p>
+    <p>
+      Its only purpose is to switch a named capability <em>off</em> for
+      installed users when something breaks in the field, without waiting out a
+      store review cycle. It cannot enable anything, and it carries no code, no
+      selectors and no URLs — only a capability name and the version that lifts
+      the rule.
+    </p>
+    <pre><code>{
+  "formatVersion": 1,
+  "capabilities": [
+    {
+      "name": "web-source",
+      "fixedInVersion": "1.6.0",
+      "reason": "github.com repositories tab markup changed"
+    }
+  ]
+}</code></pre>
+    <p>
+      A rule applies only to installs older than <code>fixedInVersion</code>, so
+      it lifts itself as soon as the release that fixes the problem is
+      installed. Names outside the extension's own allow-list are ignored. The
+      extension degrades silently — unchanged — whenever this file is
+      unreachable or malformed.
+    </p>
+  </body>
+</html>
