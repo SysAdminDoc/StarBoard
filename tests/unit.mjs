@@ -623,6 +623,18 @@ await test('auth status is redacted and expiry clears only the session credentia
   }
 });
 
+await test('storage records are restricted to trusted extension contexts', async () => {
+  const calls = [];
+  const areaWithAccess = {
+    setAccessLevel: async (value) => calls.push(value),
+  };
+  await storage.restrictStorageAccess({ localArea: areaWithAccess, sessionArea: areaWithAccess });
+  assert.deepEqual(calls, [
+    { accessLevel: 'TRUSTED_CONTEXTS' },
+    { accessLevel: 'TRUSTED_CONTEXTS' },
+  ]);
+});
+
 await test('refresh cache and baseline commit with one generation', async () => {
   const generation = 'generation-1';
   const repo = {

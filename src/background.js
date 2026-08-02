@@ -34,6 +34,7 @@ import {
   setCapabilityState,
   getAuthStatus,
   setAuthStatus,
+  restrictStorageAccess,
 } from './lib/storage.js';
 import {
   CAPABILITY_POLL_INTERVAL_MS,
@@ -68,6 +69,7 @@ const OFFSCREEN_PATH = 'src/offscreen.html';
 const GITHUB_ORIGIN = 'https://github.com/*';
 
 let offscreenReady = null;
+const storageAccessReady = restrictStorageAccess().catch(() => {});
 
 /** Web mode needs github.com access, granted on demand from the options page. */
 async function hasWebPermission() {
@@ -622,6 +624,8 @@ async function diagnosticsBundle() {
 }
 
 chrome.runtime.onInstalled.addListener(async (details) => {
+  await storageAccessReady;
+  await restrictStorageAccess().catch(() => {});
   const install = installationPlan(details);
   const privacyNotice = privacyNoticeForUpdate(
     details,
@@ -644,6 +648,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 });
 
 chrome.runtime.onStartup.addListener(async () => {
+  await storageAccessReady;
+  await restrictStorageAccess().catch(() => {});
   await syncAlarm();
   await syncCapabilityAlarm();
   await updateBadge();

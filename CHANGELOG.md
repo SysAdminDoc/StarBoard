@@ -45,6 +45,9 @@
 - API authentication now records a redacted active, expired, revoked, denied,
   or rate-limited state with its last successful timestamp; confirmed expiry or
   revocation clears only a session token and offers replacement/Forget actions.
+- Extension storage now restricts local and session records to trusted extension
+  contexts before startup reads, while Settings names profile and device
+  protection as the at-rest boundary.
 - Trend comparison points now stop at the requested day; older measurements
   render as missing instead of being mislabeled as a 7/30/90-day delta, keeping
   the row, sparkline and trend table honest.

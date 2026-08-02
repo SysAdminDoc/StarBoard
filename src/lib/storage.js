@@ -124,6 +124,15 @@ const SETTINGS_KEYS = new Set(Object.keys(DEFAULTS));
 const AREA = chrome.storage.local;
 const SESSION_AREA = chrome.storage.session;
 
+/** Keep persisted records out of future content-script contexts by default. */
+export async function restrictStorageAccess({ localArea = AREA, sessionArea = SESSION_AREA } = {}) {
+  await Promise.all(
+    [localArea, sessionArea]
+      .filter((area) => typeof area?.setAccessLevel === 'function')
+      .map((area) => area.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })),
+  );
+}
+
 // Typed loose on purpose: these hold the tail of a chain whose links return
 // whatever their own work returned, and only the tail's settlement matters.
 /** @type {Promise<any>} */
