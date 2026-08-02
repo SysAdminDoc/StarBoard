@@ -4470,6 +4470,16 @@ async function main() {
     await options.reload();
     await options.waitForSelector('#backupJson');
     await options.waitForSelector('#refreshFailuresList li');
+    const supportLinks = await options.evaluate(() => ({
+      issues: document.querySelector('#supportIssues')?.getAttribute('href'),
+      security: document.querySelector('#supportSecurity')?.getAttribute('href'),
+    }));
+    check(
+      'diagnostics expose the repository issue tracker and security policy',
+      supportLinks.issues === 'https://github.com/SysAdminDoc/StarBoard/issues' &&
+        supportLinks.security === 'https://github.com/SysAdminDoc/StarBoard/security/policy',
+      supportLinks,
+    );
     const refreshFailuresText = await options.textContent('#refreshFailuresList');
     check(
       'settings show the bounded recent refresh failure history',

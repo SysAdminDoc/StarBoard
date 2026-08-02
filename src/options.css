@@ -956,6 +956,20 @@ input[type='checkbox'][role='switch']:focus-visible {
   align-items: center;
 }
 
+.support-links {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.support-links a {
+  font-weight: 650;
+}
+
 #diagnosticsOutput {
   width: 100%;
   max-height: 300px;

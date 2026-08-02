@@ -5,6 +5,7 @@
   "version": "1.5.0",
   "description": "__MSG_extensionDescription__",
   "author": "SysAdminDoc",
+  "homepage_url": "https://github.com/SysAdminDoc/StarBoard",
   "minimum_chrome_version": "120",
   "permissions": [
     "storage",

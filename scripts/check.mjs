@@ -128,7 +128,24 @@ const storeListing = JSON.parse(readFileSync(resolve(ROOT, 'store-listing.json')
 const readme = readFileSync(resolve(ROOT, 'README.md'), 'utf8');
 const changelog = readFileSync(resolve(ROOT, 'CHANGELOG.md'), 'utf8');
 const optionsPrivacyText = readFileSync(resolve(ROOT, 'src/options.html'), 'utf8').toLowerCase();
+const optionsText = readFileSync(resolve(ROOT, 'src/options.html'), 'utf8');
 const version = manifest.version;
+
+const repositoryUrl = String(manifest.homepage_url || '').replace(/\/+$/, '');
+const repositoryMatch = repositoryUrl.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)$/i);
+if (!repositoryMatch) {
+  failures.push('manifest homepage_url must name the canonical GitHub repository');
+} else {
+  const repositoryLinks = {
+    issues: `${repositoryUrl}/issues`,
+    security: `${repositoryUrl}/security/policy`,
+  };
+  for (const [name, href] of Object.entries(repositoryLinks)) {
+    if (!optionsText.includes(`href="${href}"`)) {
+      failures.push(`Settings support link for ${name} does not resolve to ${repositoryUrl}`);
+    }
+  }
+}
 
 const englishMessages = JSON.parse(
   readFileSync(resolve(ROOT, '_locales/en/messages.json'), 'utf8'),

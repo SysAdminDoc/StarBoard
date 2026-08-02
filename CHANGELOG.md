@@ -46,6 +46,8 @@
 - Refresh failures now retain a bounded, redacted recent history for Settings
   and local diagnostics; the history omits repository names and credentials and
   is excluded from portable backups.
+- Settings now places repository issue-tracker and security-policy links beside
+  the local diagnostics controls, with the manifest owning the canonical URL.
 - Aggregate trend deltas now show an explicit partial marker and accessible
   coverage count when some visible repositories have no retained comparison.
 - Stranded sparkline measurements now render as physical-pixel ticks even when
