@@ -127,12 +127,15 @@ const {
 } = await import('../src/lib/lifecycle.js');
 const {
   HISTORY_MAX_BYTES,
+  HISTORY_WEEKLY_RETENTION_WEEKS,
   historyByteSize,
   historyDeltaForRepo,
   historyMaxBytesForQuota,
   historyPointForRepo,
   historyRetainedDays,
   historyRows,
+  historySeriesForRepo,
+  historyStats,
   migrateHistoryToV2,
   recordDailyHistory,
   rekeyHistoryByName,
@@ -3471,6 +3474,82 @@ await test('history reports the range it can actually serve', async () => {
 function emptyHistoryForTest() {
   return { formatVersion: 3, repos: [], snapshots: [] };
 }
+
+await test('tiered history keeps LAST weekly values, explicit gaps, and bounded coverage', async () => {
+  assert.ok(HISTORY_WEEKLY_RETENTION_WEEKS >= 52);
+  const dayAt = (day) => Date.parse(`${day}T12:00:00.000Z`);
+  const point = (day, stars) => ({
+    day,
+    at: dayAt(day),
+    source: 'api',
+    confidence: 'exact',
+    stars: [stars],
+    forks: [stars === null ? null : 1],
+    approx: [],
+  });
+  const history = {
+    formatVersion: 3,
+    repos: [['name:octocat/tiered', 'octocat/tiered', 0]],
+    snapshots: [
+      point('2026-01-05', 10),
+      point('2026-01-06', 12),
+      point('2026-01-12', 30),
+      point('2026-01-13', 31),
+      point('2026-01-14', null),
+      point('2026-01-16', 35),
+    ],
+  };
+  const repo = {
+    full_name: 'octocat/tiered',
+    stargazers_count: 40,
+    forks_count: 1,
+    private: false,
+  };
+  const now = dayAt('2026-01-18');
+  const tiered = recordDailyHistory(
+    history,
+    { source: 'api', confidence: 'exact', fetchedAt: now, repos: [repo] },
+    { now, retentionDays: 3, weeklyRetentionWeeks: 4, maxBytes: 100_000 },
+  );
+  assert.equal(tiered.snapshots.length, 2);
+  assert.deepEqual(
+    tiered.weekly.map((entry) => [entry.week, entry.stars[0]]),
+    [
+      ['2026-01-05', 12],
+      ['2026-01-12', null],
+    ],
+  );
+  const series = historySeriesForRepo(tiered, repo, 14, { now });
+  assert.equal(series.measured, 3);
+  assert.equal(series.values.find((entry) => entry.day === '2026-01-05').value, 12);
+  assert.equal(series.values.find((entry) => entry.day === '2026-01-12').value, null);
+  assert.equal(series.last, 40);
+  assert.equal(series.delta, 28);
+  const comparison = historyPointForRepo(tiered, repo, 13, { now });
+  assert.equal(comparison.stars, 12);
+  assert.equal(comparison.tier, 'weekly');
+  assert.equal(historyDeltaForRepo(tiered, repo, 14, { now }).delta, 28);
+  assert.ok(historyRetainedDays(tiered, { now }) > 3);
+  assert.equal(historyStats(tiered).weeklyPoints, 1);
+
+  let long = null;
+  const start = dayAt('2026-01-01');
+  for (let offset = 0; offset < 100; offset += 1) {
+    const at = start + offset * 86_400_000;
+    long = recordDailyHistory(
+      long,
+      {
+        source: 'api',
+        confidence: 'exact',
+        fetchedAt: at,
+        repos: [{ ...repo, stargazers_count: offset, forks_count: 1 }],
+      },
+      { now: at, retentionDays: 3, weeklyRetentionWeeks: 4, maxBytes: 100_000 },
+    );
+  }
+  assert.ok(long.snapshots.length <= 3);
+  assert.ok(long.weekly.length <= 4);
+});
 
 await test('history enforces 365 UTC days and the two-megabyte hard cap', async () => {
   const start = Date.UTC(2025, 0, 1, 12);

@@ -50,6 +50,9 @@
 - Local history can now be exported as a bounded 7-, 30- or 90-day JSON report
   and a self-contained SVG trend badge. The JSON carries a Shields-compatible
   badge payload plus per-repository points, and both artifacts omit credentials.
+- History now keeps a bounded weekly archive after the daily window. Weekly
+  points use the last observed cumulative counts, preserve explicit gaps, and
+  participate transparently in longer local trend queries.
 
 ### Fixed
 

@@ -16,6 +16,7 @@
 
 export const HISTORY_FORMAT_VERSION = 3;
 export const HISTORY_RETENTION_DAYS = 365;
+export const HISTORY_WEEKLY_RETENTION_WEEKS = 520;
 export const HISTORY_QUOTA_SHARE = 0.2;
 export const HISTORY_FALLBACK_QUOTA_BYTES = 10 * 1024 * 1024;
 
@@ -32,6 +33,8 @@ export function historyMaxBytesForQuota(reportedQuotaBytes) {
 // current 10 MiB default. Persisted refreshes pass the live reported quota.
 export const HISTORY_MAX_BYTES = historyMaxBytesForQuota(HISTORY_FALLBACK_QUOTA_BYTES);
 const DAY_MS = 86_400_000;
+const WEEK_DAYS = 7;
+const WEEK_MS = WEEK_DAYS * DAY_MS;
 const CONFIDENCE = ['exact', 'approximate', 'partial', 'stale'];
 const CONFIDENCE_SCORE = Object.freeze({
   stale: 0,
@@ -95,6 +98,18 @@ export function utcDay(timestamp = Date.now()) {
   return date.toISOString().slice(0, 10);
 }
 
+/** Return the UTC Monday that contains an ISO day. */
+export function utcWeek(day) {
+  const date = new Date(`${day}T00:00:00.000Z`);
+  assert(Number.isFinite(date.getTime()), 'invalid history week');
+  const mondayOffset = (date.getUTCDay() + 6) % WEEK_DAYS;
+  return utcDay(date.getTime() - mondayOffset * DAY_MS);
+}
+
+function utcWeekForTimestamp(timestamp) {
+  return utcWeek(utcDay(timestamp));
+}
+
 /**
  * The one identifier both data sources produce.
  *
@@ -110,7 +125,7 @@ export function repositoryHistoryKey(repo) {
 }
 
 export function emptyHistory() {
-  return { formatVersion: HISTORY_FORMAT_VERSION, repos: [], snapshots: [] };
+  return { formatVersion: HISTORY_FORMAT_VERSION, repos: [], snapshots: [], weekly: [] };
 }
 
 /**
@@ -296,6 +311,41 @@ export function validateHistory(value) {
       );
     }
   }
+  const weekly = value.weekly || [];
+  assert(Array.isArray(weekly), 'history weekly archive must be an array');
+  let previousWeek = '';
+  for (const point of weekly) {
+    assert(point && typeof point === 'object' && !Array.isArray(point), 'invalid weekly history point');
+    assert(/^\d{4}-\d{2}-\d{2}$/.test(point.week), 'invalid history week');
+    assert(utcWeek(point.week) === point.week, 'history weeks must start on Monday');
+    assert(!previousWeek || point.week > previousWeek, 'history weeks must be chronological');
+    previousWeek = point.week;
+    finiteCount(point.at, 'weekly history timestamp');
+    assert(['api', 'web'].includes(point.source), 'invalid weekly history source');
+    assert(CONFIDENCE.includes(point.confidence), 'invalid weekly history confidence');
+    assert(
+      Array.isArray(point.stars) && point.stars.length === width,
+      'weekly history star row must align with the repository dictionary',
+    );
+    assert(
+      Array.isArray(point.forks) && point.forks.length === width,
+      'weekly history fork row must align with the repository dictionary',
+    );
+    for (let i = 0; i < width; i += 1) {
+      const star = point.stars[i];
+      const fork = point.forks[i];
+      assert(star === null || (Number.isFinite(star) && star >= 0), 'invalid weekly stars');
+      assert(fork === null || (Number.isFinite(fork) && fork >= 0), 'invalid weekly forks');
+      assert((star === null) === (fork === null), 'weekly gaps must cover both counts');
+    }
+    assert(Array.isArray(point.approx), 'weekly approximation list must be an array');
+    for (const at of point.approx) {
+      assert(
+        Number.isInteger(at) && at >= 0 && at < width,
+        'invalid weekly approximation index',
+      );
+    }
+  }
   return value;
 }
 
@@ -303,10 +353,10 @@ export function historyByteSize(history) {
   return new TextEncoder().encode(JSON.stringify(history)).byteLength;
 }
 
-/** Drop dictionary entries no retained day references, then reindex. */
+/** Drop dictionary entries no retained day or week references, then reindex. */
 function compactDictionary(history) {
   const used = new Set();
-  for (const snapshot of history.snapshots) {
+  for (const snapshot of [...history.snapshots, ...(history.weekly || [])]) {
     for (let i = 0; i < snapshot.stars.length; i += 1) {
       if (snapshot.stars[i] !== null) used.add(i);
     }
@@ -323,7 +373,49 @@ function compactDictionary(history) {
       forks: keep.map((index) => snapshot.forks[index]),
       approx: snapshot.approx.map((index) => remap.get(index)).filter((v) => v !== undefined),
     })),
+    weekly: (history.weekly || []).map((point) => ({
+      ...point,
+      stars: keep.map((index) => point.stars[index]),
+      forks: keep.map((index) => point.forks[index]),
+      approx: point.approx.map((index) => remap.get(index)).filter((v) => v !== undefined),
+    })),
   };
+}
+
+function weeklyCutoff(now, retentionWeeks) {
+  const todayStart = Date.parse(`${utcDay(now)}T00:00:00.000Z`);
+  return utcWeekForTimestamp(todayStart - (retentionWeeks - 1) * WEEK_MS);
+}
+
+/** Consolidate old daily points with LAST semantics, preserving explicit gaps. */
+function consolidateWeekly(existing, daily, width, now, retentionWeeks) {
+  const buckets = new Map();
+  for (const point of existing || []) {
+    buckets.set(point.week, {
+      ...point,
+      stars: point.stars.slice(0, width),
+      forks: point.forks.slice(0, width),
+      approx: point.approx.filter((index) => index < width),
+    });
+  }
+  for (const snapshot of daily) {
+    const week = utcWeek(snapshot.day);
+    const previous = buckets.get(week);
+    if (previous && previous.at > snapshot.at) continue;
+    buckets.set(week, {
+      week,
+      at: snapshot.at,
+      source: snapshot.source,
+      confidence: snapshot.confidence,
+      stars: snapshot.stars.slice(0, width),
+      forks: snapshot.forks.slice(0, width),
+      approx: snapshot.approx.filter((index) => index < width),
+    });
+  }
+  const cutoff = weeklyCutoff(now, retentionWeeks);
+  return [...buckets.values()]
+    .filter((point) => point.week >= cutoff)
+    .sort((a, b) => a.week.localeCompare(b.week));
 }
 
 export function recordDailyHistory(
@@ -332,14 +424,21 @@ export function recordDailyHistory(
   {
     now = cache?.fetchedAt || Date.now(),
     retentionDays = HISTORY_RETENTION_DAYS,
+    weeklyRetentionWeeks = HISTORY_WEEKLY_RETENTION_WEEKS,
     maxBytes = HISTORY_MAX_BYTES,
     validate = true,
   } = {},
 ) {
   assert(cache?.repos && Array.isArray(cache.repos), 'cache repositories are required for history');
   assert(Number.isInteger(retentionDays) && retentionDays >= 1, 'invalid history retention');
+  assert(
+    Number.isInteger(weeklyRetentionWeeks) && weeklyRetentionWeeks >= 1,
+    'invalid weekly history retention',
+  );
   assert(Number.isFinite(maxBytes) && maxBytes > 0, 'invalid history byte cap');
-  const existing = current ? structuredClone(current) : emptyHistory();
+  const existing = current
+    ? { ...structuredClone(current), weekly: structuredClone(current.weekly || []) }
+    : emptyHistory();
   if (validate) validateHistory(existing);
   // An empty or degraded account walk contains no measurement to record. In
   // particular, it must never erase the only same-day point we already have.
@@ -415,15 +514,34 @@ export function recordDailyHistory(
 
   const todayStart = Date.parse(`${utcDay(now)}T00:00:00.000Z`);
   const cutoff = utcDay(todayStart - (retentionDays - 1) * DAY_MS);
+  const daily = snapshots.filter((point) => point.day >= cutoff);
+  const archived = snapshots.filter((point) => point.day < cutoff);
+  const existingWeekly = existing.weekly.map((point) => ({
+    ...point,
+    stars: grow(point.stars),
+    forks: grow(point.forks),
+  }));
+  const weekly = consolidateWeekly(
+    existingWeekly,
+    archived,
+    width,
+    now,
+    weeklyRetentionWeeks,
+  );
   let next = compactDictionary({
     formatVersion: HISTORY_FORMAT_VERSION,
     repos,
-    snapshots: snapshots.filter((point) => point.day >= cutoff),
+    snapshots: daily,
+    weekly,
   });
   let bytes = historyByteSize(next);
 
-  // Oldest days go first. The dictionary is compacted alongside so a portfolio
-  // that shrank does not keep paying for repositories no retained day mentions.
+  // Drop oldest weekly points before daily points. The dictionary is compacted
+  // alongside so a portfolio that shrank does not keep paying for old names.
+  while (next.weekly.length && bytes > maxBytes) {
+    next = compactDictionary({ ...next, weekly: next.weekly.slice(1) });
+    bytes = historyByteSize(next);
+  }
   while (next.snapshots.length > 1 && bytes > maxBytes) {
     next = compactDictionary({ ...next, snapshots: next.snapshots.slice(1) });
     bytes = historyByteSize(next);
@@ -464,10 +582,17 @@ export function pruneHistory(current, keepDays, { now = Date.now() } = {}) {
   if (keepDays === 0) return emptyHistory();
   const todayStart = Date.parse(`${utcDay(now)}T00:00:00.000Z`);
   const cutoff = utcDay(todayStart - (keepDays - 1) * DAY_MS);
+  const dailyCutoff = utcDay(
+    todayStart - (Math.min(keepDays, HISTORY_RETENTION_DAYS) - 1) * DAY_MS,
+  );
+  const weeklyCutoffDay = weeklyCutoff(now, Math.max(1, Math.ceil(keepDays / WEEK_DAYS)));
   return compactDictionary({
     formatVersion: HISTORY_FORMAT_VERSION,
     repos: current.repos,
-    snapshots: current.snapshots.filter((point) => point.day >= cutoff),
+    snapshots: current.snapshots.filter((point) => point.day >= cutoff && point.day >= dailyCutoff),
+    weekly: (current.weekly || []).filter(
+      (point) => point.week >= cutoff && point.week >= weeklyCutoffDay,
+    ),
   });
 }
 
@@ -495,7 +620,32 @@ export function historyRows(history) {
       });
     }
   }
-  return rows;
+  for (const point of value.weekly || []) {
+    const approximate = new Set(point.approx);
+    for (let i = 0; i < value.repos.length; i += 1) {
+      if (point.stars[i] === null) continue;
+      const [key, fullName, isPrivate] = value.repos[i];
+      rows.push({
+        key,
+        fullName,
+        private: isPrivate === 1,
+        stars: point.stars[i],
+        forks: point.forks[i],
+        approximate: approximate.has(i),
+        day: point.week,
+        at: point.at,
+        source: point.source,
+        confidence: point.confidence,
+        tier: 'weekly',
+      });
+    }
+  }
+  return rows.sort(
+    (a, b) =>
+      a.day.localeCompare(b.day) ||
+      (a.tier === 'weekly' ? 1 : 0) - (b.tier === 'weekly' ? 1 : 0) ||
+      a.key.localeCompare(b.key),
+  );
 }
 
 /** Keep only repositories the predicate accepts, then compact. */
@@ -516,14 +666,59 @@ export function filterHistoryRepositories(history, keep) {
       forks: kept.map((index) => snapshot.forks[index]),
       approx: snapshot.approx.map((index) => remap.get(index)).filter((v) => v !== undefined),
     })),
+    weekly: (value.weekly || []).map((point) => ({
+      ...point,
+      stars: kept.map((index) => point.stars[index]),
+      forks: kept.map((index) => point.forks[index]),
+      approx: point.approx.map((index) => remap.get(index)).filter((v) => v !== undefined),
+    })),
   };
 }
 
+/** Index daily and weekly rows, with the finer daily tier winning ties. */
+function historyTierRowsByDay(history, metric) {
+  const rows = new Map();
+  for (const snapshot of history.snapshots || []) {
+    rows.set(snapshot.day, {
+      day: snapshot.day,
+      at: snapshot.at,
+      values: snapshot[metric],
+      approximate: snapshot.approx,
+      tier: 'daily',
+    });
+  }
+  for (const point of history.weekly || []) {
+    if (rows.has(point.week)) continue;
+    rows.set(point.week, {
+      day: point.week,
+      at: point.at,
+      values: point[metric],
+      approximate: point.approx,
+      tier: 'weekly',
+    });
+  }
+  return rows;
+}
+
+/** Merge daily and weekly points, with the finer daily tier winning ties. */
+function historyPointsByDay(history, at, metric) {
+  return [...historyTierRowsByDay(history, metric).values()]
+    .map((point) => ({
+      day: point.day,
+      at: point.at,
+      value: point.values[at],
+      approximate: point.approximate.includes(at),
+      tier: point.tier,
+    }))
+    .sort((a, b) => a.day.localeCompare(b.day));
+}
+
 export function historyPointsForRepos(history, repos, days, { now = Date.now() } = {}) {
-  if (!history?.snapshots?.length) return null;
+  if (!history?.snapshots?.length && !history?.weekly?.length) return null;
   validateHistory(history);
   assert(Number.isInteger(days) && days >= 1, 'invalid trend range');
   const targetDay = utcDay(Date.parse(`${utcDay(now)}T00:00:00.000Z`) - days * DAY_MS);
+  const targetWeek = utcWeek(targetDay);
   const index = new Map(history.repos.map((entry, at) => [entry[0], at]));
   const pending = new Map();
   for (const repo of repos) {
@@ -531,29 +726,24 @@ export function historyPointsForRepos(history, repos, days, { now = Date.now() }
     if (index.has(key)) pending.set(key, index.get(key));
   }
   const points = new Map();
-  for (let i = history.snapshots.length - 1; i >= 0 && pending.size; i -= 1) {
-    const snapshot = history.snapshots[i];
-    if (snapshot.day > targetDay) continue;
-    // A range names one comparison day. Once that day is behind us, an older
-    // measurement would be a real value with a false age label. History is
-    // chronological, so no remaining snapshot can be eligible after this.
-    if (snapshot.day < targetDay) break;
-    const approximate = new Set(snapshot.approx);
-    for (const [key, at] of [...pending]) {
-      if (snapshot.stars[at] === null) continue;
-      const [, fullName, isPrivate] = history.repos[at];
-      points.set(key, {
-        key,
-        fullName,
-        private: isPrivate === 1,
-        stars: snapshot.stars[at],
-        forks: snapshot.forks[at],
-        approximate: approximate.has(at),
-        day: snapshot.day,
-        at: snapshot.at,
-      });
-      pending.delete(key);
-    }
+  const starsByDay = historyTierRowsByDay(history, 'stars');
+  const forksByDay = historyTierRowsByDay(history, 'forks');
+  for (const [key, at] of pending) {
+    const point = starsByDay.get(targetDay) || starsByDay.get(targetWeek);
+    if (!point || point.values[at] === null || point.values[at] === undefined) continue;
+    const [, fullName, isPrivate] = history.repos[at];
+    const forks = forksByDay.get(point.day);
+    points.set(key, {
+      key,
+      fullName,
+      private: isPrivate === 1,
+      stars: point.values[at],
+      forks: forks?.values[at] ?? null,
+      approximate: point.approximate.includes(at),
+      day: point.day,
+      at: point.at,
+      tier: point.tier,
+    });
   }
   return points;
 }
@@ -610,7 +800,7 @@ export function historySeriesForRepo(
     delta: null,
     approximate: false,
   };
-  if (!history?.snapshots?.length) return empty;
+  if (!history?.snapshots?.length && !history?.weekly?.length) return empty;
   // Callers rendering a whole board pass the shared index; a lone caller pays
   // one scan rather than one scan per row.
   const at = index
@@ -620,17 +810,11 @@ export function historySeriesForRepo(
 
   const todayStart = Date.parse(`${utcDay(now)}T00:00:00.000Z`);
   const oldestDay = utcDay(todayStart - (days - 1) * DAY_MS);
-  const measuredByDay = new Map();
-  for (let i = history.snapshots.length - 1; i >= 0; i -= 1) {
-    const snapshot = history.snapshots[i];
-    if (snapshot.day < oldestDay) break;
-    const value = snapshot[metric][at];
-    if (value === null || value === undefined) continue;
-    measuredByDay.set(snapshot.day, {
-      value,
-      approximate: snapshot.approx.includes(at),
-    });
-  }
+  const measuredByDay = new Map(
+    historyPointsByDay(history, at, metric)
+      .filter((point) => point.day >= oldestDay)
+      .map((point) => [point.day, point]),
+  );
 
   const values = [];
   let measured = 0;
@@ -642,8 +826,9 @@ export function historySeriesForRepo(
   for (let offset = days - 1; offset >= 0; offset -= 1) {
     const day = utcDay(todayStart - offset * DAY_MS);
     const point = measuredByDay.get(day) || null;
-    values.push({ day, value: point ? point.value : null, approximate: !!point?.approximate });
-    if (!point) continue;
+    const measuredPoint = point && point.value !== null && point.value !== undefined;
+    values.push({ day, value: measuredPoint ? point.value : null, approximate: !!point?.approximate });
+    if (!measuredPoint) continue;
     measured += 1;
     if (firstDay === null) {
       first = point.value;
@@ -689,24 +874,15 @@ export function historyDeltaForRepo(
   const at = index
     ? index.get(key) ?? -1
     : history?.repos?.findIndex((entry) => entry[0] === key) ?? -1;
-  if (at === -1 || !history?.snapshots?.length) {
+  if (at === -1 || (!history?.snapshots?.length && !history?.weekly?.length)) {
     return { key, metric, days, first: null, last: null, delta: null, measured: 0, approximate: false };
   }
   const today = utcDay(now);
   const todayStart = Date.parse(`${today}T00:00:00.000Z`);
   const oldestDay = utcDay(todayStart - (days - 1) * DAY_MS);
-  const measuredByDay = new Map();
-  for (const snapshot of history.snapshots) {
-    if (snapshot.day < oldestDay) continue;
-    if (snapshot.day > today) break;
-    const value = snapshot[metric][at];
-    if (value === null || value === undefined) continue;
-    measuredByDay.set(snapshot.day, {
-      value,
-      approximate: snapshot.approx.includes(at),
-    });
-  }
-  const values = [...measuredByDay.values()];
+  const values = historyPointsByDay(history, at, metric).filter(
+    (point) => point.day >= oldestDay && point.day <= today && point.value !== null,
+  );
   const first = values[0]?.value ?? null;
   const last = values.at(-1)?.value ?? null;
   return {
@@ -767,7 +943,7 @@ export function sparklineSegments(values, { maxGapDays = SPARKLINE_MAX_GAP_DAYS 
 
 /** The oldest day actually retained, so the UI can stop offering longer ranges. */
 export function historyRetainedDays(history, { now = Date.now() } = {}) {
-  const oldest = history?.snapshots?.[0]?.day;
+  const oldest = history?.weekly?.[0]?.week || history?.snapshots?.[0]?.day;
   if (!oldest) return 0;
   const today = Date.parse(`${utcDay(now)}T00:00:00.000Z`);
   const first = Date.parse(`${oldest}T00:00:00.000Z`);
@@ -777,17 +953,23 @@ export function historyRetainedDays(history, { now = Date.now() } = {}) {
 export function historyStats(history) {
   const value = history || emptyHistory();
   validateHistory(value);
-  let points = 0;
+  let dailyPoints = 0;
   for (const snapshot of value.snapshots) {
-    for (const star of snapshot.stars) if (star !== null) points += 1;
+    for (const star of snapshot.stars) if (star !== null) dailyPoints += 1;
+  }
+  let weeklyPoints = 0;
+  for (const point of value.weekly || []) {
+    for (const star of point.stars) if (star !== null) weeklyPoints += 1;
   }
   return {
     days: value.snapshots.length,
-    points,
+    points: dailyPoints + weeklyPoints,
+    dailyPoints,
+    weeklyPoints,
     bytes: historyByteSize(value),
     repositories: value.repos.length,
-    oldestDay: value.snapshots[0]?.day || null,
-    newestDay: value.snapshots.at(-1)?.day || null,
+    oldestDay: value.weekly?.[0]?.week || value.snapshots[0]?.day || null,
+    newestDay: value.snapshots.at(-1)?.day || value.weekly?.at(-1)?.week || null,
     retainedDays: historyRetainedDays(value),
   };
 }

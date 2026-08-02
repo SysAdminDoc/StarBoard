@@ -51,8 +51,9 @@ telemetry — the API token, if you choose to use one, is sent only to
   while you switch tabs; the toolbar popup remains a compact glance view.
 - **Change tracking** — green `+3` / `+1` badges next to each repo's stars and forks, measured against a baseline snapshot you control.
 - **Offline trends** — compare portfolio and per-repository movement over 7,
-  30 or 90 days from a full year of bounded daily history stored only in your
-  profile; ranges longer than the data retained are marked unavailable.
+  30 or 90 days from bounded local history: one year of daily points followed
+  by a compact weekly archive for older coverage; ranges longer than the data
+  retained are marked unavailable.
 - **Multiple accounts** — switching the configured GitHub username keeps each
   account's snapshot, baseline, trend history, saved views and local alert
   preferences in its own namespace; existing single-account data migrates on
@@ -181,7 +182,7 @@ the release check requires every declared entry to opt into Chrome's
 `use_dynamic_url` protection.
 
 - **Data kept locally:** your username, display preferences, repository/profile
-  snapshot, comparison baseline, daily trend points, refresh metadata and
+  snapshot, comparison baseline, daily/weekly trend points, refresh metadata and
   recovery metadata, saved portfolio views, alert preferences and bounded
   alert-delivery state stay in this Chromium profile until you clear them or
   uninstall StarBoard. Account data is kept in separate local namespaces, so
@@ -334,14 +335,17 @@ The popup's **Trend** selector instead reads retained daily points for 7, 30 or
 renames connected across time; website-only changes remain explicit
 additions/removals. A dash means no retained point exists for that repository
 and range—StarBoard does not interpolate it as exact. History keeps at most one
-point per repository per UTC day for 365 days, prunes oldest days first, and
-uses at most 20% of the local-storage quota reported by the browser (2 MiB on
-Chrome's 10 MiB quota). A repository dictionary is stored once and each day
-holds only counts, so a 500-repository portfolio keeps the full year in about
-1.5 MB and a 200-repository one in well under a megabyte. Ranges longer than the
-data actually retained are shown as unavailable rather than returning a column
-of dashes, and a range that stops being retained falls back to the longest one
-the history can still serve. Settings can prune it to a shorter window with undo.
+point per repository per UTC day for 365 days, then consolidates older points
+into one Monday-anchored weekly point per week for up to 520 weeks. Weekly
+consolidation uses the last observed value for cumulative counts; an explicit
+missing value stays missing, never averaged or carried forward. Both tiers
+share the same bounded dictionary and the same 20% of the local-storage quota
+reported by the browser (2 MiB on Chrome's 10 MiB quota), so storage stays
+bounded regardless of how long the extension is installed. Ranges longer than
+the data actually retained are shown as unavailable rather than returning a
+column of dashes, and a range that stops being retained falls back to the
+longest one the history can still serve. Settings can prune it to a shorter
+window with undo.
 
 While a day range is selected, each row draws an inline SVG sparkline of that
 repository's retained star counts — no charting library, no network. Missing
@@ -454,7 +458,7 @@ src/lib/scrape.js    github.com HTML -> the same shape github.js returns
 src/lib/request.js   timeout, Retry-After and bounded retry policy
 src/lib/refresh-coordinator.js  refresh intent serialization/coalescing
 src/lib/lifecycle.js repository add/remove/rename event derivation
-src/lib/history.js   bounded daily history and offline trend comparisons
+src/lib/history.js   bounded daily/weekly history and offline trend comparisons
 src/lib/notifications.js local milestone evaluation and delivery deduplication
 src/lib/portfolio-views.js bounded saved views and repository filter predicates
 src/lib/transfer.js  checksummed backup/restore, CSV and committable history export

@@ -1208,9 +1208,6 @@
   "text_4413b4bf": {
     "message": "Access to github.com was removed. Website mode cannot read your repositories until"
   },
-  "text_444ebd5c": {
-    "message": "StarBoard keeps one local point per repository per UTC day, for at most 365 days and up to 20% of the browser-reported local storage quota."
-  },
   "text_45570065": {
     "message": "Dark"
   },
@@ -1582,6 +1579,9 @@
   },
   "text_c6ec2d10": {
     "message": "Trend"
+  },
+  "text_c714e11b": {
+    "message": "StarBoard keeps one local point per repository per UTC day for 365 days, then consolidates older points into Monday-anchored weekly history for up to 520 weeks, within 20% of the browser-reported local storage quota."
   },
   "text_c7b42b44": {
     "message": "Forks only"

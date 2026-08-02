@@ -417,8 +417,9 @@
             <div>
               <h3>Trend history</h3>
               <p>
-                StarBoard keeps one local point per repository per UTC day, for at most 365 days
-                and up to 20% of the browser-reported local storage quota.
+                StarBoard keeps one local point per repository per UTC day for 365 days, then
+                consolidates older points into Monday-anchored weekly history for up to 520 weeks,
+                within 20% of the browser-reported local storage quota.
               </p>
             </div>
             <div class="data-tool-actions">
