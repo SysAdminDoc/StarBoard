@@ -46,6 +46,8 @@
   the value range is large, and flat series are centered in their plot box.
 - Trend-table rows without two retained endpoints sort last with a stable name
   tie-breaker; missing comparisons never enter arithmetic as `NaN`.
+- The contrast gate now covers both normal and muted sparkline strokes against
+  the chart surface in dark and light themes.
 - The trend table now sorts with a delta-only pass and builds full star/fork
   series only for its 50 displayed rows, keeping large portfolios bounded.
 - The scale gate now measures both baseline and 7-day sparkline/table rendering

@@ -199,6 +199,40 @@ async function minimumTextContrast(page, theme) {
   }, theme);
 }
 
+/** Sparkline strokes are graphical objects and need 3:1 against their slot. */
+async function minimumGraphicContrast(page, theme) {
+  return page.evaluate((nextTheme) => {
+    const root = document.documentElement;
+    const previous = root.dataset.theme;
+    root.dataset.theme = nextTheme;
+    const styles = getComputedStyle(root);
+    const read = (name) => styles.getPropertyValue(name).trim();
+    const rgb = (value) => {
+      const hex = value.replace('#', '');
+      return [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255);
+    };
+    const luminance = (value) => {
+      const channels = rgb(value).map((channel) =>
+        channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+      );
+      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    };
+    const ratio = (foreground, background) => {
+      const first = luminance(foreground);
+      const second = luminance(background);
+      return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+    };
+    const surface = read('--surface-soft');
+    const result = {
+      normal: ratio(read('--accent'), surface),
+      muted: ratio(read('--faint'), surface),
+    };
+    result.minimum = Math.min(result.normal, result.muted);
+    root.dataset.theme = previous;
+    return result;
+  }, theme);
+}
+
 /** Boundaries that identify a control need 3:1 under WCAG 1.4.11. */
 async function minimumControlContrast(page, theme) {
   return page.evaluate((nextTheme) => {
@@ -785,6 +819,12 @@ async function main() {
         `${theme}-theme control boundaries reach 3:1`,
         control >= 3,
         control.toFixed(2),
+      );
+      const graphic = await minimumGraphicContrast(popup, theme);
+      check(
+        `${theme}-theme sparkline graphics reach 3:1`,
+        graphic.minimum >= 3,
+        JSON.stringify(graphic),
       );
     }
 
