@@ -29,7 +29,16 @@ import {
   setNotificationConfig,
   getNotificationState,
   setNotificationState,
+  getCapabilityState,
+  setCapabilityState,
 } from './lib/storage.js';
+import {
+  CAPABILITY_POLL_INTERVAL_MS,
+  capabilityFetchIsDue,
+  disabledCapabilities,
+  fetchCapabilityManifest,
+  isCapabilityDisabled,
+} from './lib/capabilities.js';
 import { createRefreshCoordinator } from './lib/refresh-coordinator.js';
 import { createRetryWait } from './lib/request.js';
 import { deriveLifecycleEvents, mergeLifecycleEvents } from './lib/lifecycle.js';
@@ -45,6 +54,7 @@ import {
 import { message } from './lib/i18n.js';
 
 const ALARM = 'starboard-refresh';
+const CAPABILITY_ALARM = 'starboard-capabilities';
 const RETRY_ALARM = 'starboard-retry';
 const NOTIFICATION_ALARM = 'starboard-notification';
 const OFFSCREEN_PATH = 'src/offscreen.html';
@@ -279,16 +289,69 @@ function changedRepositoryNames(previous, current) {
     .map((repo) => repo.full_name);
 }
 
+/**
+ * Refresh the static kill-switch, at most once every six hours.
+ *
+ * Every failure is swallowed on purpose: the document being unreachable,
+ * malformed, or served by something that is not the expected origin must leave
+ * the extension exactly as it was. A kill-switch that can itself break the
+ * product is worse than not having one.
+ */
+async function syncCapabilityAlarm() {
+  await chrome.alarms.clear(CAPABILITY_ALARM);
+  const minutes = CAPABILITY_POLL_INTERVAL_MS / 60_000;
+  chrome.alarms.create(CAPABILITY_ALARM, {
+    periodInMinutes: minutes,
+    delayInMinutes: minutes,
+  });
+  // Startup and install are the two moments a stale rule most needs lifting.
+  await syncCapabilities();
+}
+
+async function syncCapabilities({ force = false } = {}) {
+  const current = await getCapabilityState();
+  if (!force && !capabilityFetchIsDue(current)) return current;
+  try {
+    const next = await fetchCapabilityManifest();
+    await setCapabilityState(next);
+    return next;
+  } catch {
+    return current;
+  }
+}
+
+/** Named capabilities currently switched off for this installed version. */
+async function offCapabilities() {
+  const state = await getCapabilityState();
+  return disabledCapabilities(state, chrome.runtime.getManifest().version);
+}
+
+async function capabilityOff(name) {
+  const state = await getCapabilityState();
+  return isCapabilityDisabled(state, name, chrome.runtime.getManifest().version);
+}
+
 /** Run one generation selected by the refresh coordinator. */
 async function runRefresh(intent) {
   const { settings } = intent;
   const generation = generationId();
   try {
     const stored = await getCache();
-    const result =
-      settings.dataSource === 'web'
-        ? await fetchAccountViaWeb(settings.username)
-        : await fetchAccount(settings, { previous: stored, sleep: waitForRetry });
+    // A capability switched off in the field must not be attempted. Website
+    // mode falls through to the API rather than failing the refresh outright,
+    // because the API can serve the same account with no token.
+    const [webOff, graphqlOff] = await Promise.all([
+      capabilityOff('web-source'),
+      capabilityOff('api-graphql'),
+    ]);
+    const useWeb = settings.dataSource === 'web' && !webOff;
+    const result = useWeb
+      ? await fetchAccountViaWeb(settings.username)
+      : await fetchAccount(settings, {
+          previous: stored,
+          sleep: waitForRetry,
+          graphql: !graphqlOff,
+        });
 
     // Comparing one account's live counts against another account's snapshot
     // produces confident nonsense, and blending both into one history series
@@ -473,12 +536,14 @@ async function diagnosticsBundle() {
     alarms,
     storageBytes,
     userAgent: navigator.userAgent,
+    disabledCapabilities: await offCapabilities(),
   });
 }
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   const install = installationPlan(details);
   await syncAlarm();
+  await syncCapabilityAlarm();
   await updateBadge();
   // Chrome itself updating is not an extension lifecycle change and must not
   // spend network budget. `previousVersion` remains available on `install`
@@ -494,6 +559,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
 chrome.runtime.onStartup.addListener(async () => {
   await syncAlarm();
+  await syncCapabilityAlarm();
   await updateBadge();
   await deliverPendingNotifications().catch(() => {});
 });
@@ -501,6 +567,8 @@ chrome.runtime.onStartup.addListener(async () => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === NOTIFICATION_ALARM) {
     deliverPendingNotifications().catch(() => {});
+  } else if (alarm.name === CAPABILITY_ALARM) {
+    syncCapabilities().catch(() => {});
   } else if (alarm.name === ALARM || alarm.name === RETRY_ALARM) {
     void refresh({ reason: alarm.name === RETRY_ALARM ? 'retry' : 'alarm' }).catch((error) =>
       recordRefreshFailure(error),

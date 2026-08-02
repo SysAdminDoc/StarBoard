@@ -1343,6 +1343,129 @@ await test('a migrating read validates the record it writes back exactly once', 
   );
 });
 
+await test('the kill-switch disables named capabilities and ignores everything else', async () => {
+  const {
+    CAPABILITY_MANIFEST_URL,
+    CAPABILITY_MAX_BYTES,
+    KNOWN_CAPABILITIES,
+    capabilityFetchIsDue,
+    compareVersions,
+    disabledCapabilities,
+    emptyCapabilityState,
+    fetchCapabilityManifest,
+    parseCapabilityManifest,
+    validateCapabilityState,
+  } = await import('../src/lib/capabilities.js');
+
+  assert.equal(compareVersions('1.4.0', '1.5.0'), -1);
+  assert.equal(compareVersions('1.10.0', '1.9.0'), 1);
+  assert.equal(compareVersions('1.5', '1.5.0'), 0);
+
+  const document = {
+    formatVersion: 1,
+    capabilities: [
+      { name: 'web-source', fixedInVersion: '1.6.0', reason: 'github.com markup changed' },
+      { name: 'api-graphql', fixedInVersion: '1.5.0' },
+    ],
+  };
+  const parsed = parseCapabilityManifest(document);
+  assert.deepEqual(
+    parsed.rules.map((rule) => rule.name),
+    ['web-source', 'api-graphql'],
+  );
+  // The rule lifts itself the moment the installed build reaches the version
+  // that fixes it — nobody has to publish a second document to re-enable it.
+  assert.deepEqual(disabledCapabilities(parsed, '1.4.0'), ['web-source', 'api-graphql']);
+  assert.deepEqual(disabledCapabilities(parsed, '1.5.0'), ['web-source']);
+  assert.deepEqual(disabledCapabilities(parsed, '1.6.0'), []);
+
+  // The document can only ever switch a known capability off. Everything else
+  // it might try to say is discarded, so it can never introduce behaviour.
+  const hostile = parseCapabilityManifest({
+    formatVersion: 1,
+    capabilities: [
+      { name: 'web-source' }, // no version: would disable it forever
+      { name: '__proto__', fixedInVersion: '9.9.9' },
+      { name: 'constructor', fixedInVersion: '9.9.9' },
+      { name: 'eval-this', fixedInVersion: '9.9.9', script: 'alert(1)' },
+      { name: 'notifications', fixedInVersion: 'not-a-version' },
+      { name: 'notifications', fixedInVersion: '2.0.0', selector: '#pwned', url: 'https://evil' },
+      { name: 'notifications', fixedInVersion: '3.0.0' },
+      'notifications',
+      null,
+      42,
+    ],
+  });
+  assert.deepEqual(
+    hostile.rules,
+    [{ name: 'notifications', fixedInVersion: '2.0.0', reason: '' }],
+    'only the first well-formed rule for a known capability survives',
+  );
+  assert.ok(!Object.hasOwn(hostile.rules[0], 'selector'));
+  assert.ok(!Object.hasOwn(hostile.rules[0], 'url'));
+  assert.ok(!Object.hasOwn(hostile.rules[0], 'script'));
+  assert.equal({}.polluted, undefined);
+  assert.ok(KNOWN_CAPABILITIES.every((name) => typeof name === 'string'));
+
+  // Anything malformed anywhere yields no rules rather than throwing: a broken
+  // kill-switch must never break the extension it protects.
+  for (const broken of [null, undefined, 'string', 42, [], { formatVersion: 2 }, {}]) {
+    assert.deepEqual(parseCapabilityManifest(broken).rules, []);
+  }
+
+  const state = { ...emptyCapabilityState(), fetchedAt: 1000, rules: parsed.rules };
+  assert.equal(validateCapabilityState(state), state);
+  assert.throws(() => validateCapabilityState({ formatVersion: 1, fetchedAt: 0, rules: [{}] }));
+
+  // At most one fetch per six hours.
+  assert.equal(capabilityFetchIsDue({ fetchedAt: 0 }, { now: 1 }), true);
+  assert.equal(capabilityFetchIsDue({ fetchedAt: 1000 }, { now: 1000 + 6 * 3600 * 1000 }), true);
+  assert.equal(capabilityFetchIsDue({ fetchedAt: 1000 }, { now: 1000 + 3600 * 1000 }), false);
+
+  const respond = (body, init = {}) =>
+    new Response(body, { status: 200, headers: { 'content-type': 'application/json' }, ...init });
+  const requests = [];
+  const fetchImpl = async (url, init) => {
+    requests.push({ url: String(url), init });
+    return respond(JSON.stringify(document));
+  };
+  const fetched = await fetchCapabilityManifest({ fetchImpl, now: () => 5000 });
+  assert.equal(fetched.fetchedAt, 5000);
+  assert.deepEqual(
+    fetched.rules.map((rule) => rule.name),
+    ['web-source', 'api-graphql'],
+  );
+  assert.equal(requests[0].url, CAPABILITY_MANIFEST_URL);
+  // The security property is that the bytes came from one known origin, so a
+  // redirect is refused rather than followed.
+  assert.equal(requests[0].init.redirect, 'error');
+  assert.equal(requests[0].init.credentials, 'omit');
+
+  // An off-origin URL is refused before any request is made.
+  let attempted = false;
+  await assert.rejects(
+    fetchCapabilityManifest({
+      url: 'https://evil.example/capabilities.json',
+      fetchImpl: async () => {
+        attempted = true;
+        return respond('{}');
+      },
+    }),
+  );
+  assert.equal(attempted, false);
+
+  await assert.rejects(fetchCapabilityManifest({ fetchImpl: async () => respond('not json') }));
+  await assert.rejects(
+    fetchCapabilityManifest({ fetchImpl: async () => respond('{}', { status: 404 }) }),
+  );
+  await assert.rejects(
+    fetchCapabilityManifest({
+      fetchImpl: async () => respond('x'.repeat(CAPABILITY_MAX_BYTES + 1)),
+    }),
+    /too large/,
+  );
+});
+
 await test('the GraphQL and REST listings normalize to identical records', async () => {
   // One repository, described the way each API describes it. REST counts open
   // pull requests inside open_issues_count; GraphQL does not, so the adapter

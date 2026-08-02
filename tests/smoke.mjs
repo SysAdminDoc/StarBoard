@@ -2697,6 +2697,95 @@ async function main() {
     await popup.reload();
     await popup.waitForFunction(() => document.querySelectorAll('.row').length > 0);
 
+    // A capability switched off in the field must actually stop being used,
+    // and must lift itself the moment the installed build reaches the version
+    // that fixes it — without a second published document.
+    const version = await popup.evaluate(() => chrome.runtime.getManifest().version);
+    const killSwitch = await popup.evaluate(async (installed) => {
+      const { getCapabilityState, setCapabilityState } = await import('./lib/storage.js');
+      const { disabledCapabilities } = await import('./lib/capabilities.js');
+      const before = await getCapabilityState();
+      const bump = (value) => {
+        const parts = String(value).split('.').map(Number);
+        parts[0] += 1;
+        return parts.join('.');
+      };
+      await setCapabilityState({
+        formatVersion: 1,
+        fetchedAt: Date.now(),
+        rules: [
+          { name: 'web-source', fixedInVersion: bump(installed), reason: 'markup drift' },
+          { name: 'api-graphql', fixedInVersion: installed },
+        ],
+      });
+      const state = await getCapabilityState();
+      const result = {
+        active: disabledCapabilities(state, installed),
+        // The rule naming this very version is already satisfied.
+        liftedAtInstalled: !disabledCapabilities(state, installed).includes('api-graphql'),
+        diagnostics: (await chrome.runtime.sendMessage({ type: 'get-diagnostics' }))?.diagnostics,
+      };
+      await setCapabilityState(before);
+      return result;
+    }, version);
+    check(
+      'a field kill-switch disables a named capability and lifts itself by version',
+      killSwitch.active.includes('web-source') &&
+        killSwitch.liftedAtInstalled &&
+        killSwitch.diagnostics?.disabledCapabilities?.includes('web-source') &&
+        !killSwitch.diagnostics?.disabledCapabilities?.includes('api-graphql'),
+      JSON.stringify(killSwitch.active),
+    );
+
+    // The published document has to be readable from an extension origin with
+    // no host permission at all — GitHub Pages answers with a permissive CORS
+    // header, the same reason the API lane dropped its api.github.com grant.
+    if (!OFFLINE) {
+      const live = await popup.evaluate(async () => {
+        const { fetchCapabilityManifest, CAPABILITY_MANIFEST_URL } = await import(
+          './lib/capabilities.js'
+        );
+        try {
+          const state = await fetchCapabilityManifest();
+          return { ok: true, url: CAPABILITY_MANIFEST_URL, rules: state.rules.length };
+        } catch (error) {
+          return { ok: false, error: error.message };
+        }
+      });
+      check(
+        'the published kill-switch document is readable without a host permission',
+        live.ok && Number.isInteger(live.rules),
+        JSON.stringify(live),
+      );
+    }
+
+    // Unreachable, malformed or off-origin: all of them must leave the
+    // extension exactly as it was rather than breaking the product.
+    const degradation = await popup.evaluate(async () => {
+      const { fetchCapabilityManifest } = await import('./lib/capabilities.js');
+      const outcomes = [];
+      for (const impl of [
+        async () => {
+          throw new TypeError('Failed to fetch');
+        },
+        async () => new Response('{}', { status: 503 }),
+        async () => new Response('<html>not json</html>', { status: 200 }),
+      ]) {
+        try {
+          await fetchCapabilityManifest({ fetchImpl: impl });
+          outcomes.push('resolved');
+        } catch (error) {
+          outcomes.push(error.name);
+        }
+      }
+      return outcomes;
+    });
+    check(
+      'an unreachable or malformed kill-switch document changes nothing',
+      degradation.length === 3 && degradation.every((outcome) => outcome !== 'resolved'),
+      JSON.stringify(degradation),
+    );
+
     // The footer's Undo sits after one focusable row per repository — 343 on
     // the reference account — and keyboard shortcuts are out by project rule.
     const skipLink = await popup.evaluate(async () => {

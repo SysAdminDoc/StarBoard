@@ -37,6 +37,7 @@ ALLOWED_FILES = (
     "_locales/en/messages.json",
     "_locales/en_XA/messages.json",
     "src/background.js",
+    "src/lib/capabilities.js",
     "src/lib/diagnostics.js",
     "src/lib/github.js",
     "src/lib/history.js",

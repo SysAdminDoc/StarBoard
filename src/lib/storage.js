@@ -23,6 +23,10 @@ import {
   validateNotificationState,
 } from './notifications.js';
 import {
+  emptyCapabilityState,
+  validateCapabilityState,
+} from './capabilities.js';
+import {
   activatePortfolioView as activatePortfolioViewState,
   deletePortfolioView as deletePortfolioViewState,
   emptyPortfolioViewState,
@@ -41,6 +45,7 @@ export const STORAGE_KEYS = Object.freeze({
   notificationConfig: 'notificationConfig',
   notificationState: 'notificationState',
   portfolioViews: 'portfolioViews',
+  capabilities: 'capabilities',
   lastKnownGood: 'starboardLastKnownGood',
   quarantine: 'starboardQuarantine',
   undo: 'starboardUndo',
@@ -57,6 +62,7 @@ const RECORD_LABELS = Object.freeze({
   [STORAGE_KEYS.notificationConfig]: 'Notification settings',
   [STORAGE_KEYS.notificationState]: 'Pending notifications',
   [STORAGE_KEYS.portfolioViews]: 'Saved views',
+  [STORAGE_KEYS.capabilities]: 'The capability kill-switch',
   [STORAGE_KEYS.lastKnownGood]: 'The recovery copy',
   [STORAGE_KEYS.quarantine]: 'The quarantine log',
   [STORAGE_KEYS.undo]: 'The undo snapshot',
@@ -380,6 +386,7 @@ function validateRecord(key, value) {
   else if (key === STORAGE_KEYS.notificationConfig) validateNotificationConfig(value);
   else if (key === STORAGE_KEYS.notificationState) validateNotificationState(value);
   else if (key === STORAGE_KEYS.portfolioViews) validatePortfolioViewState(value);
+  else if (key === STORAGE_KEYS.capabilities) validateCapabilityState(value);
   else throw new Error(`unknown storage record: ${key}`);
 }
 
@@ -587,7 +594,7 @@ export async function dismissStorageRecoveryNotice(id) {
  * double the single biggest consumer and defeat the quota-proportional cap.
  */
 /** @type {Set<string>} */
-const LAST_KNOWN_GOOD_EXCLUDED = new Set([STORAGE_KEYS.history]);
+const LAST_KNOWN_GOOD_EXCLUDED = new Set([STORAGE_KEYS.history, STORAGE_KEYS.capabilities]);
 const RECOVERY_RECORD_KEYS = Object.freeze([
   STORAGE_KEYS.settings,
   STORAGE_KEYS.cache,
@@ -941,6 +948,19 @@ async function readPortfolioViewsOrDefault() {
   if (stored) return stored;
   const settings = (await readRecord(STORAGE_KEYS.settings)) || { ...DEFAULTS };
   return portfolioViewDefaults(settings);
+}
+
+/**
+ * The kill-switch state. It is deliberately outside the recovery copy and the
+ * portable backup: it is remote-derived, cheap to re-fetch, and restoring a
+ * stale copy of it would resurrect a rule the publisher has already lifted.
+ */
+export async function getCapabilityState() {
+  return (await readRecord(STORAGE_KEYS.capabilities)) || emptyCapabilityState();
+}
+
+export async function setCapabilityState(state) {
+  await serialized(() => writeRecords({ [STORAGE_KEYS.capabilities]: state }));
 }
 
 export async function getPortfolioViewState() {

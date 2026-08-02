@@ -40,6 +40,7 @@ export function buildDiagnostics({
   alarms = [],
   storageBytes = 0,
   userAgent = '',
+  disabledCapabilities = [],
   now = Date.now(),
 } = {}) {
   const alarmByName = new Map(alarms.map((alarm) => [alarm.name, alarm]));
@@ -65,6 +66,9 @@ export function buildDiagnostics({
       // a support question about refresh cost starts here.
       transport: ['rest', 'graphql'].includes(cache?.transport) ? cache.transport : null,
     },
+    // Names only — never a reason string, a selector or a URL from the remote
+    // document, so a diagnostics paste cannot carry attacker-chosen text.
+    disabledCapabilities: [...disabledCapabilities].sort(),
     permissions: {
       githubApiHostAccess: false,
       githubWebsite: !!websitePermission,

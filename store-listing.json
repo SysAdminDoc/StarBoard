@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updated": "2026-07-31",
+  "updated": "2026-08-02",
   "name": "StarBoard",
   "summary": "Rank your GitHub repositories by stars and track star and fork changes locally.",
   "privacyDisclosure": {
@@ -10,7 +10,8 @@
     "tokenHandling": "PATs are session-only by default, sent only to api.github.com, never exported, and can be explicitly persisted or forgotten.",
     "retention": "Settings, repository snapshots, comparison baselines, saved portfolio views, and bounded daily history stay in the browser profile until the user clears them or uninstalls the extension.",
     "portableFiles": "Backup and CSV export are user-initiated. Private repository names and history require separate opt-ins; known private names are redacted from default saved-view exports; PATs are never included.",
-    "notifications": "Local milestone and growth alerts are disabled by default. Chrome notification access is requested only when the user opts in."
+    "notifications": "Local milestone and growth alerts are disabled by default. Chrome notification access is requested only when the user opts in.",
+    "capabilityStatus": "StarBoard reads one static JSON file from https://sysadmindoc.github.io/StarBoard/ at most once every six hours. The request is credential-free and sends nothing about the user or their repositories. The file can only switch a named StarBoard capability off for builds older than a stated version; it carries no code, selectors or URLs, and the extension is unchanged when it is unreachable."
   },
   "permissions": [
     {

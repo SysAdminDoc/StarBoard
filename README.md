@@ -348,6 +348,31 @@ The notification lane similarly copies the extension into a throwaway build
 with `notifications` promoted from optional to declared so automation can test
 real OS-notification creation without clicking a native permission bubble.
 
+### Field kill-switch
+
+A Chrome Web Store review takes days to weeks, so a broken adapter or a removed
+upstream field could not previously be turned off for installed users without
+shipping a release and waiting. StarBoard reads one small static JSON from
+[its own GitHub Pages branch](https://sysadmindoc.github.io/StarBoard/) at most
+once every six hours:
+
+```json
+{ "formatVersion": 1,
+  "capabilities": [
+    { "name": "web-source", "fixedInVersion": "1.6.0", "reason": "markup changed" }
+  ] }
+```
+
+A rule applies only to installs older than `fixedInVersion`, so it lifts itself
+as soon as the fixing release is installed — no second publish. The document can
+only switch one of a fixed, locally-defined list of capabilities *off*; it never
+enables anything, and names outside that list are discarded. It carries no code,
+no selectors and no URLs, nothing is ever evaluated, and the request is
+credential-free and sends nothing about you or your repositories. GitHub Pages
+answers `Access-Control-Allow-Origin: *`, so this needs no host permission. If
+the file is unreachable, malformed, oversized, or served from anywhere else, the
+extension is left exactly as it was.
+
 CI uses the immutable npm lock, audits high-severity advisories, validates the
 release twice for byte identity, and boots the packaged ZIP without network
 access. Dependencies are reviewed manually — there is no Dependabot or Renovate
