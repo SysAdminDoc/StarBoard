@@ -453,6 +453,35 @@ a:hover {
   background: color-mix(in srgb, var(--gold) 9%, var(--surface-soft));
 }
 
+.auth-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.auth-status button {
+  margin-inline-start: auto;
+  white-space: nowrap;
+}
+
+.auth-status[data-state='active'] {
+  color: var(--green);
+}
+
+.auth-status[data-state='expired'],
+.auth-status[data-state='revoked'],
+.auth-status[data-state='denied'],
+.auth-status[data-state='rate-limited'] {
+  color: var(--red);
+}
+
 .page-banner.privacy-change {
   display: flex;
   align-items: center;

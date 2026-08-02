@@ -24,6 +24,7 @@ export class GitHubError extends Error {
       rateLimited = false,
       resetAt = null,
       retryAt = null,
+      authStatus = null,
     } = {},
   ) {
     super(message);
@@ -33,6 +34,7 @@ export class GitHubError extends Error {
     this.rateLimited = rateLimited;
     this.resetAt = resetAt;
     this.retryAt = retryAt || resetAt;
+    this.authStatus = authStatus;
   }
 }
 
@@ -78,6 +80,13 @@ function apiPath(value) {
   const url = new URL(value, API);
   if (url.origin !== API) return null;
   return `${url.pathname}${url.search}`;
+}
+
+function authFailure(body) {
+  const detail = String(body?.message || body?.error || '').toLowerCase();
+  if (/expir/.test(detail)) return { code: 'TOKEN_EXPIRED', status: 'expired' };
+  if (/revok/.test(detail)) return { code: 'TOKEN_REVOKED', status: 'revoked' };
+  return { code: 'TOKEN_REJECTED', status: 'denied' };
 }
 
 async function parseJson(response) {
@@ -164,10 +173,19 @@ async function request(
     (rate.remaining === 0 ? rate.resetAt : null);
 
   if (response.status === 401) {
-    throw new GitHubError('Token rejected (401). Check it in Settings.', {
-      code: 'TOKEN_REJECTED',
+    const failure = authFailure(requested.value);
+    throw new GitHubError(
+      failure.status === 'expired'
+        ? 'GitHub token expired. Replace it in Settings.'
+        : failure.status === 'revoked'
+          ? 'GitHub token was revoked. Replace it in Settings.'
+          : 'GitHub rejected the configured token. Check or replace it in Settings.',
+      {
+      code: failure.code,
       status: 401,
-    });
+      authStatus: token ? failure.status : null,
+      },
+    );
   }
   if (response.status === 404) {
     throw new GitHubError('User not found (404). Check the username in Settings.', {
@@ -187,6 +205,7 @@ async function request(
     throw new GitHubError('GitHub refused the request (403).', {
       code: 'FORBIDDEN',
       status: 403,
+      authStatus: token ? 'denied' : null,
     });
   }
   if (response.status === 304 && fallback == null) {
@@ -355,10 +374,19 @@ async function graphRequest(token, variables, options) {
   }
   const { response, value } = requested;
   if (response.status === 401) {
-    throw new GitHubError('Token rejected (401). Check it in Settings.', {
-      code: 'TOKEN_REJECTED',
+    const failure = authFailure(value);
+    throw new GitHubError(
+      failure.status === 'expired'
+        ? 'GitHub token expired. Replace it in Settings.'
+        : failure.status === 'revoked'
+          ? 'GitHub token was revoked. Replace it in Settings.'
+          : 'GitHub rejected the configured token. Check or replace it in Settings.',
+      {
+      code: failure.code,
       status: 401,
-    });
+      authStatus: token ? failure.status : null,
+      },
+    );
   }
   // GraphQL reports the same exhaustion through the same headers. Falling back
   // to REST here would spend the budget twice for one refresh.
@@ -378,6 +406,7 @@ async function graphRequest(token, variables, options) {
     throw new GitHubError(`GitHub GraphQL returned ${response.status}.`, {
       code: 'GRAPHQL_UNAVAILABLE',
       status: response.status,
+      authStatus: token ? 'denied' : null,
     });
   }
   // A GraphQL error arrives with HTTP 200. Treating it as success shipped an

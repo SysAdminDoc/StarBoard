@@ -11,6 +11,7 @@ import {
   getSettings,
   setSettings,
   forgetToken,
+  clearSessionToken,
   getCache,
   getBaseline,
   setCache,
@@ -31,6 +32,8 @@ import {
   setNotificationState,
   getCapabilityState,
   setCapabilityState,
+  getAuthStatus,
+  setAuthStatus,
 } from './lib/storage.js';
 import {
   CAPABILITY_POLL_INTERVAL_MS,
@@ -438,6 +441,9 @@ async function runRefresh(intent) {
       }),
     );
     const committed = await commitRefresh(cache, baseline, generation);
+    if (settings.token && authenticated) {
+      await recordAuthenticationSuccess().catch(() => {});
+    }
     await updateBadge({ settings, ...committed });
     await scheduleRetry(result.retryAt);
     await evaluateNotifications(previous, committed.cache, settings, generation).catch(() => {});
@@ -459,6 +465,7 @@ const refreshCoordinator = createRefreshCoordinator(runRefresh);
 
 /** Normalize every refresh rejection without letting error reporting reject too. */
 async function recordRefreshFailure(err, settings = null, sourceResolution = null) {
+  const authentication = await recordAuthenticationFailure(err, settings);
   const detail = {
     message: err?.message || 'StarBoard could not refresh this account.',
     code: err?.code || 'REFRESH_FAILED',
@@ -467,6 +474,8 @@ async function recordRefreshFailure(err, settings = null, sourceResolution = nul
       (err instanceof GitHubError && err.rateLimited) || err?.code === 'RATE_LIMITED',
     resetAt: err instanceof GitHubError ? err.resetAt : err?.retryAt || null,
     retryAt: err?.retryAt || (err instanceof GitHubError ? err.resetAt : null),
+    authStatus: authentication?.status || null,
+    credentialCleared: !!authentication?.credentialCleared,
     at: Date.now(),
     requestedSource: settings?.dataSource || null,
     sourceDowngrade:
@@ -507,6 +516,31 @@ async function recordRefreshFailure(err, settings = null, sourceResolution = nul
     if (settings) await updateBadge({ settings, cache, baseline }).catch(() => {});
   }
   return { ok: false, error: detail, cache, baseline };
+}
+
+function authenticationStatus(error) {
+  if (error?.authStatus) return error.authStatus;
+  if (error?.code === 'RATE_LIMITED') return 'rate-limited';
+  if (error?.code === 'TOKEN_EXPIRED') return 'expired';
+  if (error?.code === 'TOKEN_REVOKED') return 'revoked';
+  if (error?.code === 'TOKEN_REJECTED' || error?.code === 'FORBIDDEN') return 'denied';
+  return null;
+}
+
+async function recordAuthenticationFailure(error, settings = null) {
+  const status = authenticationStatus(error);
+  if (!status) return null;
+  const at = Date.now();
+  await setAuthStatus({ status, code: error?.code || status.toUpperCase(), at }).catch(() => {});
+  const credentialCleared =
+    ['expired', 'revoked'].includes(status) && settings?.tokenMode === 'session';
+  if (credentialCleared) await clearSessionToken().catch(() => {});
+  return { status, credentialCleared };
+}
+
+async function recordAuthenticationSuccess() {
+  const at = Date.now();
+  return setAuthStatus({ status: 'active', code: null, at, lastAuthenticatedAt: at });
 }
 
 async function refresh({ rebase = false, force = false, reason = 'manual', source = null } = {}) {
@@ -556,6 +590,7 @@ async function diagnosticsBundle() {
     history,
     websitePermission,
     notificationPermission,
+    authStatus,
     alarms,
     storageBytes,
   ] =
@@ -566,6 +601,7 @@ async function diagnosticsBundle() {
       getHistory().then(historyStats),
       hasWebPermission(),
       hasNotificationPermission(),
+      getAuthStatus(),
       chrome.alarms.getAll(),
       chrome.storage.local.getBytesInUse(null),
     ]);
@@ -577,6 +613,7 @@ async function diagnosticsBundle() {
     history,
     websitePermission,
     notificationPermission,
+    authStatus,
     alarms,
     storageBytes,
     userAgent: navigator.userAgent,
@@ -638,6 +675,27 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'forget-token': {
         const settings = await forgetToken();
         sendResponse({ ok: true, settings });
+        break;
+      }
+      case 'get-auth-status':
+        sendResponse({ ok: true, authStatus: await getAuthStatus() });
+        break;
+      case 'record-auth-status': {
+        const settings = await getSettings().catch(() => null);
+        const status = msg.status === 'active' ? 'active' : authenticationStatus({
+          authStatus: msg.status,
+          code: msg.code,
+        });
+        let credentialCleared = false;
+        if (status === 'active') {
+          await recordAuthenticationSuccess();
+        } else if (status) {
+          credentialCleared = !!(await recordAuthenticationFailure(
+            { authStatus: status, code: msg.code || status.toUpperCase() },
+            settings,
+          ))?.credentialCleared;
+        }
+        sendResponse({ ok: true, authStatus: await getAuthStatus(), credentialCleared });
         break;
       }
       case 'acknowledge-lifecycle': {
@@ -764,6 +822,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       error: {
         message: error?.message || 'StarBoard could not complete that request.',
         code: error?.code || 'MESSAGE_FAILED',
+        authStatus: authenticationStatus(error),
+        credentialCleared: false,
         // Settings needs this to say when a rate limit lifts rather than
         // repeating a bare "rate limit reached".
         resetAt: error?.resetAt ?? error?.retryAt ?? null,

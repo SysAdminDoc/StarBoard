@@ -51,6 +51,15 @@ export const STORAGE_KEYS = Object.freeze({
   undo: 'starboardUndo',
 });
 export const SESSION_TOKEN_KEY = 'starboardSessionToken';
+export const AUTH_STATUS_KEY = 'starboardAuthStatus';
+export const AUTH_STATUS_VALUES = Object.freeze([
+  'unknown',
+  'active',
+  'expired',
+  'revoked',
+  'denied',
+  'rate-limited',
+]);
 export const UNDO_WINDOW_MS = 10 * 60_000;
 const STORAGE_WRITE_LOCK = 'starboard-storage-write';
 
@@ -871,6 +880,41 @@ export async function forgetToken() {
     const next = normalizeSettings({ ...current, token: '', tokenMode: 'session' });
     await writeRecords({ [STORAGE_KEYS.settings]: next });
     return copy(next);
+  });
+}
+
+function normalizeAuthStatus(value, current = {}) {
+  const status = AUTH_STATUS_VALUES.includes(value?.status) ? value.status : 'unknown';
+  const code = typeof value?.code === 'string' ? value.code.slice(0, 80) : null;
+  const at = Number.isFinite(value?.at) && value.at > 0 ? value.at : null;
+  const lastAuthenticatedAt =
+    Number.isFinite(value?.lastAuthenticatedAt) && value.lastAuthenticatedAt > 0
+      ? value.lastAuthenticatedAt
+      : Number.isFinite(current.lastAuthenticatedAt) && current.lastAuthenticatedAt > 0
+        ? current.lastAuthenticatedAt
+        : null;
+  return { formatVersion: 1, status, code, at, lastAuthenticatedAt };
+}
+
+export async function getAuthStatus() {
+  const raw = (await AREA.get(AUTH_STATUS_KEY))[AUTH_STATUS_KEY];
+  return normalizeAuthStatus(raw);
+}
+
+/** Persist status metadata only; the token itself never enters this record. */
+export async function setAuthStatus(value) {
+  return serialized(async () => {
+    const current = await getAuthStatus();
+    const next = normalizeAuthStatus(value, current);
+    await AREA.set({ [AUTH_STATUS_KEY]: next });
+    return copy(next);
+  });
+}
+
+/** Expiry/revocation only clears the current session credential. */
+export async function clearSessionToken() {
+  return serialized(async () => {
+    await SESSION_AREA.remove(SESSION_TOKEN_KEY);
   });
 }
 

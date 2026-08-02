@@ -587,6 +587,42 @@ await test('PATs survive source switches and clear only through Forget token', a
   assert.equal((await storage.getSettings()).token, '');
 });
 
+await test('auth status is redacted and expiry clears only the session credential', async () => {
+  const originalLocal = clone(area.values);
+  const originalSession = clone(sessionArea.values);
+  try {
+    replaceAreaValues(area, {});
+    replaceAreaValues(sessionArea, {});
+    await storage.setSettings({ username: 'octocat', dataSource: 'api', token: 'session-secret' });
+    await storage.setAuthStatus({
+      status: 'active',
+      code: null,
+      at: 100,
+      lastAuthenticatedAt: 100,
+    });
+    assert.deepEqual(await storage.getAuthStatus(), {
+      formatVersion: 1,
+      status: 'active',
+      code: null,
+      at: 100,
+      lastAuthenticatedAt: 100,
+    });
+    await storage.setAuthStatus({ status: 'expired', code: 'TOKEN_EXPIRED', at: 200 });
+    await storage.clearSessionToken();
+    assert.equal((await storage.getSettings()).token, '');
+    assert.equal(area.values.settings.data.token, '');
+    assert.doesNotMatch(JSON.stringify(area.values), /session-secret/);
+    assert.equal((await storage.getAuthStatus()).lastAuthenticatedAt, 100);
+
+    await storage.setSettings({ token: 'persistent-secret', tokenMode: 'persistent' });
+    await storage.clearSessionToken();
+    assert.equal((await storage.getSettings()).token, 'persistent-secret');
+  } finally {
+    replaceAreaValues(area, originalLocal);
+    replaceAreaValues(sessionArea, originalSession);
+  }
+});
+
 await test('refresh cache and baseline commit with one generation', async () => {
   const generation = 'generation-1';
   const repo = {
@@ -2095,6 +2131,32 @@ await test('REST adapter normalizes exhausted retry responses', async () => {
   );
 });
 
+await test('GitHub authentication failures classify expiry, revocation, and denial', async () => {
+  const failure = (message, status = 401) =>
+    fetchAccount(
+      { username: 'octocat', token: 'ghp_test' },
+      {
+        graphql: false,
+        fetchImpl: async () => new Response(JSON.stringify({ message }), { status }),
+        sleep: async () => {},
+        retries: 0,
+        now: () => 1000,
+      },
+    );
+  await assert.rejects(
+    failure('This token has expired.'),
+    (error) => error.code === 'TOKEN_EXPIRED' && error.authStatus === 'expired',
+  );
+  await assert.rejects(
+    failure('Token revoked by the owner.'),
+    (error) => error.code === 'TOKEN_REVOKED' && error.authStatus === 'revoked',
+  );
+  await assert.rejects(
+    failure('Resource not accessible by personal access token.', 403),
+    (error) => error.code === 'FORBIDDEN' && error.authStatus === 'denied',
+  );
+});
+
 await test('REST adapter honors exhausted 403 quota metadata', async () => {
   await assert.rejects(
     fetchAccount(
@@ -3313,6 +3375,12 @@ await test('diagnostics expose allow-listed health metadata without sensitive va
     },
     history: { days: 3, points: 8, bytes: 900 },
     websitePermission: false,
+    authStatus: {
+      status: 'expired',
+      code: 'TOKEN_EXPIRED',
+      at: Date.UTC(2026, 6, 29, 1),
+      lastAuthenticatedAt: Date.UTC(2026, 6, 28, 23),
+    },
     alarms: [
       {
         name: 'starboard-refresh',
@@ -3328,10 +3396,13 @@ await test('diagnostics expose allow-listed health metadata without sensitive va
   assert.equal(diagnostics.extension.minimumChromeVersion, '120');
   assert.equal(diagnostics.extension.runtimeChromeMajor, 120);
   assert.equal(diagnostics.refresh.error.code, 'RATE_LIMITED');
+  assert.equal(diagnostics.authentication.status, 'expired');
+  assert.equal(diagnostics.authentication.code, 'TOKEN_EXPIRED');
+  assert.equal(diagnostics.authentication.lastAuthenticatedAt, '2026-07-28T23:00:00.000Z');
   assert.equal(diagnostics.alarms.refresh.periodMinutes, 60);
   assert.doesNotMatch(
     text,
-    /diagnostic-secret|private-owner|private-repo|rawHtml|<p>|message|token|cookie/i,
+    /diagnostic-secret|private-owner|private-repo|rawHtml|<p>|message|cookie/i,
   );
 });
 

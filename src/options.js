@@ -8,6 +8,8 @@ import {
   getNotificationConfig,
   getPortfolioViewState,
   getStorageDiagnostics,
+  getAuthStatus,
+  AUTH_STATUS_KEY,
   applyTheme,
 } from './lib/storage.js';
 import { historyStats } from './lib/history.js';
@@ -123,6 +125,39 @@ function syncSourceUI() {
   }
 }
 
+const AUTH_STATUS_LABELS = {
+  unknown: 'No authenticated request recorded',
+  active: 'Active',
+  expired: 'Expired',
+  revoked: 'Revoked',
+  denied: 'Denied',
+  'rate-limited': 'Rate-limited',
+};
+
+function renderAuthStatus(status) {
+  const box = $('authStatus');
+  if (!box) return;
+  const value = AUTH_STATUS_LABELS[status?.status] ? status.status : 'unknown';
+  if (value === 'unknown' && !fields.token.value) {
+    box.hidden = true;
+    return;
+  }
+  const last = Number.isFinite(status?.lastAuthenticatedAt)
+    ? ` Last authenticated ${formatters.dateTime({ dateStyle: 'medium', timeStyle: 'short' }).format(new Date(status.lastAuthenticatedAt))}.`
+    : ' No authenticated success has been recorded yet.';
+  const action = ['expired', 'revoked', 'denied'].includes(value)
+    ? ' Replace the token or use Forget token below.'
+    : '';
+  $('authStatusText').textContent = `${AUTH_STATUS_LABELS[value]}.${last}${action}`;
+  box.dataset.state = value;
+  box.hidden = false;
+  $('replaceToken').hidden = !['expired', 'revoked', 'denied'].includes(value);
+}
+
+async function loadAuthStatus() {
+  renderAuthStatus(await getAuthStatus().catch(() => ({ status: 'unknown' })));
+}
+
 const parser = new DOMParser();
 const parseHTML = (html) => parser.parseFromString(html, 'text/html');
 const feedback = {
@@ -184,6 +219,7 @@ function busyControls() {
     $('save'),
     $('test'),
     $('forgetToken'),
+    $('replaceToken'),
     $('historyKeep'),
     $('pruneHistory'),
     $('includePrivateExport'),
@@ -344,7 +380,7 @@ async function load() {
   syncSourceUI();
   applyTheme(s.theme);
   $('version').textContent = `v${chrome.runtime.getManifest().version}`;
-  await Promise.all([showStorageInfo(), loadNotificationConfig()]);
+  await Promise.all([showStorageInfo(), loadNotificationConfig(), loadAuthStatus()]);
 }
 
 function renderPrivacyNotice(notice) {
@@ -561,6 +597,12 @@ $('save').addEventListener('click', async () => {
       }
       await showStorageInfo();
     } else {
+      if (res?.error?.credentialCleared) {
+        fields.token.value = '';
+        fields.tokenMode.value = 'session';
+        syncSourceUI();
+      }
+      await loadAuthStatus();
       reportError(res?.error, 'account', 'Refresh failed.');
     }
   }).catch((err) => reportError(err, 'account', 'Could not save settings.'));
@@ -608,6 +650,10 @@ $('test').addEventListener('click', async () => {
       { signal: controller.signal },
     );
     if (connectionController !== controller) return;
+    if (token) {
+      await chrome.runtime.sendMessage({ type: 'record-auth-status', status: 'active' });
+      await loadAuthStatus();
+    }
     say(
       `OK — @${res.profile.login}: API reachable with one request. ` +
         `${res.rate?.remaining ?? '?'}/${res.rate?.limit ?? '?'} API calls left.`,
@@ -616,7 +662,22 @@ $('test').addEventListener('click', async () => {
   } catch (err) {
     if (connectionController !== controller) return;
     if (err.code === 'CANCELLED') say('Connection test cancelled.', 'err');
-    else reportError(err, 'account', 'The connection test failed.');
+    else {
+      if (token && err.authStatus) {
+        const response = await chrome.runtime.sendMessage({
+          type: 'record-auth-status',
+          status: err.authStatus,
+          code: err.code,
+        });
+        if (response?.credentialCleared) {
+          fields.token.value = '';
+          fields.tokenMode.value = 'session';
+          syncSourceUI();
+        }
+        await loadAuthStatus();
+      }
+      reportError(err, 'account', 'The connection test failed.');
+    }
   } finally {
     if (connectionController === controller) {
       connectionController = null;
@@ -1000,9 +1061,22 @@ $('forgetToken').addEventListener('click', async () => {
     fields.token.value = '';
     fields.tokenMode.value = 'session';
     syncSourceUI();
+    await loadAuthStatus();
     say('Token removed from session and persistent storage.', 'ok');
   }).catch((error) => reportError(error, 'account', 'Could not forget the token.'));
   syncSourceUI();
+});
+
+$('replaceToken').addEventListener('click', () => {
+  fields.token.focus();
+  fields.token.select();
+  say('Enter a replacement token, then save or test the connection.', 'ok');
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'local' && changes[AUTH_STATUS_KEY]) {
+    renderAuthStatus(changes[AUTH_STATUS_KEY].newValue || { status: 'unknown' });
+  }
 });
 
 let settingsSaveQueue = Promise.resolve();

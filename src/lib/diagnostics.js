@@ -37,6 +37,7 @@ export function buildDiagnostics({
   history,
   websitePermission = false,
   notificationPermission = false,
+  authStatus = null,
   alarms = [],
   storageBytes = 0,
   userAgent = '',
@@ -73,6 +74,16 @@ export function buildDiagnostics({
       githubApiHostAccess: false,
       githubWebsite: !!websitePermission,
       notifications: !!notificationPermission,
+    },
+    authentication: {
+      status: ['unknown', 'active', 'expired', 'revoked', 'denied', 'rate-limited'].includes(
+        authStatus?.status,
+      )
+        ? authStatus.status
+        : 'unknown',
+      code: typeof authStatus?.code === 'string' ? authStatus.code.slice(0, 80) : null,
+      lastAuthenticatedAt: timestamp(authStatus?.lastAuthenticatedAt),
+      lastEventAt: timestamp(authStatus?.at),
     },
     storage: {
       schemaVersion: storage?.schemaVersion || null,

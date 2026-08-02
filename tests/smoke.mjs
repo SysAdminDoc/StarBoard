@@ -3650,6 +3650,28 @@ async function main() {
       (await options.locator('#tokenMode option[value="persistent"]').count()) === 1 &&
         (await options.locator('#forgetToken').count()) === 1,
     );
+    await options.evaluate(() =>
+      chrome.runtime.sendMessage({ type: 'record-auth-status', status: 'active' }),
+    );
+    await options.waitForFunction(() => /Active/.test(document.querySelector('#authStatusText')?.textContent || ''));
+    const activeAuthText = await options.textContent('#authStatusText');
+    await options.evaluate(() =>
+      chrome.runtime.sendMessage({ type: 'record-auth-status', status: 'expired', code: 'TOKEN_EXPIRED' }),
+    );
+    await options.waitForFunction(
+      () => document.querySelector('#authStatus')?.dataset.state === 'expired',
+    );
+    const expiredAuth = await options.evaluate(() => ({
+      text: document.querySelector('#authStatusText')?.textContent || '',
+      replaceHidden: document.querySelector('#replaceToken')?.hidden,
+    }));
+    check(
+      'settings surfaces authentication state and replacement action',
+      /Active/.test(activeAuthText || '') &&
+        /Expired/.test(expiredAuth.text) &&
+        expiredAuth.replaceHidden === false,
+      JSON.stringify({ active: activeAuthText, expired: expiredAuth }),
+    );
     await options.screenshot({ path: `${SHOTS}/03-options.png`, fullPage: true });
 
     const priorCredentialSettings = await options.evaluate(async () => {
