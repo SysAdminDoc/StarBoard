@@ -521,6 +521,126 @@ await test('history validation rejects a repository key that disagrees with its 
   );
 });
 
+await test('account namespaces preserve snapshots, trends, alerts, and views across switches', async () => {
+  const originalLocal = clone(area.values);
+  const originalSession = clone(sessionArea.values);
+  try {
+    replaceAreaValues(area, {});
+    replaceAreaValues(sessionArea, {});
+    await storage.setSettings({ username: 'alice', dataSource: 'api' });
+    const aliceRepo = {
+      id: 1,
+      name: 'alice-repo',
+      full_name: 'alice/alice-repo',
+      stargazers_count: 12,
+      forks_count: 2,
+    };
+    const aliceCache = {
+      profile: { login: 'alice' },
+      repos: [aliceRepo],
+      fetchedAt: 100,
+      source: 'api',
+      confidence: 'exact',
+    };
+    await storage.commitRefresh(
+      aliceCache,
+      storage.snapshotOf(aliceCache.repos, { now: 100 }),
+      'alice-generation',
+    );
+    await storage.setNotificationConfig({ repositoryMilestone: 7 });
+    await storage.setActivePortfolioFilters({ query: 'alice-only' });
+    await storage.saveCurrentPortfolioView('Alice view');
+
+    assert.ok(
+      area.values[storage.accountStorageKey(storage.STORAGE_KEYS.cache, 'alice')],
+      'alice cache is persisted under her namespace',
+    );
+    assert.equal(area.values[storage.STORAGE_KEYS.cache], undefined);
+
+    await storage.setSettings({ username: 'bob' });
+    assert.equal(await storage.getCache(), null);
+    assert.equal((await storage.getHistory()).snapshots.length, 0);
+    assert.equal((await storage.getNotificationConfig()).repositoryMilestone, 10);
+    assert.equal((await storage.getPortfolioViewState()).active.query, '');
+
+    const bobRepo = {
+      id: 2,
+      name: 'bob-repo',
+      full_name: 'bob/bob-repo',
+      stargazers_count: 4,
+      forks_count: 1,
+    };
+    const bobCache = {
+      profile: { login: 'bob' },
+      repos: [bobRepo],
+      fetchedAt: 200,
+      source: 'api',
+      confidence: 'exact',
+    };
+    await storage.commitRefresh(
+      bobCache,
+      storage.snapshotOf(bobCache.repos, { now: 200 }),
+      'bob-generation',
+    );
+
+    await storage.setSettings({ username: 'alice' });
+    assert.equal((await storage.getCache()).profile.login, 'alice');
+    assert.equal((await storage.getHistory()).snapshots[0].stars[0], 12);
+    assert.equal((await storage.getNotificationConfig()).repositoryMilestone, 7);
+    assert.equal((await storage.getPortfolioViewState()).active.query, 'alice-only');
+    assert.equal(
+      (await storage.getCache()).repos[0].full_name,
+      'alice/alice-repo',
+      'switching back never exposes the other account snapshot',
+    );
+  } finally {
+    replaceAreaValues(area, originalLocal);
+    replaceAreaValues(sessionArea, originalSession);
+  }
+});
+
+await test('a legacy single-account record migrates into the first account namespace', async () => {
+  const originalLocal = clone(area.values);
+  const originalSession = clone(sessionArea.values);
+  try {
+    replaceAreaValues(area, {});
+    replaceAreaValues(sessionArea, {});
+    const settings = {
+      ...storage.DEFAULTS,
+      username: 'legacy-user',
+      dataSource: 'api',
+    };
+    const cache = {
+      profile: { login: 'legacy-user' },
+      repos: [],
+      fetchedAt: 100,
+      source: 'api',
+      confidence: 'exact',
+    };
+    area.values.settings = {
+      schemaVersion: storage.SCHEMA_VERSION,
+      savedAt: 100,
+      generation: null,
+      data: settings,
+    };
+    area.values.cache = {
+      schemaVersion: storage.SCHEMA_VERSION,
+      savedAt: 100,
+      generation: null,
+      data: cache,
+    };
+
+    assert.equal((await storage.getCache()).profile.login, 'legacy-user');
+    assert.equal(area.values.cache, undefined);
+    assert.ok(
+      area.values[storage.accountStorageKey(storage.STORAGE_KEYS.cache, 'legacy-user')],
+    );
+  } finally {
+    replaceAreaValues(area, originalLocal);
+    replaceAreaValues(sessionArea, originalSession);
+  }
+});
+
 await test('a downgraded build explains and preserves every newer-schema record', async () => {
   const originalLocal = clone(area.values);
   const originalSession = clone(sessionArea.values);
@@ -567,19 +687,24 @@ await test('a downgraded build explains and preserves every newer-schema record'
       generation: 'future-generation',
       data: { ...cache, futureOnly: true },
     };
-    area.values.cache = clone(futureCache);
+    const futureCacheKey = storage.accountStorageKey(storage.STORAGE_KEYS.cache, 'future-user');
+    area.values[futureCacheKey] = clone(futureCache);
     await assert.rejects(storage.setCache({ ...cache, generation: 'older-generation' }), {
       code: 'STORAGE_VERSION_TOO_NEW',
     });
-    assert.deepEqual(area.values.cache, futureCache);
+    assert.deepEqual(area.values[futureCacheKey], futureCache);
 
-    delete area.values.cache;
-    area.values[storage.recoveryStorageKey(storage.STORAGE_KEYS.cache)] = clone(futureCache);
+    delete area.values[futureCacheKey];
+    const futureCacheRecoveryKey = storage.recoveryStorageKey(
+      storage.STORAGE_KEYS.cache,
+      'future-user',
+    );
+    area.values[futureCacheRecoveryKey] = clone(futureCache);
     await assert.rejects(storage.setCache({ ...cache, generation: 'older-generation' }), {
       code: 'STORAGE_VERSION_TOO_NEW',
     });
     assert.deepEqual(
-      area.values[storage.recoveryStorageKey(storage.STORAGE_KEYS.cache)],
+      area.values[futureCacheRecoveryKey],
       futureCache,
     );
 
@@ -644,7 +769,7 @@ await test('a schema upgrade keeps the complete recovery copy through its first 
         storage.STORAGE_KEYS.portfolioViews,
       ].map((key) => [
         key,
-        clone(area.values[storage.recoveryStorageKey(key)]),
+        clone(area.values[storage.recoveryStorageKey(key, 'octocat')]),
       ]),
     );
     const requiredKeys = [
@@ -657,14 +782,14 @@ await test('a schema upgrade keeps the complete recovery copy through its first 
       assert.ok(preserved[key], `${key} must exist before the simulated upgrade`);
       preserved[key].schemaVersion = storage.SCHEMA_VERSION - 1;
     }
-    for (const key of requiredKeys) delete area.values[storage.recoveryStorageKey(key)];
+    for (const key of requiredKeys) delete area.values[storage.recoveryStorageKey(key, 'octocat')];
     area.values.starboardLastKnownGood = {
       schemaVersion: storage.SCHEMA_VERSION - 1,
       savedAt: 90,
       generation: null,
       data: clone(preserved),
     };
-    area.values.baseline = {
+    area.values[storage.accountStorageKey(storage.STORAGE_KEYS.baseline, 'octocat')] = {
       schemaVersion: storage.SCHEMA_VERSION,
       savedAt: 100,
       generation: null,
@@ -683,13 +808,16 @@ await test('a schema upgrade keeps the complete recovery copy through its first 
     assert.equal(area.values.starboardLastKnownGood, undefined);
     for (const key of requiredKeys) {
       assert.deepEqual(
-        area.values[storage.recoveryStorageKey(key)],
+        area.values[storage.recoveryStorageKey(key, 'octocat')],
         preserved[key],
         `${key} recovery envelope must survive the first post-upgrade write`,
       );
     }
     assert.deepEqual(await storage.getBaseline(), baseline);
-    assert.equal(area.values.baseline.schemaVersion, storage.SCHEMA_VERSION);
+    assert.equal(
+      area.values[storage.accountStorageKey(storage.STORAGE_KEYS.baseline, 'octocat')].schemaVersion,
+      storage.SCHEMA_VERSION,
+    );
   } finally {
     replaceAreaValues(area, originalLocal);
     replaceAreaValues(sessionArea, originalSession);
@@ -879,10 +1007,12 @@ await test('refresh cache and baseline commit with one generation', async () => 
   };
   const baseline = storage.snapshotOf([repo], { now: 100, generation });
   await storage.commitRefresh(cache, baseline, generation);
-  assert.equal(area.values.cache.generation, generation);
-  assert.equal(area.values.baseline.generation, generation);
-  assert.equal(area.values.cache.data.generation, generation);
-  assert.equal(area.values.baseline.data.generation, generation);
+  const cacheKey = await storage.activeAccountStorageKey(storage.STORAGE_KEYS.cache);
+  const baselineKey = await storage.activeAccountStorageKey(storage.STORAGE_KEYS.baseline);
+  assert.equal(area.values[cacheKey].generation, generation);
+  assert.equal(area.values[baselineKey].generation, generation);
+  assert.equal(area.values[cacheKey].data.generation, generation);
+  assert.equal(area.values[baselineKey].data.generation, generation);
 });
 
 await test('equivalent refreshes coalesce and repeated rebases queue exactly once', async () => {
@@ -1531,10 +1661,14 @@ await test('history is not mirrored into the recovery copy', async () => {
       },
     ],
   });
-  assert.ok(area.values.history, 'history is stored');
+  const historyKey = await storage.activeAccountStorageKey(storage.STORAGE_KEYS.history);
+  assert.ok(area.values[historyKey], 'history is stored');
   // The largest record must not be duplicated into the shadow copy: doing so
   // doubled the biggest consumer against a 5 MiB budget on Chrome <= 113.
-  assert.equal(area.values[storage.recoveryStorageKey(storage.STORAGE_KEYS.history)], undefined);
+  assert.equal(
+    area.values[storage.recoveryStorageKey(storage.STORAGE_KEYS.history, 'octocat')],
+    undefined,
+  );
   assert.ok(
     area.values[storage.recoveryStorageKey(storage.STORAGE_KEYS.settings)],
     'settings are still recoverable',

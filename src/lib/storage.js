@@ -66,6 +66,17 @@ export const AUTH_STATUS_VALUES = Object.freeze([
   'denied',
   'rate-limited',
 ]);
+export const ACCOUNT_NAMESPACE_PREFIX = 'starboardAccount:';
+export const ACCOUNT_SCOPED_KEYS = Object.freeze([
+  STORAGE_KEYS.cache,
+  STORAGE_KEYS.baseline,
+  STORAGE_KEYS.history,
+  STORAGE_KEYS.notificationConfig,
+  STORAGE_KEYS.notificationState,
+  STORAGE_KEYS.portfolioViews,
+  STORAGE_KEYS.refreshFailures,
+  AUTH_STATUS_KEY,
+]);
 export const UNDO_WINDOW_MS = 10 * 60_000;
 const STORAGE_WRITE_LOCK = 'starboard-storage-write';
 
@@ -130,6 +141,33 @@ const VALID = Object.freeze({
 const SETTINGS_KEYS = new Set(Object.keys(DEFAULTS));
 const AREA = chrome.storage.local;
 const SESSION_AREA = chrome.storage.session;
+
+export function normalizeAccountId(value) {
+  const account = String(value || '').trim().replace(/^@/, '').toLowerCase();
+  return account ? account.slice(0, 100) : '';
+}
+
+export function accountStorageKey(key, accountId) {
+  const account = normalizeAccountId(accountId);
+  return account && ACCOUNT_SCOPED_KEYS.includes(key)
+    ? `${ACCOUNT_NAMESPACE_PREFIX}${encodeURIComponent(account)}:${key}`
+    : key;
+}
+
+async function activeAccountId() {
+  const raw = (await AREA.get(STORAGE_KEYS.settings))[STORAGE_KEYS.settings];
+  const value = /** @type {any} */ (raw);
+  const data = isObject(value?.data) ? value.data : value;
+  return normalizeAccountId(data?.username);
+}
+
+async function physicalStorageKey(key) {
+  return accountStorageKey(key, await activeAccountId());
+}
+
+export async function activeAccountStorageKey(key) {
+  return physicalStorageKey(key);
+}
 
 /** Keep persisted records out of future content-script contexts by default. */
 export async function restrictStorageAccess({ localArea = AREA, sessionArea = SESSION_AREA } = {}) {
@@ -502,8 +540,8 @@ export function migrateRecord(key, raw, now = Date.now()) {
   return { envelope, changed };
 }
 
-export function recoveryStorageKey(key) {
-  return `${STORAGE_KEYS.lastKnownGood}:${key}`;
+export function recoveryStorageKey(key, accountId = '') {
+  return `${STORAGE_KEYS.lastKnownGood}:${accountStorageKey(key, accountId)}`;
 }
 
 function legacyRecoveryData(raw) {
@@ -519,20 +557,33 @@ function legacyRecoveryData(raw) {
 }
 
 /** Read requested split recovery records and prepare a one-time legacy split. */
-async function readRecoveryState(keys) {
+async function readRecoveryState(keys, accountId = '') {
   const requested = [...new Set(keys)].filter(
     (key) => !LAST_KNOWN_GOOD_EXCLUDED.has(key),
   );
-  const requestedStorageKeys = requested.map(recoveryStorageKey);
-  const initial = await AREA.get([STORAGE_KEYS.lastKnownGood, ...requestedStorageKeys]);
+  const requestedStorageKeys = requested.map((key) => recoveryStorageKey(key, accountId));
+  const legacyStorageKeys = accountId
+    ? requested.map((key) => recoveryStorageKey(key))
+    : [];
+  const initial = await AREA.get([
+    STORAGE_KEYS.lastKnownGood,
+    ...requestedStorageKeys,
+    ...legacyStorageKeys,
+  ]);
   const legacyRaw = initial[STORAGE_KEYS.lastKnownGood];
   const legacy = legacyRecoveryData(legacyRaw);
   const records = new Map();
+  const migrationRemovals = [];
 
   for (const key of requested) {
-    const split = initial[recoveryStorageKey(key)];
+    const splitKey = recoveryStorageKey(key, accountId);
+    const legacyKey = recoveryStorageKey(key);
+    const split = initial[splitKey];
     if (split != null) records.set(key, split);
-    else if (Object.hasOwn(legacy, key)) records.set(key, legacy[key]);
+    else if (accountId && initial[legacyKey] != null) {
+      records.set(key, initial[legacyKey]);
+      migrationRemovals.push(legacyKey);
+    } else if (Object.hasOwn(legacy, key)) records.set(key, legacy[key]);
   }
 
   const legacyEntries = Object.entries(legacy).filter(
@@ -540,10 +591,10 @@ async function readRecoveryState(keys) {
   );
   const migrationWrites = {};
   if (legacyEntries.length) {
-    const splitKeys = legacyEntries.map(([key]) => recoveryStorageKey(key));
+    const splitKeys = legacyEntries.map(([key]) => recoveryStorageKey(key, accountId));
     const existing = await AREA.get(splitKeys);
     for (const [key, envelope] of legacyEntries) {
-      const splitKey = recoveryStorageKey(key);
+      const splitKey = recoveryStorageKey(key, accountId);
       if (existing[splitKey] == null) migrationWrites[splitKey] = envelope;
     }
   }
@@ -551,12 +602,13 @@ async function readRecoveryState(keys) {
   return {
     records,
     migrationWrites,
+    migrationRemovals,
     legacyPresent: legacyRaw != null,
   };
 }
 
-async function readRecoveryRecord(key) {
-  return (await readRecoveryState([key])).records.get(key);
+async function readRecoveryRecord(key, accountId = '') {
+  return (await readRecoveryState([key], accountId)).records.get(key);
 }
 
 function quarantineRecords(raw) {
@@ -569,7 +621,7 @@ function quarantineRecords(raw) {
     : [];
 }
 
-function quarantine(key, raw, reason, outcome, writes = {}) {
+function quarantine(key, raw, reason, outcome, writes = {}, logicalKeys = {}) {
   const work = async () => {
     const stored = (await AREA.get(STORAGE_KEYS.quarantine))[STORAGE_KEYS.quarantine];
     rejectFutureSchema(STORAGE_KEYS.quarantine, stored);
@@ -585,12 +637,15 @@ function quarantine(key, raw, reason, outcome, writes = {}) {
       acknowledgedAt: null,
       detectedSchema: Number.isInteger(raw?.schemaVersion) ? raw.schemaVersion : null,
     };
-    await commit({
-      ...writes,
-      [STORAGE_KEYS.quarantine]: makeEnvelope({
-        records: [...records.slice(-9), notice],
-      }),
-    });
+    await commit(
+      {
+        ...writes,
+        [STORAGE_KEYS.quarantine]: makeEnvelope({
+          records: [...records.slice(-9), notice],
+        }),
+      },
+      logicalKeys,
+    );
     return copy(notice);
   };
   const result = quarantineQueue.then(work, work);
@@ -673,9 +728,13 @@ function isQuotaError(error) {
 }
 
 async function largestConsumer() {
+  const stored = await AREA.get(null);
   const keys = [
-    ...Object.values(STORAGE_KEYS),
-    ...RECOVERY_RECORD_KEYS.map(recoveryStorageKey),
+    ...new Set([
+      ...Object.keys(stored),
+      ...Object.values(STORAGE_KEYS),
+      ...RECOVERY_RECORD_KEYS.map((key) => recoveryStorageKey(key)),
+    ]),
   ];
   /** @type {[string, number][]} */
   const sizes = await Promise.all(
@@ -696,14 +755,16 @@ async function largestConsumer() {
  * act on rather than a bare "QUOTA_BYTES quota exceeded" surfacing as a
  * generic refresh failure.
  */
-async function commit(writes) {
+async function commit(writes, logicalKeys = {}) {
   // An older build must never replace a record whose shape it cannot know.
   // Recovery keys are independently versioned records; the legacy bag is only
   // excluded because it is removed after its one-time split migration.
   const guardedKeys = Object.keys(writes).filter((key) => key !== STORAGE_KEYS.lastKnownGood);
   if (guardedKeys.length) {
     const current = await AREA.get(guardedKeys);
-    for (const key of guardedKeys) rejectFutureSchema(key, current[key]);
+    for (const key of guardedKeys) {
+      rejectFutureSchema(logicalKeys[key] || key, current[key]);
+    }
   }
   try {
     await AREA.set(writes);
@@ -727,30 +788,43 @@ async function commit(writes) {
 async function writeRecords(records, generation = null, { validated = false } = {}) {
   return storageLocked(async () => {
     const keys = Object.keys(records);
-    const recovery = await readRecoveryState(keys);
+    const accountId = Object.hasOwn(records, STORAGE_KEYS.settings)
+      ? normalizeAccountId(records[STORAGE_KEYS.settings]?.username)
+      : await activeAccountId();
+    const recovery = await readRecoveryState(keys, accountId);
     const writes = { ...recovery.migrationWrites };
+    const logicalKeys = {};
     for (const [key, value] of Object.entries(records)) {
       // A missing or older primary can still have a newer recovery envelope.
       // Replacing that only surviving copy would be the same downgrade loss.
       rejectFutureSchema(key, recovery.records.get(key));
       if (!validated) validateRecord(key, value);
       const wrapped = makeEnvelope(value, { generation: generation ?? value.generation ?? null });
-      writes[key] = wrapped;
-      if (!LAST_KNOWN_GOOD_EXCLUDED.has(key)) writes[recoveryStorageKey(key)] = wrapped;
+      const primaryKey = accountStorageKey(key, accountId);
+      writes[primaryKey] = wrapped;
+      logicalKeys[primaryKey] = key;
+      if (!LAST_KNOWN_GOOD_EXCLUDED.has(key)) {
+        const recoveryKey = recoveryStorageKey(key, accountId);
+        writes[recoveryKey] = wrapped;
+        logicalKeys[recoveryKey] = key;
+      }
     }
-    await commit(writes);
+    await commit(writes, logicalKeys);
+    if (recovery.migrationRemovals.length) await AREA.remove(recovery.migrationRemovals);
     if (recovery.legacyPresent) await AREA.remove(STORAGE_KEYS.lastKnownGood);
   });
 }
 
 async function removeRecoveryRecords(keys) {
   return storageLocked(async () => {
-    const recovery = await readRecoveryState([]);
+    const accountId = await activeAccountId();
+    const recovery = await readRecoveryState([], accountId);
     const writes = { ...recovery.migrationWrites };
     const removals = [];
     for (const key of keys) {
-      delete writes[recoveryStorageKey(key)];
-      removals.push(recoveryStorageKey(key));
+      delete writes[recoveryStorageKey(key, accountId)];
+      removals.push(recoveryStorageKey(key, accountId));
+      if (accountId) removals.push(recoveryStorageKey(key));
     }
     if (Object.keys(writes).length) await commit(writes);
     if (recovery.legacyPresent) removals.push(STORAGE_KEYS.lastKnownGood);
@@ -758,8 +832,19 @@ async function removeRecoveryRecords(keys) {
   });
 }
 
-async function restoreRecord(key, raw, reason) {
-  const candidate = await readRecoveryRecord(key);
+async function removeActiveRecords(keys) {
+  const accountId = await activeAccountId();
+  const removals = [...new Set(
+    keys.flatMap((key) => [
+      accountStorageKey(key, accountId),
+      ...(accountId ? [key] : []),
+    ]),
+  )];
+  if (removals.length) await AREA.remove(removals);
+}
+
+async function restoreRecord(key, raw, reason, accountId = '') {
+  const candidate = await readRecoveryRecord(key, accountId);
   if (candidate) {
     let envelope;
     try {
@@ -769,36 +854,55 @@ async function restoreRecord(key, raw, reason) {
       // The backup is also unusable; fall through to a clean record.
     }
     if (envelope) {
-      const recovery = await quarantine(key, raw, reason, 'restored', { [key]: envelope });
+      const primaryKey = accountStorageKey(key, accountId);
+      const recovery = await quarantine(
+        key,
+        raw,
+        reason,
+        'restored',
+        { [primaryKey]: envelope },
+        { [primaryKey]: key },
+      );
       return { value: copy(envelope.data), recovery };
     }
   }
   const recovery = await quarantine(key, raw, reason, 'reset');
-  await AREA.remove(key);
+  await AREA.remove(accountStorageKey(key, accountId));
   return { value: null, recovery };
 }
 
 async function readRecord(key) {
-  const raw = (await AREA.get(key))[key];
+  const accountId = await activeAccountId();
+  const physicalKey = accountStorageKey(key, accountId);
+  let raw = (await AREA.get(physicalKey))[physicalKey];
+  let legacy = false;
+  if (raw == null && physicalKey !== key) {
+    raw = (await AREA.get(key))[key];
+    legacy = raw != null;
+  }
   if (raw == null) return null;
   let migrated;
   try {
     migrated = migrateRecord(key, raw);
   } catch (error) {
     if (isVersionError(error)) throw error;
-    const restored = await restoreRecord(key, raw, error.message);
+    const restored = await restoreRecord(key, raw, error.message, accountId);
+    if (legacy) await AREA.remove(key);
     return restored.value;
   }
-  if (migrated.changed) {
+  if (migrated.changed || legacy) {
     try {
       await writeRecords({ [key]: migrated.envelope.data }, null, { validated: true });
+      if (legacy) await AREA.remove(key);
     } catch (error) {
       if (isVersionError(error)) throw error;
       const restored = await restoreRecord(
         key,
         raw,
         `migration write failed: ${error.message}`,
+        accountId,
       );
+      if (legacy) await AREA.remove(key);
       return restored.value;
     }
   }
@@ -831,9 +935,46 @@ async function getStoredSettings() {
   return defaults;
 }
 
+const ACCOUNT_RECORD_KEYS = Object.freeze([
+  STORAGE_KEYS.cache,
+  STORAGE_KEYS.baseline,
+  STORAGE_KEYS.history,
+  STORAGE_KEYS.notificationConfig,
+  STORAGE_KEYS.notificationState,
+  STORAGE_KEYS.portfolioViews,
+  STORAGE_KEYS.refreshFailures,
+]);
+
+/** Move pre-namespace records into the account selected by the current settings. */
+async function migrateLegacyRecordsForActiveAccount() {
+  const accountId = await activeAccountId();
+  if (!accountId) return;
+  const legacy = await AREA.get([...ACCOUNT_RECORD_KEYS]);
+  const namespaced = await AREA.get(
+    ACCOUNT_RECORD_KEYS.map((key) => accountStorageKey(key, accountId)),
+  );
+  for (const key of ACCOUNT_RECORD_KEYS) {
+    const target = accountStorageKey(key, accountId);
+    if (namespaced[target] == null && legacy[key] != null) await readRecord(key);
+  }
+  const legacyAuth = (await AREA.get(AUTH_STATUS_KEY))[AUTH_STATUS_KEY];
+  const targetAuthKey = accountStorageKey(AUTH_STATUS_KEY, accountId);
+  if ((await AREA.get(targetAuthKey))[targetAuthKey] == null && legacyAuth != null) {
+    await AREA.set({ [targetAuthKey]: legacyAuth });
+    await AREA.remove(AUTH_STATUS_KEY);
+  }
+}
+
 export async function setSettings(patch) {
   return serialized(async () => {
     const current = await getStoredSettings();
+    const previousAccount = normalizeAccountId(current.username);
+    const requestedAccount = normalizeAccountId(
+      Object.hasOwn(patch, 'username') ? patch.username : current.username,
+    );
+    if (previousAccount) {
+      await migrateLegacyRecordsForActiveAccount();
+    }
     const currentSessionToken =
       current.tokenMode === 'session' ? await getSessionToken() : '';
     const requestedMode = patch.tokenMode || current.tokenMode;
@@ -857,6 +998,9 @@ export async function setSettings(patch) {
       token: requestedMode === 'persistent' ? effectiveToken : '',
     });
     await writeRecords({ [STORAGE_KEYS.settings]: next });
+    if (!previousAccount && requestedAccount) {
+      await migrateLegacyRecordsForActiveAccount();
+    }
     return {
       ...copy(next),
       token: requestedMode === 'session' ? effectiveToken : next.token,
@@ -916,7 +1060,8 @@ function normalizeAuthStatus(value, current = {}) {
 }
 
 export async function getAuthStatus() {
-  const raw = (await AREA.get(AUTH_STATUS_KEY))[AUTH_STATUS_KEY];
+  const key = await physicalStorageKey(AUTH_STATUS_KEY);
+  const raw = (await AREA.get(key))[key];
   return normalizeAuthStatus(raw);
 }
 
@@ -925,7 +1070,7 @@ export async function setAuthStatus(value) {
   return serialized(async () => {
     const current = await getAuthStatus();
     const next = normalizeAuthStatus(value, current);
-    await AREA.set({ [AUTH_STATUS_KEY]: next });
+    await AREA.set({ [await physicalStorageKey(AUTH_STATUS_KEY)]: next });
     return copy(next);
   });
 }
@@ -1219,7 +1364,7 @@ export async function clearPortfolioData() {
       STORAGE_KEYS.history,
       STORAGE_KEYS.notificationState,
     ]);
-    await AREA.remove([
+    await removeActiveRecords([
       STORAGE_KEYS.cache,
       STORAGE_KEYS.baseline,
       STORAGE_KEYS.history,
@@ -1232,14 +1377,19 @@ async function saveUndoSnapshotInternal(scope, keys) {
   const snapshot = {};
   for (const key of keys) snapshot[key] = await readRecord(key);
   const createdAt = Date.now();
-  await commit({
-    [STORAGE_KEYS.undo]: makeEnvelope({
-      scope,
-      createdAt,
-      expiresAt: createdAt + UNDO_WINDOW_MS,
-      snapshot,
-    }),
-  });
+  const accountId = await activeAccountId();
+  const undoKey = accountStorageKey(STORAGE_KEYS.undo, accountId);
+  await commit(
+    {
+      [undoKey]: makeEnvelope({
+        scope,
+        createdAt,
+        expiresAt: createdAt + UNDO_WINDOW_MS,
+        snapshot,
+      }),
+    },
+    { [undoKey]: STORAGE_KEYS.undo },
+  );
 }
 
 export async function createUndoSnapshot(scope, keys) {
@@ -1248,7 +1398,8 @@ export async function createUndoSnapshot(scope, keys) {
 }
 
 async function readUndo() {
-  const raw = /** @type {any} */ ((await AREA.get(STORAGE_KEYS.undo))[STORAGE_KEYS.undo]);
+  const key = await physicalStorageKey(STORAGE_KEYS.undo);
+  const raw = /** @type {any} */ ((await AREA.get(key))[key]);
   rejectFutureSchema(STORAGE_KEYS.undo, raw);
   if (
     !isObject(raw) ||
@@ -1257,11 +1408,11 @@ async function readUndo() {
     !isObject(raw.data?.snapshot) ||
     !Number.isFinite(raw.data?.expiresAt)
   ) {
-    if (raw != null) await AREA.remove(STORAGE_KEYS.undo);
+    if (raw != null) await AREA.remove(key);
     return null;
   }
   if (raw.data.expiresAt <= Date.now()) {
-    await AREA.remove(STORAGE_KEYS.undo);
+    await AREA.remove(key);
     return null;
   }
   return raw.data;
@@ -1310,8 +1461,8 @@ export async function restoreUndoSnapshot() {
       }
     }
     if (removed.length) await removeRecoveryRecords(removed);
-    if (removed.length) await AREA.remove(removed);
-    await AREA.remove(STORAGE_KEYS.undo);
+    if (removed.length) await removeActiveRecords(removed);
+    await AREA.remove(await physicalStorageKey(STORAGE_KEYS.undo));
     return {
       scope: undo.scope,
       settings: await readRecord(STORAGE_KEYS.settings),
@@ -1326,26 +1477,30 @@ export async function restoreUndoSnapshot() {
 }
 
 export async function getStorageDiagnostics() {
+  const accountId = await activeAccountId();
+  const keys = [
+    STORAGE_KEYS.settings,
+    STORAGE_KEYS.cache,
+    STORAGE_KEYS.baseline,
+    STORAGE_KEYS.history,
+    STORAGE_KEYS.portfolioViews,
+    STORAGE_KEYS.refreshFailures,
+    STORAGE_KEYS.quarantine,
+  ];
+  const physicalKeys = keys.map((key) => accountStorageKey(key, accountId));
   const stored = /** @type {any} */ (
-    await AREA.get([
-      STORAGE_KEYS.settings,
-      STORAGE_KEYS.cache,
-      STORAGE_KEYS.baseline,
-      STORAGE_KEYS.history,
-      STORAGE_KEYS.portfolioViews,
-      STORAGE_KEYS.refreshFailures,
-      STORAGE_KEYS.quarantine,
-    ])
+    await AREA.get(physicalKeys)
   );
+  const value = (key) => stored[accountStorageKey(key, accountId)];
   return {
     schemaVersion: SCHEMA_VERSION,
-    settingsStored: !!stored[STORAGE_KEYS.settings],
-    cacheStored: !!stored[STORAGE_KEYS.cache],
-    baselineStored: !!stored[STORAGE_KEYS.baseline],
-    historyStored: !!stored[STORAGE_KEYS.history],
-    portfolioViewsStored: !!stored[STORAGE_KEYS.portfolioViews],
-    refreshFailuresStored: !!stored[STORAGE_KEYS.refreshFailures],
-    refreshFailureCount: stored[STORAGE_KEYS.refreshFailures]?.data?.records?.length || 0,
+    settingsStored: !!value(STORAGE_KEYS.settings),
+    cacheStored: !!value(STORAGE_KEYS.cache),
+    baselineStored: !!value(STORAGE_KEYS.baseline),
+    historyStored: !!value(STORAGE_KEYS.history),
+    portfolioViewsStored: !!value(STORAGE_KEYS.portfolioViews),
+    refreshFailuresStored: !!value(STORAGE_KEYS.refreshFailures),
+    refreshFailureCount: value(STORAGE_KEYS.refreshFailures)?.data?.records?.length || 0,
     quarantined: stored[STORAGE_KEYS.quarantine]?.data?.records?.length || 0,
   };
 }

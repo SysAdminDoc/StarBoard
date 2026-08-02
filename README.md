@@ -53,6 +53,10 @@ telemetry — the API token, if you choose to use one, is sent only to
 - **Offline trends** — compare portfolio and per-repository movement over 7,
   30 or 90 days from a full year of bounded daily history stored only in your
   profile; ranges longer than the data retained are marked unavailable.
+- **Multiple accounts** — switching the configured GitHub username keeps each
+  account's snapshot, baseline, trend history, saved views and local alert
+  preferences in its own namespace; existing single-account data migrates on
+  first use.
 - **Portable by choice** — download a checksummed JSON backup or timestamped
   CSV, dry-run restores before applying them, and roll back an import for 10
   minutes.
@@ -176,7 +180,8 @@ the release check requires every declared entry to opt into Chrome's
   snapshot, comparison baseline, daily trend points, refresh metadata and
   recovery metadata, saved portfolio views, alert preferences and bounded
   alert-delivery state stay in this Chromium profile until you clear them or
-  uninstall StarBoard.
+  uninstall StarBoard. Account data is kept in separate local namespaces, so
+  switching usernames does not blend their snapshots or history.
 - **Website session:** Chromium attaches applicable `github.com` cookies to the
   website-source requests. StarBoard never reads or stores cookie values; it
   parses only the returned repository/profile HTML.
@@ -271,7 +276,8 @@ automatically—or at all—by StarBoard.
 Open **Settings → Notifications** and turn on **Allow local alerts** to make
 Chrome request its optional notification permission. Portfolio and individual
 repository thresholds are independent: choose recurring star milestones,
-minimum gains between successful refreshes, or set any threshold to **Off**.
+minimum gains between successful refreshes, choose all repositories or an
+individual selected/muted repository list, or set any threshold to **Off**.
 Quiet hours and the cooldown are evaluated locally.
 
 Alerts are generated only from a newly committed successful refresh.

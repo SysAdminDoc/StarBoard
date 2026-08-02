@@ -44,6 +44,9 @@
 - Notification settings can target every repository or a bounded list of
   individually selected or muted repositories, while portfolio alerts remain
   unchanged and private names stay filtered from default backups.
+- Account-specific snapshots, baselines, trend history, saved views and local
+  alert state now remain separate when the configured GitHub username changes;
+  existing single-account data is migrated into its first namespace.
 
 ### Fixed
 

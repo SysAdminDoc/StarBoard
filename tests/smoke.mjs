@@ -2308,11 +2308,12 @@ async function main() {
     // Blocking render cost must not scale with the portfolio. Measured against
     // the documented 1,500-repository safety cap, not just the live account.
     const { liveCache, liveHistoryRecord } = await popup.evaluate(async () => {
-      const { getCache } = await import('./lib/storage.js');
-      const stored = await chrome.storage.local.get('history');
+      const { getCache, activeAccountStorageKey, STORAGE_KEYS } = await import('./lib/storage.js');
+      const historyKey = await activeAccountStorageKey(STORAGE_KEYS.history);
+      const stored = await chrome.storage.local.get(historyKey);
       return {
         liveCache: await getCache(),
-        liveHistoryRecord: stored.history,
+        liveHistoryRecord: stored[historyKey],
       };
     });
     const paintCost = [];
@@ -2443,9 +2444,10 @@ async function main() {
       JSON.stringify(rowLayoutPolicy),
     );
     await popup.evaluate(async ([base, historyRecord]) => {
-      const { setCache } = await import('./lib/storage.js');
+      const { setCache, activeAccountStorageKey, STORAGE_KEYS } = await import('./lib/storage.js');
       await setCache({ ...base, fetchedAt: Date.now() });
-      await chrome.storage.local.set({ history: historyRecord });
+      const historyKey = await activeAccountStorageKey(STORAGE_KEYS.history);
+      await chrome.storage.local.set({ [historyKey]: historyRecord });
     }, [liveCache, liveHistoryRecord]);
     await popup.reload();
     await popup.waitForSelector('.row', { timeout: 20000 });
@@ -2481,17 +2483,22 @@ async function main() {
     check('no error banner', !banner, banner ? await banner.textContent() : '');
 
     const committedGeneration = await popup.evaluate(async () => {
-      const stored = await chrome.storage.local.get(['settings', 'cache', 'baseline', 'history']);
+      const { activeAccountStorageKey, STORAGE_KEYS } = await import('./lib/storage.js');
+      const accountKeys = await Promise.all(
+        [STORAGE_KEYS.cache, STORAGE_KEYS.baseline, STORAGE_KEYS.history].map(activeAccountStorageKey),
+      );
+      const stored = await chrome.storage.local.get(['settings', ...accountKeys]);
+      const [cacheKey, baselineKey, historyKey] = accountKeys;
       return {
         versions: [
           stored.settings?.schemaVersion,
-          stored.cache?.schemaVersion,
-          stored.baseline?.schemaVersion,
-          stored.history?.schemaVersion,
+          stored[cacheKey]?.schemaVersion,
+          stored[baselineKey]?.schemaVersion,
+          stored[historyKey]?.schemaVersion,
         ],
-        cacheGeneration: stored.cache?.generation,
-        baselineGeneration: stored.baseline?.generation,
-        historyGeneration: stored.history?.generation,
+        cacheGeneration: stored[cacheKey]?.generation,
+        baselineGeneration: stored[baselineKey]?.generation,
+        historyGeneration: stored[historyKey]?.generation,
         // Assert against the shipped constant, not a literal, so a schema bump
         // does not require editing this test.
         expected: (await import('./lib/storage.js')).SCHEMA_VERSION,
@@ -4503,8 +4510,11 @@ async function main() {
     await popup.close();
     await waitForCheck('refresh survives closure of its initiating popup', () =>
       options.waitForFunction((generation) => {
-        chrome.storage.local.get('cache', ({ cache }) => {
-          window.__popupCloseRefreshCommitted = cache?.data?.generation !== generation;
+        import('./lib/storage.js').then(async ({ activeAccountStorageKey, STORAGE_KEYS }) => {
+          const key = await activeAccountStorageKey(STORAGE_KEYS.cache);
+          chrome.storage.local.get(key, (stored) => {
+            window.__popupCloseRefreshCommitted = stored[key]?.data?.generation !== generation;
+          });
         });
         return window.__popupCloseRefreshCommitted === true;
       }, beforePopupClose),
@@ -4803,9 +4813,12 @@ async function main() {
       'restore applies portable state without replacing the local credential',
       async () => {
         await options.waitForFunction(() => {
-          chrome.storage.local.get('portfolioViews', ({ portfolioViews }) => {
-            window.__importedSavedView =
-              portfolioViews?.data?.views?.[0]?.name === 'Private archive';
+          import('./lib/storage.js').then(async ({ activeAccountStorageKey, STORAGE_KEYS }) => {
+            const key = await activeAccountStorageKey(STORAGE_KEYS.portfolioViews);
+            chrome.storage.local.get(key, (stored) => {
+              window.__importedSavedView =
+                stored[key]?.data?.views?.[0]?.name === 'Private archive';
+            });
           });
           return (
             document.querySelector('#theme').value === 'light' &&
@@ -4828,11 +4841,14 @@ async function main() {
       },
     );
     if (restoreApplied) {
-      await options.click('#undoClear');
-      await waitForCheck('restored backup can be rolled back during the undo window', async () => {
-        await options.waitForFunction(() => {
-          chrome.storage.local.get('portfolioViews', ({ portfolioViews }) => {
-            window.__rolledBackSavedViews = portfolioViews?.data?.views?.length === 0;
+        await options.click('#undoClear');
+        await waitForCheck('restored backup can be rolled back during the undo window', async () => {
+          await options.waitForFunction(() => {
+          import('./lib/storage.js').then(async ({ activeAccountStorageKey, STORAGE_KEYS }) => {
+            const key = await activeAccountStorageKey(STORAGE_KEYS.portfolioViews);
+            chrome.storage.local.get(key, (stored) => {
+              window.__rolledBackSavedViews = stored[key]?.data?.views?.length === 0;
+            });
           });
           return (
             document.querySelector('#theme').value === 'dark' &&

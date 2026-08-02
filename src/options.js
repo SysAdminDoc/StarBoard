@@ -1200,8 +1200,11 @@ $('replaceToken').addEventListener('click', () => {
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === 'local' && changes[AUTH_STATUS_KEY]) {
-    renderAuthStatus(changes[AUTH_STATUS_KEY].newValue || { status: 'unknown' });
+  if (areaName === 'local' && (
+    changes[AUTH_STATUS_KEY] ||
+    Object.keys(changes).some((key) => key.endsWith(`:${AUTH_STATUS_KEY}`))
+  )) {
+    loadAuthStatus().catch(() => {});
   }
 });
 
