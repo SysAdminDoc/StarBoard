@@ -2848,16 +2848,109 @@ async function main() {
       await setCapabilityState(before);
       return result;
     }, version);
-    check(
-      'a field kill-switch disables a named capability and lifts itself by version',
-      killSwitch.active.includes('web-source') &&
+      check(
+        'a field kill-switch disables a named capability and lifts itself by version',
+        killSwitch.active.includes('web-source') &&
         killSwitch.liftedAtInstalled &&
         killSwitch.diagnostics?.disabledCapabilities?.includes('web-source') &&
         !killSwitch.diagnostics?.disabledCapabilities?.includes('api-graphql'),
-      JSON.stringify(killSwitch.active),
-    );
+        JSON.stringify(killSwitch.active),
+      );
 
-    // The published document has to be readable from an extension origin with
+      const downgradeState = await popup.evaluate(async (installed) => {
+        const {
+          getCapabilityState,
+          getSettings,
+          getCache,
+          getBaseline,
+          getHistory,
+          setCapabilityState,
+          setSettings,
+          setCache,
+          setBaseline,
+          setHistory,
+        } = await import('./lib/storage.js');
+        const before = await Promise.all([getSettings(), getCache(), getBaseline(), getHistory()]);
+        const capability = await getCapabilityState();
+        const parts = String(installed).split('.').map(Number);
+        parts[0] += 1;
+        await setCapabilityState({
+          formatVersion: 1,
+          fetchedAt: Date.now(),
+          rules: [
+            {
+              name: 'web-source',
+              fixedInVersion: parts.join('.'),
+              reason: 'capability downgrade smoke',
+            },
+          ],
+        });
+        await setSettings({ dataSource: 'web' });
+        const response = await chrome.runtime.sendMessage({
+          type: 'refresh',
+          force: true,
+          source: 'web',
+          reason: 'capability-downgrade-smoke',
+        });
+        return { before, capability, response };
+      }, version);
+      await popup.reload();
+      await popup.waitForSelector('#banner:not([hidden])');
+      const popupDowngrade = await popup.evaluate(async () => {
+        const { getCache } = await import('./lib/storage.js');
+        const cache = await getCache();
+        return {
+          banner: document.querySelector('#banner .banner-text')?.textContent || '',
+          action: document.querySelector('#banner .banner-action')?.textContent || '',
+          cache: {
+            requested: cache?.requestedSource,
+            source: cache?.source,
+            downgrade: cache?.sourceDowngrade,
+          },
+        };
+      });
+      const downgradeOptions = await ctx.newPage();
+      captureErrors(downgradeOptions, 'capability downgrade settings');
+      await downgradeOptions.goto(`chrome-extension://${extId}/src/options.html`);
+      await downgradeOptions.waitForFunction(
+        () => document.querySelector('#settingsGrid')?.getAttribute('aria-busy') === 'false',
+      );
+      const optionsDowngrade = await downgradeOptions.evaluate(() => ({
+        source: document.querySelector('#dataSource').value,
+        hint: document.querySelector('#sourceHint').textContent,
+      }));
+      await downgradeOptions.close();
+      const popupCache = popupDowngrade.cache;
+      check(
+        'a disabled website capability discloses the API downgrade on success',
+        downgradeState.response?.ok === true &&
+          popupCache.requested === 'web' &&
+          popupCache.source === 'api' &&
+          popupCache.downgrade?.reason === 'web-source-disabled' &&
+          /remote capability rule disabled website mode/i.test(popupDowngrade.banner) &&
+          popupDowngrade.action === 'Open settings',
+        JSON.stringify({ popup: popupDowngrade, cache: popupCache }),
+      );
+      check(
+        'settings reflects the effective API source and names the disabled capability',
+        optionsDowngrade.source === 'api' &&
+          /remote capability rule disabled website mode/i.test(optionsDowngrade.hint),
+        JSON.stringify(optionsDowngrade),
+      );
+      await popup.evaluate(async ({ before, capability }) => {
+        const { setCapabilityState, setSettings, setCache, setBaseline, setHistory } = await import(
+          './lib/storage.js'
+        );
+        await setCapabilityState(capability);
+        await setSettings(before[0]);
+        if (before[1]) await setCache(before[1]);
+        if (before[2]) await setBaseline(before[2]);
+        await setHistory(before[3]);
+      }, downgradeState);
+      await popup.reload();
+      await popup.waitForFunction(() => document.querySelectorAll('.row').length > 0);
+
+      // The published document has to be readable from an extension origin with
     // no host permission at all — GitHub Pages answers with a permissive CORS
     // header, the same reason the API lane dropped its api.github.com grant.
     if (!OFFLINE) {

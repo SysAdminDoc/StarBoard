@@ -334,6 +334,7 @@ async function capabilityOff(name) {
 /** Run one generation selected by the refresh coordinator. */
 async function runRefresh(intent) {
   const { settings } = intent;
+  let sourceResolution = null;
   const generation = generationId();
   try {
     const stored = await getCache();
@@ -345,6 +346,11 @@ async function runRefresh(intent) {
       capabilityOff('api-graphql'),
     ]);
     const useWeb = settings.dataSource === 'web' && !webOff;
+    sourceResolution = {
+      requested: settings.dataSource,
+      effective: useWeb ? 'web' : 'api',
+      reason: settings.dataSource === 'web' && webOff ? 'web-source-disabled' : null,
+    };
     const result = useWeb
       ? await fetchAccountViaWeb(settings.username)
       : await fetchAccount(settings, {
@@ -373,6 +379,17 @@ async function runRefresh(intent) {
       generation,
     });
     const source = result.source || 'api';
+    const sourceDowngrade =
+      settings.dataSource !== source
+        ? {
+            requested: settings.dataSource,
+            effective: source,
+            reason:
+              settings.dataSource === 'web' && webOff
+                ? 'web-source-disabled'
+                : 'source-unavailable',
+          }
+        : null;
     const authenticated =
       typeof result.authenticated === 'boolean'
         ? result.authenticated
@@ -388,6 +405,7 @@ async function runRefresh(intent) {
     const cache = {
       ...result,
       source,
+      sourceDowngrade,
       authenticated,
       accessReduced,
       requestedSource: settings.dataSource,
@@ -428,14 +446,14 @@ async function runRefresh(intent) {
       generation,
     };
   } catch (err) {
-    return recordRefreshFailure(err, settings);
+    return recordRefreshFailure(err, settings, sourceResolution);
   }
 }
 
 const refreshCoordinator = createRefreshCoordinator(runRefresh);
 
 /** Normalize every refresh rejection without letting error reporting reject too. */
-async function recordRefreshFailure(err, settings = null) {
+async function recordRefreshFailure(err, settings = null, sourceResolution = null) {
   const detail = {
     message: err?.message || 'StarBoard could not refresh this account.',
     code: err?.code || 'REFRESH_FAILED',
@@ -446,6 +464,10 @@ async function recordRefreshFailure(err, settings = null) {
     retryAt: err?.retryAt || (err instanceof GitHubError ? err.resetAt : null),
     at: Date.now(),
     requestedSource: settings?.dataSource || null,
+    sourceDowngrade:
+      sourceResolution?.reason && sourceResolution.requested !== sourceResolution.effective
+        ? sourceResolution
+        : null,
   };
   // Persist the recovery trigger before storage or badge reporting can fail.
   await scheduleRetry(detail.retryAt).catch(() => {});
@@ -459,6 +481,7 @@ async function recordRefreshFailure(err, settings = null) {
       ...previous,
       stale: true,
       confidence: 'stale',
+      sourceDowngrade: detail.sourceDowngrade || previous.sourceDowngrade || null,
       movement: null,
       pendingSource:
         settings?.dataSource && previous.source !== settings.dataSource

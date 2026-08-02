@@ -79,12 +79,28 @@ let hasWebPermission = true;
  * warning belongs only to an established install that lost the grant.
  */
 let configured = false;
+let sourceCapabilityNotice = '';
+
+function sourceLabel(source) {
+  return source === 'web' ? 'GitHub website' : 'GitHub API';
+}
+
+function sourceDowngradeMessage(downgrade) {
+  if (!downgrade?.requested || !downgrade?.effective) return '';
+  const why =
+    downgrade.reason === 'web-source-disabled'
+      ? 'A remote capability rule disabled website mode.'
+      : 'The requested source is unavailable.';
+  return `The requested ${sourceLabel(downgrade.requested)} source is unavailable. ${why} Using the ${sourceLabel(downgrade.effective)} source instead.`;
+}
 
 function syncSourceUI() {
   const web = fields.dataSource.value === 'web';
   const webBlocked = web && configured && !hasWebPermission;
   $('sourceHint').textContent =
-    SOURCE_HINTS[fields.dataSource.value] + (webBlocked ? WEB_PERMISSION_MISSING : '');
+    SOURCE_HINTS[fields.dataSource.value] +
+    (webBlocked ? WEB_PERMISSION_MISSING : '') +
+    (sourceCapabilityNotice ? ` ${sourceCapabilityNotice}` : '');
   $('sourceHint').classList.toggle('token-warning', webBlocked);
   $('tokenField').style.display = web ? 'none' : '';
   const persistent = fields.tokenMode.value === 'persistent';
@@ -293,8 +309,9 @@ async function showStorageInfo() {
 }
 
 async function load() {
-  const [s] = await Promise.all([
+  const [s, cache] = await Promise.all([
     getSettings(),
+    getCache().catch(() => null),
     chrome.permissions
       .contains({ origins: [GITHUB_ORIGIN] })
       .then((granted) => {
@@ -311,6 +328,11 @@ async function load() {
   fields.badgeMode.value = s.badgeMode;
   fields.theme.value = s.theme;
   fields.dataSource.value = s.dataSource;
+  sourceCapabilityNotice = '';
+  if (cache?.sourceDowngrade?.requested === s.dataSource) {
+    fields.dataSource.value = cache.sourceDowngrade.effective;
+    sourceCapabilityNotice = sourceDowngradeMessage(cache.sourceDowngrade);
+  }
   fields.showFollowers.checked = s.showFollowers;
   fields.showDescriptions.checked = s.showDescriptions;
   fields.showMetadata.checked = s.showMetadata;
@@ -414,6 +436,7 @@ async function ensureWebPermission() {
 
 fields.dataSource.addEventListener('change', async () => {
   fields.dataSource.disabled = true;
+  sourceCapabilityNotice = '';
   try {
     const prior = await getSettings();
     if (fields.dataSource.value === 'web' && !(await ensureWebPermission())) {
@@ -450,7 +473,14 @@ fields.dataSource.addEventListener('change', async () => {
       reason: 'source-change',
     });
     if (result?.ok) {
-      say(`Now reading from ${source === 'web' ? 'github.com' : 'the GitHub API'}.`, 'ok');
+      if (result.cache?.sourceDowngrade) {
+        fields.dataSource.value = result.cache.sourceDowngrade.effective;
+        sourceCapabilityNotice = sourceDowngradeMessage(result.cache.sourceDowngrade);
+        syncSourceUI();
+        say(sourceCapabilityNotice, 'err');
+      } else {
+        say(`Now reading from ${source === 'web' ? 'github.com' : 'the GitHub API'}.`, 'ok');
+      }
     } else {
       reportError(
         {
@@ -501,7 +531,14 @@ $('save').addEventListener('click', async () => {
       reason: 'settings-save',
     });
     if (res?.ok) {
-      say(`Synced ${res.cache.repos.length} repos for @${res.cache.profile.login}.`, 'ok');
+      if (res.cache?.sourceDowngrade) {
+        fields.dataSource.value = res.cache.sourceDowngrade.effective;
+        sourceCapabilityNotice = sourceDowngradeMessage(res.cache.sourceDowngrade);
+        syncSourceUI();
+        say(sourceCapabilityNotice, 'err');
+      } else {
+        say(`Synced ${res.cache.repos.length} repos for @${res.cache.profile.login}.`, 'ok');
+      }
       await showStorageInfo();
     } else {
       reportError(res?.error, 'account', 'Refresh failed.');

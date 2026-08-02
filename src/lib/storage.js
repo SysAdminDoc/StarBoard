@@ -350,6 +350,19 @@ function validateCache(value) {
   if (value.authenticated != null) {
     assert(typeof value.authenticated === 'boolean', 'cache authentication state must be boolean');
   }
+  if (value.sourceDowngrade != null) {
+    assert(isObject(value.sourceDowngrade), 'invalid source downgrade');
+    assert(
+      VALID.dataSource.has(value.sourceDowngrade.requested) &&
+        VALID.dataSource.has(value.sourceDowngrade.effective) &&
+        value.sourceDowngrade.requested !== value.sourceDowngrade.effective,
+      'invalid source downgrade endpoints',
+    );
+    assert(
+      typeof value.sourceDowngrade.reason === 'string' && value.sourceDowngrade.reason,
+      'invalid source downgrade reason',
+    );
+  }
   if (value.confidence != null) {
     assert(
       ['exact', 'approximate', 'partial', 'stale'].includes(value.confidence),

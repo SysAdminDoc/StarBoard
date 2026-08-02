@@ -441,6 +441,19 @@ function srOnly(text) {
 const MISSING_POINT_NOTE = 'no comparison point was retained for this range';
 const APPROXIMATE_NOTE = 'approximate count';
 
+function sourceLabel(source) {
+  return source === 'web' ? 'GitHub website' : 'GitHub API';
+}
+
+function sourceDowngradeMessage(downgrade) {
+  if (!downgrade?.requested || !downgrade?.effective) return '';
+  const why =
+    downgrade.reason === 'web-source-disabled'
+      ? 'A remote capability rule disabled website mode.'
+      : 'The requested source is unavailable.';
+  return `The requested ${sourceLabel(downgrade.requested)} source is unavailable. ${why} Using the ${sourceLabel(downgrade.effective)} source instead.`;
+}
+
 function deltaNode(value, cls = 'delta', missing = false) {
   const span = document.createElement('span');
   span.className = cls;
@@ -1164,6 +1177,7 @@ function renderBanner() {
 }
 
 function renderBannerContent() {
+  const downgrade = sourceDowngradeMessage(state.cache?.sourceDowngrade);
   if (state.storageRecoveryNotice) {
     const notice = state.storageRecoveryNotice;
     const outcome =
@@ -1199,7 +1213,7 @@ function renderBannerContent() {
         ? ` Showing the last successful ${state.cache.source === 'web' ? 'website' : 'API'} snapshot.`
         : ' Showing the last successful snapshot.';
     const hasSnapshot = !!state.cache?.repos?.length;
-    const suffix = hasSnapshot ? retained : '';
+    const suffix = `${hasSnapshot ? retained : ''}${downgrade ? ` ${downgrade}` : ''}`;
     if (err.code === 'WEB_PERMISSION_REQUIRED') {
       showBanner(`${err.message}${suffix}`, {
         label: 'Grant access',
@@ -1245,6 +1259,13 @@ function renderBannerContent() {
       );
       return;
     }
+    if (downgrade) {
+      showBanner(downgrade, {
+        label: 'Open settings',
+        onClick: () => chrome.runtime.openOptionsPage(),
+      });
+      return;
+    }
     const reason = {
       cap: `the ${state.cache.cap?.maxRepositories || 1500}-repository safety cap was reached`,
       'parser-drift': 'a later GitHub page could not be parsed',
@@ -1256,6 +1277,13 @@ function renderBannerContent() {
     showBanner(`Partial snapshot: ${reason}. What loaded is still usable.`, {
       label: 'Try again',
       onClick: () => doRefresh(),
+    });
+    return;
+  }
+  if (downgrade) {
+    showBanner(downgrade, {
+      label: 'Open settings',
+      onClick: () => chrome.runtime.openOptionsPage(),
     });
     return;
   }

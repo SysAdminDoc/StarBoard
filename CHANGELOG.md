@@ -39,6 +39,9 @@
 - Trend comparison points now stop at the requested day; older measurements
   render as missing instead of being mislabeled as a 7/30/90-day delta, keeping
   the row, sparkline and trend table honest.
+- Remote capability downgrades now explain when the requested source is
+  unavailable, identify the effective fallback in the popup and Settings, and
+  preserve that explanation when the refresh fails.
 - API snapshots now record whether the fetch was authenticated. Losing a session
   token produces a clearly explained partial snapshot without false repository
   removals, and GraphQL validates coverage against its paginated total.
