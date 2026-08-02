@@ -27,6 +27,11 @@ import {
   validateCapabilityState,
 } from './capabilities.js';
 import {
+  appendRefreshFailure,
+  emptyRefreshFailures,
+  validateRefreshFailures,
+} from './refresh-outcomes.js';
+import {
   activatePortfolioView as activatePortfolioViewState,
   deletePortfolioView as deletePortfolioViewState,
   emptyPortfolioViewState,
@@ -46,6 +51,7 @@ export const STORAGE_KEYS = Object.freeze({
   notificationState: 'notificationState',
   portfolioViews: 'portfolioViews',
   capabilities: 'capabilities',
+  refreshFailures: 'refreshFailures',
   lastKnownGood: 'starboardLastKnownGood',
   quarantine: 'starboardQuarantine',
   undo: 'starboardUndo',
@@ -72,6 +78,7 @@ const RECORD_LABELS = Object.freeze({
   [STORAGE_KEYS.notificationState]: 'Pending notifications',
   [STORAGE_KEYS.portfolioViews]: 'Saved views',
   [STORAGE_KEYS.capabilities]: 'The capability kill-switch',
+  [STORAGE_KEYS.refreshFailures]: 'Recent refresh failures',
   [STORAGE_KEYS.lastKnownGood]: 'The recovery copy',
   [STORAGE_KEYS.quarantine]: 'The quarantine log',
   [STORAGE_KEYS.undo]: 'The undo snapshot',
@@ -421,6 +428,7 @@ function validateRecord(key, value) {
   else if (key === STORAGE_KEYS.notificationState) validateNotificationState(value);
   else if (key === STORAGE_KEYS.portfolioViews) validatePortfolioViewState(value);
   else if (key === STORAGE_KEYS.capabilities) validateCapabilityState(value);
+  else if (key === STORAGE_KEYS.refreshFailures) validateRefreshFailures(value);
   else throw new Error(`unknown storage record: ${key}`);
 }
 
@@ -636,6 +644,7 @@ const RECOVERY_RECORD_KEYS = Object.freeze([
   STORAGE_KEYS.notificationConfig,
   STORAGE_KEYS.notificationState,
   STORAGE_KEYS.portfolioViews,
+  STORAGE_KEYS.refreshFailures,
 ]);
 
 const CONSUMER_LABELS = Object.freeze({
@@ -645,6 +654,7 @@ const CONSUMER_LABELS = Object.freeze({
   [STORAGE_KEYS.lastKnownGood]: 'The recovery copy',
   [STORAGE_KEYS.undo]: 'The undo snapshot',
   [STORAGE_KEYS.portfolioViews]: 'Saved views',
+  [STORAGE_KEYS.refreshFailures]: 'Recent refresh failures',
   [STORAGE_KEYS.quarantine]: 'The quarantine log',
 });
 
@@ -1028,6 +1038,19 @@ export async function getCapabilityState() {
   return (await readRecord(STORAGE_KEYS.capabilities)) || emptyCapabilityState();
 }
 
+export async function getRefreshFailures() {
+  return (await readRecord(STORAGE_KEYS.refreshFailures)) || emptyRefreshFailures();
+}
+
+export async function recordRefreshFailureEvent(outcome) {
+  return serialized(async () => {
+    const current = await getRefreshFailures();
+    const next = appendRefreshFailure(current, outcome);
+    await writeRecords({ [STORAGE_KEYS.refreshFailures]: next });
+    return next;
+  });
+}
+
 export async function setCapabilityState(state) {
   await serialized(() => writeRecords({ [STORAGE_KEYS.capabilities]: state }));
 }
@@ -1310,6 +1333,7 @@ export async function getStorageDiagnostics() {
       STORAGE_KEYS.baseline,
       STORAGE_KEYS.history,
       STORAGE_KEYS.portfolioViews,
+      STORAGE_KEYS.refreshFailures,
       STORAGE_KEYS.quarantine,
     ])
   );
@@ -1320,6 +1344,8 @@ export async function getStorageDiagnostics() {
     baselineStored: !!stored[STORAGE_KEYS.baseline],
     historyStored: !!stored[STORAGE_KEYS.history],
     portfolioViewsStored: !!stored[STORAGE_KEYS.portfolioViews],
+    refreshFailuresStored: !!stored[STORAGE_KEYS.refreshFailures],
+    refreshFailureCount: stored[STORAGE_KEYS.refreshFailures]?.data?.records?.length || 0,
     quarantined: stored[STORAGE_KEYS.quarantine]?.data?.records?.length || 0,
   };
 }

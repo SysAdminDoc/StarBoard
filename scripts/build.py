@@ -47,6 +47,7 @@ ALLOWED_FILES = (
     "src/lib/notifications.js",
     "src/lib/portfolio-views.js",
     "src/lib/refresh-coordinator.js",
+    "src/lib/refresh-outcomes.js",
     "src/lib/request.js",
     "src/lib/scrape.js",
     "src/lib/storage.js",

@@ -4420,7 +4420,15 @@ async function main() {
     });
 
     await options.evaluate(async () => {
-      const { getCache, getBaseline, getHistory, setCache, setBaseline, setHistory } =
+      const {
+        getCache,
+        getBaseline,
+        getHistory,
+        recordRefreshFailureEvent,
+        setCache,
+        setBaseline,
+        setHistory,
+      } =
         await import('./lib/storage.js');
       const { recordDailyHistory } = await import('./lib/history.js');
       const cache = await getCache();
@@ -4452,9 +4460,21 @@ async function main() {
           token: 'smoke-export-secret',
         },
       });
+      await recordRefreshFailureEvent({
+        at: Date.UTC(2026, 7, 2, 12),
+        source: 'api',
+        code: 'RATE_LIMITED',
+        authenticated: true,
+      });
     });
     await options.reload();
     await options.waitForSelector('#backupJson');
+    await options.waitForSelector('#refreshFailuresList li');
+    const refreshFailuresText = await options.textContent('#refreshFailuresList');
+    check(
+      'settings show the bounded recent refresh failure history',
+      /RATE_LIMITED/.test(refreshFailuresText) && /GitHub API/.test(refreshFailuresText),
+    );
     await options.click('#buildDiagnostics');
     await options.waitForSelector('#diagnosticsOutput:not([hidden])');
     const diagnosticsText = await options.textContent('#diagnosticsOutput');
@@ -4469,6 +4489,7 @@ async function main() {
         typeof diagnostics.permissions.githubWebsite === 'boolean' &&
         diagnostics.storage.schemaVersion === expectedSchema &&
         diagnostics.refresh.lastSuccessfulAt &&
+        diagnostics.refresh.recentFailures?.some((failure) => failure.code === 'RATE_LIMITED') &&
         diagnostics.alarms.refresh?.periodMinutes === 60,
     );
     check(
@@ -4509,6 +4530,7 @@ async function main() {
         !publicBackupText.includes('smoke-export-secret') &&
         !publicBackupText.includes('private-smoke-fixture') &&
         !Object.hasOwn(publicBackup.records, 'history') &&
+        !Object.hasOwn(publicBackup.records, 'refreshFailures') &&
         publicBackup.records.portfolioViews?.data?.views?.length === 1,
     );
 

@@ -100,6 +100,11 @@ const sessionArea = memoryArea();
 globalThis.chrome = { storage: { local: area, session: sessionArea } };
 
 const storage = await import('../src/lib/storage.js');
+const {
+  MAX_REFRESH_FAILURES,
+  appendRefreshFailure,
+  emptyRefreshFailures,
+} = await import('../src/lib/refresh-outcomes.js');
 const { createRefreshCoordinator } = await import('../src/lib/refresh-coordinator.js');
 const {
   parseRetryAfter,
@@ -261,6 +266,47 @@ await test('current settings migration is idempotent', async () => {
   const migrated = storage.migrateRecord('settings', current, storage.SCHEMA_VERSION);
   assert.equal(migrated.changed, false);
   assert.deepEqual(migrated.envelope.data, current.data);
+});
+
+await test('refresh failure history is redacted, bounded, recoverable, and not portable', async () => {
+  let history = emptyRefreshFailures();
+  for (let index = 0; index < MAX_REFRESH_FAILURES + 3; index += 1) {
+    history = appendRefreshFailure(history, {
+      at: index + 1,
+      source: index % 2 ? 'api' : 'web',
+      code: `FAILURE_${index}`,
+      authenticated: index % 2 === 0,
+      message: 'private-owner/private-repo and credential should never persist',
+    });
+  }
+  assert.equal(history.records.length, MAX_REFRESH_FAILURES);
+  assert.equal(history.records[0].code, 'FAILURE_3');
+  assert.equal(Object.hasOwn(history.records[0], 'message'), false);
+
+  const originalLocal = clone(area.values);
+  const originalSession = clone(sessionArea.values);
+  try {
+    replaceAreaValues(area, {});
+    replaceAreaValues(sessionArea, {});
+    const stored = await storage.recordRefreshFailureEvent({
+      at: 10,
+      source: 'api',
+      code: 'RATE_LIMITED',
+      authenticated: true,
+      repository: 'private-owner/private-repo',
+    });
+    assert.deepEqual(await storage.getRefreshFailures(), stored);
+    assert.equal(stored.records.length, 1);
+    assert.equal(Object.hasOwn(stored.records[0], 'repository'), false);
+
+    const backup = await createBackup({
+      settings: { ...storage.DEFAULTS, username: 'octocat', dataSource: 'api' },
+    });
+    assert.equal(Object.hasOwn(backup.records, storage.STORAGE_KEYS.refreshFailures), false);
+  } finally {
+    replaceAreaValues(area, originalLocal);
+    replaceAreaValues(sessionArea, originalSession);
+  }
 });
 
 await test('v1.2 profile migrates every persisted record without losing fields', async () => {
@@ -3584,6 +3630,18 @@ await test('diagnostics expose allow-listed health metadata without sensitive va
       at: Date.UTC(2026, 6, 29, 1),
       lastAuthenticatedAt: Date.UTC(2026, 6, 28, 23),
     },
+    refreshFailures: {
+      formatVersion: 1,
+      records: [
+        {
+          at: Date.UTC(2026, 6, 29, 2),
+          source: 'api',
+          code: 'RATE_LIMITED',
+          authenticated: true,
+          message: 'private-owner/private-repo and token should not be copied',
+        },
+      ],
+    },
     alarms: [
       {
         name: 'starboard-refresh',
@@ -3602,6 +3660,14 @@ await test('diagnostics expose allow-listed health metadata without sensitive va
   assert.equal(diagnostics.authentication.status, 'expired');
   assert.equal(diagnostics.authentication.code, 'TOKEN_EXPIRED');
   assert.equal(diagnostics.authentication.lastAuthenticatedAt, '2026-07-28T23:00:00.000Z');
+  assert.deepEqual(diagnostics.refresh.recentFailures, [
+    {
+      at: '2026-07-29T02:00:00.000Z',
+      source: 'api',
+      code: 'RATE_LIMITED',
+      authenticated: true,
+    },
+  ]);
   assert.equal(diagnostics.alarms.refresh.periodMinutes, 60);
   assert.doesNotMatch(
     text,

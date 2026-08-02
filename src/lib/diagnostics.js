@@ -42,6 +42,7 @@ export function buildDiagnostics({
   storageBytes = 0,
   userAgent = '',
   disabledCapabilities = [],
+  refreshFailures = null,
   now = Date.now(),
 } = {}) {
   const alarmByName = new Map(alarms.map((alarm) => [alarm.name, alarm]));
@@ -116,6 +117,16 @@ export function buildDiagnostics({
             at: timestamp(error.at),
           }
         : null,
+      recentFailures: Array.isArray(refreshFailures?.records)
+        ? refreshFailures.records.slice(-20).map((record) => ({
+            at: timestamp(record.at),
+            source: ['api', 'web', 'unknown'].includes(record.source)
+              ? record.source
+              : 'unknown',
+            code: typeof record.code === 'string' ? record.code.slice(0, 80) : 'REFRESH_FAILED',
+            authenticated: !!record.authenticated,
+          }))
+        : [],
     },
     alarms: {
       refresh: normalizedAlarm(alarmByName.get('starboard-refresh')),

@@ -7,6 +7,7 @@ import {
   getHistory,
   getNotificationConfig,
   getPortfolioViewState,
+  getRefreshFailures,
   getStorageDiagnostics,
   getAuthStatus,
   AUTH_STATUS_KEY,
@@ -156,6 +157,36 @@ function renderAuthStatus(status) {
 
 async function loadAuthStatus() {
   renderAuthStatus(await getAuthStatus().catch(() => ({ status: 'unknown' })));
+}
+
+function renderRefreshFailures(history) {
+  const records = Array.isArray(history?.records) ? [...history.records].reverse() : [];
+  const list = $('refreshFailuresList');
+  if (!list) return;
+  list.replaceChildren();
+  $('refreshFailuresSummary').textContent = records.length
+    ? `${records.length} recent failed refresh${records.length === 1 ? '' : 'es'} are kept on this device.`
+    : 'No failed refreshes are recorded.';
+  for (const record of records) {
+    const source =
+      record.source === 'web'
+        ? 'GitHub website'
+        : record.source === 'api'
+          ? 'GitHub API'
+          : 'Unknown source';
+    const at = Number.isFinite(record.at)
+      ? formatters.dateTime({ dateStyle: 'medium', timeStyle: 'short' }).format(new Date(record.at))
+      : 'Unknown time';
+    const item = document.createElement('li');
+    item.textContent = `${at} · ${source} · ${record.code || 'REFRESH_FAILED'} · ${
+      record.authenticated ? 'authenticated' : 'not authenticated'
+    }`;
+    list.append(item);
+  }
+}
+
+async function loadRefreshFailures() {
+  renderRefreshFailures(await getRefreshFailures().catch(() => ({ records: [] })));
 }
 
 const parser = new DOMParser();
@@ -380,7 +411,12 @@ async function load() {
   syncSourceUI();
   applyTheme(s.theme);
   $('version').textContent = `v${chrome.runtime.getManifest().version}`;
-  await Promise.all([showStorageInfo(), loadNotificationConfig(), loadAuthStatus()]);
+  await Promise.all([
+    showStorageInfo(),
+    loadNotificationConfig(),
+    loadAuthStatus(),
+    loadRefreshFailures(),
+  ]);
 }
 
 function renderPrivacyNotice(notice) {
@@ -603,6 +639,7 @@ $('save').addEventListener('click', async () => {
         syncSourceUI();
       }
       await loadAuthStatus();
+      await loadRefreshFailures();
       reportError(res?.error, 'account', 'Refresh failed.');
     }
   }).catch((err) => reportError(err, 'account', 'Could not save settings.'));

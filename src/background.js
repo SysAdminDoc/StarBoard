@@ -32,6 +32,8 @@ import {
   setNotificationState,
   getCapabilityState,
   setCapabilityState,
+  recordRefreshFailureEvent,
+  getRefreshFailures,
   getAuthStatus,
   setAuthStatus,
   restrictStorageAccess,
@@ -468,6 +470,7 @@ const refreshCoordinator = createRefreshCoordinator(runRefresh);
 /** Normalize every refresh rejection without letting error reporting reject too. */
 async function recordRefreshFailure(err, settings = null, sourceResolution = null) {
   const authentication = await recordAuthenticationFailure(err, settings);
+  const source = sourceResolution?.effective || settings?.dataSource || 'unknown';
   const detail = {
     message: err?.message || 'StarBoard could not refresh this account.',
     code: err?.code || 'REFRESH_FAILED',
@@ -485,6 +488,14 @@ async function recordRefreshFailure(err, settings = null, sourceResolution = nul
         ? sourceResolution
         : null,
   };
+  await recordRefreshFailureEvent({
+    at: detail.at,
+    source,
+    code: detail.code,
+    authenticated:
+      source === 'web' ||
+      (!!settings?.token && !['expired', 'revoked', 'denied'].includes(authentication?.status)),
+  }).catch(() => {});
   // Persist the recovery trigger before storage or badge reporting can fail.
   await scheduleRetry(detail.retryAt).catch(() => {});
   const [previous, baseline] = await Promise.all([
@@ -593,6 +604,7 @@ async function diagnosticsBundle() {
     websitePermission,
     notificationPermission,
     authStatus,
+    refreshFailures,
     alarms,
     storageBytes,
   ] =
@@ -604,6 +616,7 @@ async function diagnosticsBundle() {
       hasWebPermission(),
       hasNotificationPermission(),
       getAuthStatus(),
+      getRefreshFailures(),
       chrome.alarms.getAll(),
       chrome.storage.local.getBytesInUse(null),
     ]);
@@ -616,6 +629,7 @@ async function diagnosticsBundle() {
     websitePermission,
     notificationPermission,
     authStatus,
+    refreshFailures,
     alarms,
     storageBytes,
     userAgent: navigator.userAgent,

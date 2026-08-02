@@ -227,6 +227,38 @@ h1 {
     var(--surface);
 }
 
+.refresh-failures {
+  margin-top: 17px;
+  padding-top: 13px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.refresh-failures h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 11.5px;
+}
+
+.refresh-failures .note {
+  margin: 5px 0 0;
+}
+
+.refresh-failure-list {
+  display: grid;
+  max-height: 142px;
+  gap: 5px;
+  margin: 9px 0 0;
+  padding: 0 5px 0 16px;
+  overflow: auto;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.refresh-failure-list li::marker {
+  color: var(--accent);
+}
+
 .section-heading {
   display: flex;
   align-items: flex-start;
