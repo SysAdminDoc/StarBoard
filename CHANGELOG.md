@@ -141,6 +141,12 @@
 
 ### Changed
 
+- CI now has a scheduled/manual advisory lane that reports full development
+  dependency vulnerabilities and stale versions without weakening the blocking
+  production audit. The report runs without install hooks, and the release
+  SBOM continues to classify these tools as build/test-only rather than shipped
+  runtime dependencies.
+
 - The pseudo-locale freshness check now ignores Windows line-ending conversion,
   keeping clean CI checkouts equivalent to the generated catalog.
 - Reading a settled record no longer serializes it three times. A 488 KB history

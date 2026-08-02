@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -50,6 +53,23 @@ jobs:
       # diagnostics, backup/restore, destructive recovery and notifications.
       # API traffic is fixture-backed and every other external route is aborted.
       - run: node tests/smoke.mjs --zip --offline
+
+  tooling-audit:
+    name: Development tooling audit (advisory)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      # Do not execute install hooks in an advisory inventory job. The normal
+      # validation job still installs and exercises the real test toolchain.
+      - run: npm ci --ignore-scripts
+      - run: npm run audit:dev
 
   firefox-advisory:
     name: Firefox extension smoke (advisory)
