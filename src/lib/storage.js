@@ -448,6 +448,19 @@ function validateCache(value) {
       'invalid cache confidence',
     );
   }
+  if (value.releaseTracking != null) {
+    assert(isObject(value.releaseTracking), 'invalid release tracking status');
+    assert(typeof value.releaseTracking.enabled === 'boolean', 'invalid release tracking enabled state');
+    assert(['all', 'selected'].includes(value.releaseTracking.mode), 'invalid release tracking mode');
+    for (const key of ['requestedCount', 'attemptedCount', 'skippedCount', 'unavailableCount', 'requests']) {
+      assertFinite(value.releaseTracking[key], `invalid release tracking ${key}`);
+      assert(value.releaseTracking[key] >= 0, `invalid release tracking ${key}`);
+    }
+    assert(typeof value.releaseTracking.rateLimited === 'boolean', 'invalid release tracking rate state');
+    assert(Number.isFinite(value.releaseTracking.fetchedAt), 'invalid release tracking timestamp');
+    assert(['authenticated', 'anonymous', 'website-session'].includes(value.releaseTracking.authorization), 'invalid release tracking authorization');
+    assert(['api', 'web'].includes(value.releaseTracking.source), 'invalid release tracking source');
+  }
   if (value.lifecycleEvents != null) {
     assert(Array.isArray(value.lifecycleEvents), 'cache lifecycle events must be an array');
     for (const event of value.lifecycleEvents) {
@@ -601,7 +614,6 @@ async function readRecoveryState(keys, accountId = '') {
       migrationRemovals.push(legacyKey);
     } else if (Object.hasOwn(legacy, key)) records.set(key, legacy[key]);
   }
-
   const legacyEntries = Object.entries(legacy).filter(
     ([key]) => !LAST_KNOWN_GOOD_EXCLUDED.has(key),
   );

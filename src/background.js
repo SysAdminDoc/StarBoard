@@ -373,6 +373,19 @@ async function runRefresh(intent) {
   const generation = generationId();
   try {
     const stored = await getCache();
+    const notificationConfig = await getNotificationConfig();
+    const releaseAlertsEnabled =
+      settings.dataSource === 'api' &&
+      notificationConfig.enabled &&
+      notificationConfig.releaseAlertsEnabled;
+    const releaseTrackingRequested = settings.showReleaseStats || releaseAlertsEnabled;
+    const releaseTrackingMode =
+      releaseTrackingRequested && notificationConfig.releaseAlertMode === 'selected'
+        ? 'selected'
+        : 'all';
+    const releaseRepositories = releaseTrackingMode === 'selected'
+      ? notificationConfig.releaseAlerts
+      : [];
     // A capability switched off in the field must not be attempted. Website
     // mode falls through to the API rather than failing the refresh outright,
     // because the API can serve the same account with no token.
@@ -391,11 +404,13 @@ async function runRefresh(intent) {
       : await fetchAccount(settings, {
           previous: stored,
           sleep: waitForRetry,
-          graphql: !graphqlOff,
-          includeReleaseStats: settings.showReleaseStats,
+          graphql: !graphqlOff && releaseTrackingMode !== 'selected',
+          includeReleaseStats: releaseTrackingRequested,
+          releaseTrackingMode,
+          releaseRepositories,
         });
     const result =
-      useWeb && settings.showReleaseStats
+      useWeb && releaseTrackingRequested
         ? {
             ...fetched,
             repos: fetched.repos.map((repo) => ({
@@ -403,6 +418,20 @@ async function runRefresh(intent) {
               release: null,
               releaseUnavailable: true,
             })),
+            releaseTracking: {
+              enabled: true,
+              mode: releaseTrackingMode,
+              requestedCount: fetched.repos.length,
+              attemptedCount: 0,
+              skippedCount: fetched.repos.length,
+              unavailableCount: fetched.repos.length,
+              requests: 0,
+              rateLimited: false,
+              fetchedAt: Date.now(),
+              authorization: 'website-session',
+              source: 'web',
+              reason: 'website-mode',
+            },
           }
         : fetched;
 

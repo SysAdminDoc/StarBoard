@@ -70,6 +70,7 @@ const notificationFields = {
   quietEnd: $('quietEnd'),
   cooldownMinutes: $('notificationCooldown'),
   repositoryAlertMode: $('repositoryAlertMode'),
+  releaseAlertMode: $('releaseAlertMode'),
 };
 
 const SOURCE_HINTS = {
@@ -266,6 +267,7 @@ function busyControls() {
     ...Object.values(fields),
     ...Object.values(notificationFields),
     $('notificationsEnabled'),
+    $('releaseAlertsEnabled'),
     $('save'),
     $('test'),
     $('forgetToken'),
@@ -292,6 +294,7 @@ function busyControls() {
 let pageBusy = true;
 let notificationState = null;
 let notificationCache = null;
+let optionSettings = null;
 
 function setPageBusy(busy) {
   pageBusy = busy;
@@ -446,6 +449,7 @@ async function load() {
     loadAuthStatus(),
     loadRefreshFailures(),
   ]);
+  optionSettings = s;
 }
 
 function renderPrivacyNotice(notice) {
@@ -515,6 +519,9 @@ function notificationPatch() {
     cooldownMinutes: Number(notificationFields.cooldownMinutes.value),
     repositoryAlertMode: notificationFields.repositoryAlertMode.value,
     repositoryAlerts: repositoryPreferencePatch(),
+    releaseAlertsEnabled: $('releaseAlertsEnabled').checked,
+    releaseAlertMode: notificationFields.releaseAlertMode.value,
+    releaseAlerts: releasePreferencePatch(),
   };
 }
 
@@ -522,6 +529,21 @@ function repositoryPreferencePatch() {
   const mode = notificationFields.repositoryAlertMode.value;
   const existing = new Set(notificationState?.config?.repositoryAlerts || []);
   const inputs = [...$('repositoryAlertList').querySelectorAll('input[data-repository-key]')];
+  const current = new Set(inputs.map((input) => input.dataset.repositoryKey));
+  const next = new Set([...existing].filter((key) => !current.has(key)));
+  for (const input of inputs) {
+    const enabled = input.checked;
+    if ((mode === 'selected' && enabled) || (mode !== 'selected' && !enabled)) {
+      next.add(input.dataset.repositoryKey);
+    }
+  }
+  return [...next].slice(0, 500);
+}
+
+function releasePreferencePatch() {
+  const mode = notificationFields.releaseAlertMode.value;
+  const existing = new Set(notificationState?.config?.releaseAlerts || []);
+  const inputs = [...$('releaseAlertList').querySelectorAll('input[data-repository-key]')];
   const current = new Set(inputs.map((input) => input.dataset.repositoryKey));
   const next = new Set([...existing].filter((key) => !current.has(key)));
   for (const input of inputs) {
@@ -561,15 +583,78 @@ function renderRepositoryAlertPreferences(config, cache = notificationCache) {
   }
 }
 
+function renderReleaseAlertPreferences(config, cache = notificationCache) {
+  const list = $('releaseAlertList');
+  list.replaceChildren();
+  const repos = [...(cache?.repos || [])].sort((a, b) => a.full_name.localeCompare(b.full_name));
+  if (!repos.length) {
+    list.textContent = t('optionsNoRepositoriesForAlerts');
+    return;
+  }
+  const preferences = new Set(config.releaseAlerts || []);
+  for (const repo of repos) {
+    const key = repositoryAlertKey(repo);
+    const label = document.createElement('label');
+    label.className = 'repository-alert-row';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.dataset.repositoryKey = key;
+    input.checked = config.releaseAlertMode === 'selected'
+      ? preferences.has(key)
+      : !preferences.has(key);
+    input.disabled = pageBusy || !config.enabled || !config.releaseAlertsEnabled;
+    const name = document.createElement('span');
+    name.textContent = repo.full_name;
+    label.append(input, name);
+    list.append(label);
+  }
+}
+
+function renderReleaseTrackingStatus(config, cache = notificationCache) {
+  const status = $('releaseTrackingStatus');
+  if (!config.releaseAlertsEnabled) {
+    status.textContent = t('optionsReleaseTrackingOff');
+    return;
+  }
+  if (optionSettings?.dataSource !== 'api' && cache?.source !== 'api') {
+    status.textContent = t('optionsReleaseTrackingWebsite');
+    return;
+  }
+  const tracking = cache?.releaseTracking;
+  if (!tracking) {
+    status.textContent = t('optionsReleaseTrackingStatus', [0, 0, 0, 0, '', 'unknown', 'never']);
+    return;
+  }
+  const requestSuffix = tracking.requests === 1 ? '' : 's';
+  const checkedAt = tracking.fetchedAt
+    ? formatters.dateTime({ dateStyle: 'medium', timeStyle: 'short' }).format(new Date(tracking.fetchedAt))
+    : 'never';
+  status.textContent = t('optionsReleaseTrackingStatus', [
+    tracking.attemptedCount,
+    tracking.requestedCount,
+    tracking.unavailableCount,
+    tracking.requests,
+    requestSuffix,
+    tracking.authorization,
+    checkedAt,
+  ]);
+}
+
 function syncNotificationUI(config, permitted, pending = 0, dropped = 0, cache = notificationCache) {
   notificationState = { config, permitted, pending, dropped };
   $('notificationsEnabled').checked = !!config.enabled;
   $('notificationsEnabled').disabled = pageBusy;
+  $('releaseAlertsEnabled').checked = !!config.releaseAlertsEnabled;
+  $('releaseAlertsEnabled').disabled = pageBusy || !config.enabled;
   for (const [key, field] of Object.entries(notificationFields)) {
     field.value = String(config[key]);
     field.disabled = pageBusy || !config.enabled;
   }
+  notificationFields.releaseAlertMode.disabled =
+    pageBusy || !config.enabled || !config.releaseAlertsEnabled;
   renderRepositoryAlertPreferences(config, cache);
+  renderReleaseAlertPreferences(config, cache);
+  renderReleaseTrackingStatus(config, cache);
   $('notificationControls').setAttribute('aria-disabled', String(!config.enabled));
   $('notificationPermissionState').textContent =
     config.enabled && permitted
@@ -1112,6 +1197,36 @@ $('notificationsEnabled').addEventListener('change', async () => {
   }
 });
 
+async function refreshReleaseLane() {
+  if (optionSettings?.dataSource !== 'api' || !$('releaseAlertsEnabled').checked) return;
+  await chrome.runtime.sendMessage({ type: 'refresh', reason: 'release-alerts' }).catch(() => {});
+}
+
+async function saveReleaseAlertSettings() {
+  const response = await chrome.runtime.sendMessage({
+    type: 'patch-notification-config',
+    changes: notificationPatch(),
+  });
+  if (!response?.ok) {
+    throw messageError(response?.error, 'Could not save release alert settings.');
+  }
+  syncNotificationUI(response.config, response.permitted, response.pending, response.dropped);
+  await refreshReleaseLane();
+}
+
+$('releaseAlertsEnabled').addEventListener('change', async () => {
+  const checkbox = $('releaseAlertsEnabled');
+  checkbox.disabled = true;
+  try {
+    await saveReleaseAlertSettings();
+    sayT('optionsNotificationSaved', null, 'ok');
+  } catch (error) {
+    await loadNotificationConfig().catch(() => {});
+    if (error.message) say(error.message, 'err');
+    else sayT('optionsNotificationSaveError', null, 'err');
+  }
+});
+
 for (const field of Object.values(notificationFields)) {
   field.addEventListener('change', async () => {
     field.disabled = true;
@@ -1124,6 +1239,7 @@ for (const field of Object.values(notificationFields)) {
         throw messageError(response?.error, 'Could not save notification settings.');
       }
       syncNotificationUI(response.config, response.permitted, response.pending, response.dropped);
+      if (field === notificationFields.releaseAlertMode) await refreshReleaseLane();
       sayT('optionsNotificationSaved', null, 'ok');
     } catch (error) {
       await loadNotificationConfig().catch(() => {});
@@ -1134,6 +1250,19 @@ for (const field of Object.values(notificationFields)) {
     }
   });
 }
+
+$("releaseAlertList").addEventListener('change', async (event) => {
+  if (!(event.target instanceof HTMLInputElement)) return;
+  event.target.disabled = true;
+  try {
+    await saveReleaseAlertSettings();
+    sayT('optionsNotificationSaved', null, 'ok');
+  } catch (error) {
+    await loadNotificationConfig().catch(() => {});
+    if (error.message) say(error.message, 'err');
+    else sayT('optionsNotificationSaveError', null, 'err');
+  }
+});
 
 $("repositoryAlertList").addEventListener('change', async (event) => {
   if (!(event.target instanceof HTMLInputElement)) return;

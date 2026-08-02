@@ -286,6 +286,13 @@
             <input id="notificationsEnabled" type="checkbox" role="switch" />
           </label>
           <p id="notificationPermissionState" class="note notification-state"></p>
+          <label class="toggle-row notification-master">
+            <span>
+              <b>New release alerts</b>
+              <small>API mode only. Check the latest release and queue one local alert per new tag.</small>
+            </span>
+            <input id="releaseAlertsEnabled" type="checkbox" role="switch" />
+          </label>
           <div id="notificationControls" class="notification-grid">
             <label class="field">
               <span>Portfolio milestone every</span>
@@ -362,6 +369,22 @@
               alerts are unchanged.
             </p>
             <div id="repositoryAlertList" class="repository-alert-list" role="group" aria-label="Repositories receiving alerts"></div>
+          </div>
+          <div class="repository-alert-settings release-alert-settings">
+            <label class="field">
+              <span>Release alert scope</span>
+              <select id="releaseAlertMode">
+                <option value="all">All visible repositories</option>
+                <option value="selected">Only selected repositories</option>
+              </select>
+            </label>
+            <p class="note">
+              All visible repositories use bounded GraphQL pages when available. Selected
+              repositories use only their release endpoints. Release freshness, authorization and
+              request cost appear in the status below.
+            </p>
+            <div id="releaseTrackingStatus" class="note" role="status" aria-live="polite"></div>
+            <div id="releaseAlertList" class="repository-alert-list" role="group" aria-label="Repositories receiving release alerts"></div>
           </div>
           <p class="note callout">
             Approximate/partial snapshots do not trigger portfolio alerts, and approximate

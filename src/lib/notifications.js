@@ -11,6 +11,9 @@ export const DEFAULT_NOTIFICATION_CONFIG = Object.freeze({
   repositoryDelta: 3,
   repositoryAlertMode: 'all',
   repositoryAlerts: [],
+  releaseAlertsEnabled: false,
+  releaseAlertMode: 'all',
+  releaseAlerts: [],
   quietStart: '22:00',
   quietEnd: '08:00',
   cooldownMinutes: 360,
@@ -19,6 +22,7 @@ export const DEFAULT_NOTIFICATION_CONFIG = Object.freeze({
 const MAX_PENDING = 50;
 const MAX_SEEN = 500;
 export const MAX_REPOSITORY_ALERT_PREFERENCES = 500;
+export const MAX_RELEASE_ALERT_PREFERENCES = 500;
 // Bound to the extension UI language, not navigator.language: an OS
 // notification showing `1,234` beside German text is the same defect as in the
 // popup, just harder to notice.
@@ -55,6 +59,13 @@ export function normalizeNotificationConfig(value = {}) {
       ? config.repositoryAlerts.filter((key) => typeof key === 'string')
       : [],
   )].slice(0, MAX_REPOSITORY_ALERT_PREFERENCES);
+  config.releaseAlertsEnabled = !!config.releaseAlertsEnabled;
+  config.releaseAlertMode = config.releaseAlertMode === 'selected' ? 'selected' : 'all';
+  config.releaseAlerts = [...new Set(
+    Array.isArray(config.releaseAlerts)
+      ? config.releaseAlerts.filter((key) => typeof key === 'string')
+      : [],
+  )].slice(0, MAX_RELEASE_ALERT_PREFERENCES);
   for (const key of [
     'portfolioMilestone',
     'repositoryMilestone',
@@ -71,6 +82,7 @@ export function normalizeNotificationConfig(value = {}) {
 export function validateNotificationConfig(config) {
   assert(config && typeof config === 'object' && !Array.isArray(config), 'invalid notification config');
   assert(typeof config.enabled === 'boolean', 'invalid notification enabled state');
+  assert(typeof config.releaseAlertsEnabled === 'boolean', 'invalid release alert state');
   count(config.portfolioMilestone, 'portfolio milestone');
   count(config.repositoryMilestone, 'repository milestone');
   count(config.portfolioDelta, 'portfolio delta');
@@ -92,6 +104,22 @@ export function validateNotificationConfig(config) {
       assert(typeof key === 'string' && key.length > 0 && key.length <= 240, 'invalid repository alert preference');
     });
   }
+  if (config.releaseAlertMode !== undefined) {
+    assert(
+      config.releaseAlertMode === 'all' || config.releaseAlertMode === 'selected',
+      'invalid release alert mode',
+    );
+  }
+  if (config.releaseAlerts !== undefined) {
+    assert(
+      Array.isArray(config.releaseAlerts) &&
+        config.releaseAlerts.length <= MAX_RELEASE_ALERT_PREFERENCES,
+      'too many release alert preferences',
+    );
+    config.releaseAlerts.forEach((key) => {
+      assert(typeof key === 'string' && key.length > 0 && key.length <= 240, 'invalid release alert preference');
+    });
+  }
   assert(validTime(config.quietStart), 'invalid quiet-hours start');
   assert(validTime(config.quietEnd), 'invalid quiet-hours end');
   return config;
@@ -106,6 +134,12 @@ export function repositoryAlertKey(repo) {
 function repositoryAlertsEnabled(config, repo) {
   const selected = config.repositoryAlerts.includes(repositoryAlertKey(repo));
   return config.repositoryAlertMode === 'selected' ? selected : !selected;
+}
+
+function releaseAlertsEnabled(config, repo) {
+  if (!config.releaseAlertsEnabled) return false;
+  const selected = config.releaseAlerts.includes(repositoryAlertKey(repo));
+  return config.releaseAlertMode === 'selected' ? selected : !selected;
 }
 
 export function emptyNotificationState() {
@@ -272,6 +306,27 @@ export function evaluateNotificationEvents(
         now,
       ),
     );
+
+    if (
+      current.source === 'api' &&
+      current.complete !== false &&
+      previous.source === 'api' &&
+      previous.complete !== false &&
+      releaseAlertsEnabled(normalized, repo) &&
+      !repo.releaseUnavailable &&
+      repo.release?.tag
+    ) {
+      const previousRelease = before.release;
+      if (previousRelease?.tag !== repo.release.tag) {
+        const releaseIdentity = `${repositoryHistoryKey(repo)}:${repo.release.tag}`;
+        candidates.push({
+          id: `release:${releaseIdentity}`,
+          title: t('notificationNewRelease', [repo.name]),
+          message: t('notificationPublishedRelease', [repo.full_name, repo.release.tag]),
+          createdAt: now,
+        });
+      }
+    }
   }
 
   const seen = Object.fromEntries(

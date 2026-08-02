@@ -62,6 +62,9 @@
   "notificationMoreAlerts": {
     "message": "$1 more alert$2 are saved in StarBoard."
   },
+  "notificationNewRelease": {
+    "message": "$1 has a new release"
+  },
   "notificationPortfolioGrowth": {
     "message": "Portfolio growth"
   },
@@ -70,6 +73,9 @@
   },
   "notificationPortfolioUpdate": {
     "message": "StarBoard portfolio update"
+  },
+  "notificationPublishedRelease": {
+    "message": "$1 published $2."
   },
   "notificationReachedStars": {
     "message": "Your repositories reached $1 stars."
@@ -319,6 +325,30 @@
   },
   "optionsRefreshFailuresOne": {
     "message": "$1 failed refresh recorded."
+  },
+  "optionsReleaseAlerts": {
+    "message": "New release alerts"
+  },
+  "optionsReleaseAlertsHint": {
+    "message": "API mode only. Check for one new latest release per repository and queue one local alert per tag."
+  },
+  "optionsReleaseListLabel": {
+    "message": "Repositories receiving release alerts"
+  },
+  "optionsReleaseScope": {
+    "message": "Release alert scope"
+  },
+  "optionsReleaseScopeHint": {
+    "message": "All visible repositories use bounded GraphQL pages when available. Selected repositories use only their release endpoints."
+  },
+  "optionsReleaseTrackingOff": {
+    "message": "Release tracking is off."
+  },
+  "optionsReleaseTrackingStatus": {
+    "message": "Release tracking: $1 checked, $2 selected, $3 unavailable, $4 API request$5. Authorization: $6. Last checked $7."
+  },
+  "optionsReleaseTrackingWebsite": {
+    "message": "Release tracking requires GitHub API mode; website mode never requests release endpoints."
   },
   "optionsReloadTryAgain": {
     "message": "Reload the page to try again."
@@ -1049,6 +1079,9 @@
   "text_039a7130": {
     "message": "Repository descriptions"
   },
+  "text_040b54bc": {
+    "message": "Release alert scope"
+  },
   "text_06cc87f5": {
     "message": "Apply restore"
   },
@@ -1057,6 +1090,9 @@
   },
   "text_08048a1e": {
     "message": "Private only"
+  },
+  "text_0957c863": {
+    "message": "All visible repositories use bounded GraphQL pages when available. Selected repositories use only their release endpoints. Release freshness, authorization and request cost appear in the status below."
   },
   "text_0a902ccb": {
     "message": "View name"
@@ -1189,6 +1225,9 @@
   },
   "text_3bee4130": {
     "message": "to include private repos. It is sent only to api.github.com."
+  },
+  "text_3da14b7a": {
+    "message": "All visible repositories"
   },
   "text_3e124675": {
     "message": "public_repo"
@@ -1331,6 +1370,9 @@
   "text_5e4baa18": {
     "message": "View"
   },
+  "text_5fc4061b": {
+    "message": "API mode only. Check the latest release and queue one local alert per new tag."
+  },
   "text_60e30d59": {
     "message": "Control room"
   },
@@ -1469,6 +1511,9 @@
   "text_95173e17": {
     "message": "Originals + forks"
   },
+  "text_9520bfe7": {
+    "message": "New release alerts"
+  },
   "text_961b8dd5": {
     "message": "3 hours"
   },
@@ -1480,6 +1525,9 @@
   },
   "text_97ecd300": {
     "message": "Quiet hours start"
+  },
+  "text_980e3d2d": {
+    "message": "Repositories receiving release alerts"
   },
   "text_995cbfe4": {
     "message": "Trend window for history artifacts"

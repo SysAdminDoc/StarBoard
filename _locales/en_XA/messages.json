@@ -62,6 +62,9 @@
   "notificationMoreAlerts": {
     "message": "［$1 móré álért$2 áré šávéd íñ ŠtárBóárd. ············］"
   },
+  "notificationNewRelease": {
+    "message": "［$1 háš á ñéw réléášé ······］"
+  },
   "notificationPortfolioGrowth": {
     "message": "［Pórtfólíó grówth ·····］"
   },
@@ -70,6 +73,9 @@
   },
   "notificationPortfolioUpdate": {
     "message": "［ŠtárBóárd pórtfólíó úpdáté ········］"
+  },
+  "notificationPublishedRelease": {
+    "message": "［$1 públíšhéd $2. ·····］"
   },
   "notificationReachedStars": {
     "message": "［Ýóúr répóšítóríéš réáçhéd $1 štárš. ···········］"
@@ -319,6 +325,30 @@
   },
   "optionsRefreshFailuresOne": {
     "message": "［$1 fáíléd réfréšh réçórdéd. ········］"
+  },
+  "optionsReleaseAlerts": {
+    "message": "［Ñéw réléášé álértš ·····］"
+  },
+  "optionsReleaseAlertsHint": {
+    "message": "［ÁPÍ módé óñlý. Çhéçk fór óñé ñéw látéšt réléášé pér répóšítórý áñd qúéúé óñé lóçál álért pér tág. ·····························］"
+  },
+  "optionsReleaseListLabel": {
+    "message": "［Répóšítóríéš réçéívíñg réléášé álértš ···········］"
+  },
+  "optionsReleaseScope": {
+    "message": "［Réléášé álért šçópé ······］"
+  },
+  "optionsReleaseScopeHint": {
+    "message": "［Áll víšíblé répóšítóríéš úšé bóúñdéd GráphQL págéš whéñ áváíláblé. Šéléçtéd répóšítóríéš úšé óñlý théír réléášé éñdpóíñtš. ·····································］"
+  },
+  "optionsReleaseTrackingOff": {
+    "message": "［Réléášé tráçkíñg íš óff. ·······］"
+  },
+  "optionsReleaseTrackingStatus": {
+    "message": "［Réléášé tráçkíñg: $1 çhéçkéd, $2 šéléçtéd, $3 úñáváíláblé, $4 ÁPÍ réqúéšt$5. Áúthórížátíóñ: $6. Lášt çhéçkéd $7. ··································］"
+  },
+  "optionsReleaseTrackingWebsite": {
+    "message": "［Réléášé tráçkíñg réqúíréš GítHúb ÁPÍ módé; wébšíté módé ñévér réqúéštš réléášé éñdpóíñtš. ···························］"
   },
   "optionsReloadTryAgain": {
     "message": "［Rélóád thé págé tó trý ágáíñ. ·········］"
@@ -1049,6 +1079,9 @@
   "text_039a7130": {
     "message": "［Répóšítórý déšçríptíóñš ·······］"
   },
+  "text_040b54bc": {
+    "message": "［Réléášé álért šçópé ······］"
+  },
   "text_06cc87f5": {
     "message": "［Ápplý réštóré ····］"
   },
@@ -1057,6 +1090,9 @@
   },
   "text_08048a1e": {
     "message": "［Príváté óñlý ····］"
+  },
+  "text_0957c863": {
+    "message": "［Áll víšíblé répóšítóríéš úšé bóúñdéd GráphQL págéš whéñ áváíláblé. Šéléçtéd répóšítóríéš úšé óñlý théír réléášé éñdpóíñtš. Réléášé fréšhñéšš, áúthórížátíóñ áñd réqúéšt çóšt áppéár íñ thé štátúš bélów. ····························································］"
   },
   "text_0a902ccb": {
     "message": "［Víéw ñámé ···］"
@@ -1189,6 +1225,9 @@
   },
   "text_3bee4130": {
     "message": "［tó íñçlúdé príváté répóš. Ít íš šéñt óñlý tó ápí.gíthúb.çóm. ··················］"
+  },
+  "text_3da14b7a": {
+    "message": "［Áll víšíblé répóšítóríéš ·······］"
   },
   "text_3e124675": {
     "message": "［públíç_répó ···］"
@@ -1331,6 +1370,9 @@
   "text_5e4baa18": {
     "message": "［Víéw ·］"
   },
+  "text_5fc4061b": {
+    "message": "［ÁPÍ módé óñlý. Çhéçk thé látéšt réléášé áñd qúéúé óñé lóçál álért pér ñéw tág. ·······················］"
+  },
   "text_60e30d59": {
     "message": "［Çóñtról róóm ····］"
   },
@@ -1469,6 +1511,9 @@
   "text_95173e17": {
     "message": "［Órígíñálš + fórkš ·····］"
   },
+  "text_9520bfe7": {
+    "message": "［Ñéw réléášé álértš ·····］"
+  },
   "text_961b8dd5": {
     "message": "［3 hóúrš ··］"
   },
@@ -1480,6 +1525,9 @@
   },
   "text_97ecd300": {
     "message": "［Qúíét hóúrš štárt ·····］"
+  },
+  "text_980e3d2d": {
+    "message": "［Répóšítóríéš réçéívíñg réléášé álértš ···········］"
   },
   "text_995cbfe4": {
     "message": "［Tréñd wíñdów fór híštórý ártífáçtš ··········］"

@@ -83,8 +83,9 @@ telemetry — the API token, if you choose to use one, is sent only to
   all** by default, or the GitHub API for lower bandwidth and private repos.
 - **Release details** — opt in to the latest release tag, relative age and
   cumulative downloads across its assets. API mode reads the metadata through
-  GraphQL or one REST request per repository; website mode labels it explicitly
-  unavailable instead of showing a blank column.
+  bounded GraphQL pages for all visible repositories or only the selected
+  release endpoints; website mode labels it explicitly unavailable instead of
+  showing a blank column.
 - **Private repos** — supported when you add a token.
 - **Background refresh** — configurable interval, with a conservative 12-hour
   website default and six-hour automatic minimum.
@@ -323,6 +324,13 @@ repository thresholds are independent: choose recurring star milestones,
 minimum gains between successful refreshes, choose all repositories or an
 individual selected/muted repository list, or set any threshold to **Off**.
 Quiet hours and the cooldown are evaluated locally.
+
+The optional **New release alerts** lane reuses the same local notification
+permission. It is API-only, checks either all visible repositories or a capped
+selected list, reports the last check's freshness, authorization and request
+cost in Settings, and deduplicates each observed release tag locally. Website
+mode never requests release endpoints. Release preferences are included in
+portable backups; credentials and notification delivery state are not.
 
 Alerts are generated only from a newly committed successful refresh.
 Approximate/partial portfolio totals and approximate repositories are skipped,

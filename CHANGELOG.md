@@ -35,6 +35,10 @@
 - Release details are an opt-in row setting: API mode shows the latest tag,
   relative age and cumulative downloads across release assets, while website
   mode says the data is unavailable rather than presenting an empty field.
+- New release alerts are an opt-in API-only lane. All visible repositories use
+  bounded GraphQL pages when available; selected mode calls only selected
+  release endpoints, reports freshness/authorization/request cost in Settings,
+  and deduplicates each observed release tag in the local notification queue.
 - A static kill-switch: StarBoard reads one small JSON from its own GitHub Pages
   branch at most every six hours and can disable a named capability until the
   install reaches a stated version, so a field break no longer waits out a store

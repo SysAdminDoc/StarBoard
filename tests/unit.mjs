@@ -2408,6 +2408,66 @@ await test('release details normalize GraphQL assets and REST latest releases', 
   assert.ok(calls.includes('GET /repos/octocat/starboard/releases/latest'));
 });
 
+await test('selected release tracking bounds REST endpoints and reports request cost', async () => {
+  const profile = {
+    login: 'octocat',
+    name: 'The Octocat',
+    avatar_url: '',
+    html_url: 'https://github.com/octocat',
+    public_repos: 3,
+    followers: 0,
+  };
+  const requested = [];
+  const repos = [1, 2, 3].map((id) => ({
+    id,
+    name: `repo-${id}`,
+    full_name: `octocat/repo-${id}`,
+    stargazers_count: id,
+    forks_count: 0,
+    private: false,
+    fork: false,
+    archived: false,
+  }));
+  const result = await fetchAccount(
+    { username: 'octocat', token: '' },
+    {
+      graphql: false,
+      includeReleaseStats: true,
+      releaseTrackingMode: 'selected',
+      releaseRepositories: ['id:2'],
+      retries: 0,
+      now: () => 2000,
+      fetchImpl: async (url) => {
+        const parsed = new URL(url);
+        if (parsed.pathname === '/users/octocat') {
+          return new Response(JSON.stringify(profile), { status: 200 });
+        }
+        if (parsed.pathname.endsWith('/repos')) {
+          return new Response(JSON.stringify(repos), { status: 200 });
+        }
+        requested.push(parsed.pathname);
+        if (parsed.pathname !== '/repos/octocat/repo-2/releases/latest') {
+          throw new Error(`unselected release endpoint requested: ${parsed.pathname}`);
+        }
+        return new Response(JSON.stringify({
+          tag_name: 'v2.0.0',
+          published_at: '2026-08-01T12:00:00Z',
+          assets: [],
+        }), { status: 200 });
+      },
+      sleep: async () => {},
+    },
+  );
+  assert.deepEqual(requested, ['/repos/octocat/repo-2/releases/latest']);
+  assert.equal(result.releaseTracking.mode, 'selected');
+  assert.equal(result.releaseTracking.requestedCount, 1);
+  assert.equal(result.releaseTracking.attemptedCount, 1);
+  assert.equal(result.releaseTracking.skippedCount, 2);
+  assert.equal(result.releaseTracking.requests, 1);
+  assert.equal(result.repos.find((repo) => repo.id === 2).release.tag, 'v2.0.0');
+  assert.equal(Object.hasOwn(result.repos.find((repo) => repo.id === 1), 'release'), false);
+});
+
 await test('trend annotations use only bounded local lifecycle and history facts', async () => {
   const day = (offset) => Date.UTC(2026, 7, 2 - offset);
   const history = {
@@ -4316,6 +4376,64 @@ await test('notification milestones and deltas deduplicate across worker restart
     selectedRepository.pending.some((event) => event.id.includes('octocat/other')),
     false,
   );
+
+  const releasePrevious = {
+    source: 'api',
+    complete: true,
+    repos: [{
+      id: 1,
+      name: 'demo',
+      full_name: 'octocat/demo',
+      stargazers_count: 12,
+      forks_count: 0,
+      fork: false,
+      approx: false,
+      release: { tag: 'v1.0.0', publishedAt: '2026-07-30T12:00:00Z', downloads: 1, assetCount: 1 },
+    }],
+  };
+  const releaseCurrent = {
+    source: 'api',
+    complete: true,
+    repos: [{
+      ...releasePrevious.repos[0],
+      release: { tag: 'v1.1.0', publishedAt: '2026-08-01T12:00:00Z', downloads: 2, assetCount: 1 },
+    }],
+  };
+  const releaseConfig = {
+    ...config,
+    portfolioDelta: 0,
+    repositoryDelta: 0,
+    portfolioMilestone: 0,
+    repositoryMilestone: 0,
+    releaseAlertsEnabled: true,
+    releaseAlertMode: 'selected',
+    releaseAlerts: ['id:1'],
+  };
+  const releaseEvents = evaluateNotificationEvents(
+    releasePrevious,
+    releaseCurrent,
+    releaseConfig,
+    emptyNotificationState(),
+    { generation: 'notification-release-1', now: 6000 },
+  );
+  assert.deepEqual(releaseEvents.pending.map((event) => event.id), ['release:name:octocat/demo:v1.1.0']);
+  const releaseAcknowledged = acknowledgeNotifications(releaseEvents, null, 7000);
+  const releaseNoRepeat = evaluateNotificationEvents(
+    releasePrevious,
+    releaseCurrent,
+    releaseConfig,
+    releaseAcknowledged,
+    { generation: 'notification-release-2', now: 8000 },
+  );
+  assert.equal(releaseNoRepeat.pending.length, 0);
+  const unavailableRelease = evaluateNotificationEvents(
+    releasePrevious,
+    { ...releaseCurrent, repos: [{ ...releaseCurrent.repos[0], releaseUnavailable: true }] },
+    releaseConfig,
+    emptyNotificationState(),
+    { generation: 'notification-release-3', now: 9000 },
+  );
+  assert.equal(unavailableRelease.pending.length, 0);
 });
 
 await test('nine notified alerts remain reachable until the user acknowledges them', async () => {

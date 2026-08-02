@@ -16,6 +16,7 @@ const PER_PAGE = 100;
 const MAX_PAGES = 20;
 const REQUEST_TIMEOUT_MS = 20_000;
 const REQUEST_RETRIES = 2;
+export const MAX_RELEASE_TRACKING_REPOSITORIES = 500;
 
 export class GitHubError extends Error {
   constructor(
@@ -526,6 +527,21 @@ async function fetchAccountGraphQL({ username, token }, options = {}) {
     },
     pagesFetched,
     requestAttempts: attempts,
+    releaseTracking: options.includeReleaseStats
+      ? {
+          enabled: true,
+          mode: options.releaseTrackingMode === 'selected' ? 'selected' : 'all',
+          requestedCount: repos.length,
+          attemptedCount: repos.length,
+          skippedCount: 0,
+          unavailableCount: repos.filter((repo) => repo.releaseUnavailable).length,
+          requests: pagesFetched,
+          rateLimited: false,
+          fetchedAt: (options.now || Date.now)(),
+          authorization: 'authenticated',
+          source: 'api',
+        }
+      : null,
     // GraphQL is a POST and carries no ETag, so nothing here can be
     // revalidated. Prior REST validators are preserved by the caller so a
     // fallback still gets its 304s.
@@ -618,12 +634,33 @@ async function fetchReleaseMetadata(repos, token, options = {}) {
   let attempts = 0;
   let rate = null;
   const enriched = [];
+  const mode = options.releaseTrackingMode === 'selected' ? 'selected' : 'all';
+  const selected = new Set(
+    Array.isArray(options.releaseRepositories)
+      ? options.releaseRepositories.slice(0, MAX_RELEASE_TRACKING_REPOSITORIES)
+      : [],
+  );
+  const isSelected = (repo) =>
+    selected.has(`id:${repo.id}`) || selected.has(`name:${repo.full_name}`);
+  const requested = mode === 'selected'
+    ? repos.filter(isSelected).slice(0, MAX_RELEASE_TRACKING_REPOSITORIES)
+    : repos;
+  const requestedNames = new Set(requested.map((repo) => repo.full_name));
+  let attempted = 0;
+  let unavailable = 0;
+  let rateLimited = false;
 
   for (let index = 0; index < repos.length; index += 1) {
     const repo = repos[index];
+    if (!requestedNames.has(repo.full_name)) {
+      enriched.push({ ...repo });
+      continue;
+    }
+    attempted += 1;
     const path = releasePath(repo.full_name);
     if (!path) {
       enriched.push({ ...repo, release: null, releaseUnavailable: true });
+      unavailable += 1;
       continue;
     }
     try {
@@ -639,20 +676,44 @@ async function fetchReleaseMetadata(repos, token, options = {}) {
         continue;
       }
       enriched.push({ ...repo, release: null, releaseUnavailable: true });
+      unavailable += 1;
       if (error?.code === 'RATE_LIMITED') {
+        rateLimited = true;
         for (let rest = index + 1; rest < repos.length; rest += 1) {
+          if (!requestedNames.has(repos[rest].full_name)) {
+            enriched.push({ ...repos[rest] });
+            continue;
+          }
           enriched.push({
             ...repos[rest],
             release: null,
             releaseUnavailable: true,
           });
+          unavailable += 1;
         }
         break;
       }
     }
   }
 
-  return { repos: enriched, rate, attempts };
+  return {
+    repos: enriched,
+    rate,
+    attempts,
+    releaseTracking: {
+      enabled: true,
+      mode,
+      requestedCount: requested.length,
+      attemptedCount: attempted,
+      skippedCount: Math.max(0, repos.length - requested.length),
+      unavailableCount: unavailable,
+      requests: attempts,
+      rateLimited,
+      fetchedAt: (options.now || Date.now)(),
+      authorization: token ? 'authenticated' : 'anonymous',
+      source: 'api',
+    },
+  };
 }
 
 function trimProfile(profile) {
@@ -853,14 +914,21 @@ export async function fetchAccount({ username, token }, options = {}) {
     ...requestOptions,
     validators,
     previousRepos: previous?.repos || [],
-    includeReleaseStats: options.includeReleaseStats === true,
+    // Release endpoints are selected and accounted for separately below.
+    // Keeping the list request free of release fields prevents an unselected
+    // repository from looking like it was checked with a null release.
+    includeReleaseStats: false,
   });
   Object.assign(nextValidators, listed.validators);
   attempts += listed.attempts;
 
   const releaseData = options.includeReleaseStats
-    ? await fetchReleaseMetadata(listed.repos, token, requestOptions)
-    : { repos: listed.repos, rate: listed.rate, attempts: 0 };
+    ? await fetchReleaseMetadata(listed.repos, token, {
+        ...requestOptions,
+        releaseTrackingMode: options.releaseTrackingMode,
+        releaseRepositories: options.releaseRepositories,
+      })
+    : { repos: listed.repos, rate: listed.rate, attempts: 0, releaseTracking: null };
   attempts += releaseData.attempts;
 
   // GitHub states how many repositories the account owns. If pagination
@@ -895,6 +963,7 @@ export async function fetchAccount({ username, token }, options = {}) {
     cap: listed.cap,
     pagesFetched: listed.pagesFetched,
     requestAttempts: attempts,
+    releaseTracking: releaseData.releaseTracking,
     validators: nextValidators,
     fetchedAt: (options.now || Date.now)(),
   };
