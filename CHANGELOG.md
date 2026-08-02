@@ -42,6 +42,10 @@
   open instead of pinning a feature off indefinitely.
 - Aggregate trend deltas now show an explicit partial marker and accessible
   coverage count when some visible repositories have no retained comparison.
+- Stranded sparkline measurements now render as physical-pixel ticks even when
+  the value range is large, and flat series are centered in their plot box.
+- Trend-table rows without two retained endpoints sort last with a stable name
+  tie-breaker; missing comparisons never enter arithmetic as `NaN`.
 - The trend table now sorts with a delta-only pass and builds full star/fork
   series only for its 50 displayed rows, keeping large portfolios bounded.
 - The scale gate now measures both baseline and 7-day sparkline/table rendering

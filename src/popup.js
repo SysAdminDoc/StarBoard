@@ -30,6 +30,7 @@ import {
 import { formatters, localizeDocument, message } from './lib/i18n.js';
 import {
   SPARKLINE_MIN_POINTS,
+  compareHistoryDeltas,
   historyPointsForRepos,
   historyDeltaForRepo,
   historyRepoIndex,
@@ -658,9 +659,11 @@ function sparklineNode(series) {
   const measured = series.values.filter((point) => point.value !== null).map((p) => p.value);
   const min = Math.min(...measured);
   const max = Math.max(...measured);
+  const flat = min === max;
   // A flat series would collapse to a zero-height box and disappear.
-  const span = max - min || 1;
+  const span = flat ? 1 : max - min;
   const width = Math.max(1, series.days - 1);
+  const yFor = (value) => (flat ? min + span / 2 : min + max - value);
 
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('class', `spark${series.delta < 0 ? ' is-down' : ''}`);
@@ -673,10 +676,16 @@ function sparklineNode(series) {
   for (const segment of segments) {
     if (segment.length === 1) {
       // One measurement stranded between long gaps is still a measurement.
-      const dot = document.createElementNS(SVG_NS, 'circle');
-      dot.setAttribute('cx', String(segment[0].index));
-      dot.setAttribute('cy', String(min + max - segment[0].value));
-      dot.setAttribute('r', '0.6');
+      // A radius is stretched by preserveAspectRatio="none" and can become
+      // sub-pixel when the value range is large. A short data-space tick keeps
+      // the measurement visible in physical pixels instead.
+      const dot = document.createElementNS(SVG_NS, 'line');
+      const halfHeight = span * 0.1;
+      dot.setAttribute('x1', String(segment[0].index));
+      dot.setAttribute('x2', String(segment[0].index));
+      dot.setAttribute('y1', String(yFor(segment[0].value) - halfHeight));
+      dot.setAttribute('y2', String(yFor(segment[0].value) + halfHeight));
+      dot.setAttribute('class', 'spark-point');
       svg.appendChild(dot);
       continue;
     }
@@ -686,7 +695,7 @@ function sparklineNode(series) {
       segment
         // SVG y grows downward; mirror the value around the series midpoint so
         // a rising count rises on screen.
-        .map((point, i) => `${i ? 'L' : 'M'}${point.index} ${min + max - point.value}`)
+        .map((point, i) => `${i ? 'L' : 'M'}${point.index} ${yFor(point.value)}`)
         .join(' '),
     );
     svg.appendChild(path);
@@ -733,7 +742,7 @@ function renderTrendTable(rows) {
     }))
     // Biggest movers first: a comparison ordered by current stars answers a
     // different question than the one this table is for.
-    .sort((a, b) => (b.stars.delta ?? -Infinity) - (a.stars.delta ?? -Infinity));
+    .sort((a, b) => compareHistoryDeltas(a.stars, b.stars));
   const shown = compared.slice(0, TREND_TABLE_MAX_ROWS).map(({ repo }) => ({
     repo,
     stars: historySeriesForRepo(state.history, repo, days, { index }),

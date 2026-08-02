@@ -2774,8 +2774,8 @@ async function main() {
         roledescription: svg.getAttribute('aria-roledescription'),
         label: svg.getAttribute('aria-label'),
         preserve: svg.getAttribute('preserveAspectRatio'),
-        segments: svg.querySelectorAll('path, circle').length,
-        strokeEffect: getComputedStyle(svg.querySelector('path')).vectorEffect,
+        segments: svg.querySelectorAll('path, line').length,
+        strokeEffect: getComputedStyle(svg.querySelector('path, line')).vectorEffect,
         width: box.width,
         rowFits: row.getBoundingClientRect().right <= document.body.clientWidth,
         focusables: row.querySelectorAll('a, button, input, select, [tabindex]').length,
@@ -2940,6 +2940,88 @@ async function main() {
       const { setHistory } = await import('./lib/storage.js');
       await setHistory(history);
     }, fullHistory);
+    await popup.reload();
+    await popup.waitForFunction(() => document.querySelectorAll('.row').length > 0);
+
+    // A single point after a long gap must stay visible, and a flat series
+    // belongs in the middle of its plot rather than at the top edge.
+    const edgeFixture = await popup.evaluate(async () => {
+      const { getCache, getSettings, setCache, setHistory, setSettings } =
+        await import('./lib/storage.js');
+      const cache = await getCache();
+      const settings = await getSettings();
+      const candidates = cache.repos.filter((repo) => !repo.fork);
+      const flat = candidates[0];
+      const stranded = candidates[1];
+      const strandedOffsets = new Set([29, 28, 27, 10, 0]);
+      const offsets = [29, 28, 27, 10, 4, 3, 2, 1, 0];
+      const flatKey = `name:${flat.full_name}`;
+      const strandedKey = `name:${stranded.full_name}`;
+      const now = Date.now();
+      const history = {
+        formatVersion: 3,
+        repos: [
+          [flatKey, flat.full_name, flat.private ? 1 : 0],
+          [strandedKey, stranded.full_name, stranded.private ? 1 : 0],
+        ],
+        snapshots: offsets.map((offset) => ({
+          day: new Date(now - offset * 86_400_000).toISOString().slice(0, 10),
+          at: now - offset * 86_400_000,
+          source: 'api',
+          confidence: 'exact',
+          stars: [offset <= 4 ? 123 : null, strandedOffsets.has(offset) ? 20 + (29 - offset) : null],
+          forks: [offset <= 4 ? 7 : null, strandedOffsets.has(offset) ? 5 + (29 - offset) : null],
+          approx: [],
+        })),
+      };
+      await setHistory(history);
+      // Keep popup startup from racing this renderer-only fixture with a live
+      // refresh that would replace the synthetic points.
+      await setCache({ ...cache, fetchedAt: Date.now() });
+      await setSettings({ ...settings, refreshMinutes: 100000 });
+      return { flat: flat?.full_name, stranded: stranded?.full_name, settings };
+    });
+    await popup.reload();
+    await popup.selectOption('#trendRange', '30');
+    await popup.waitForFunction(() => document.querySelectorAll('.row').length > 0);
+    const edgeGeometry = await popup.evaluate((names) => {
+      const rowFor = (fullName) =>
+        [...document.querySelectorAll('.row')].find((row) => row.href.endsWith(`/${fullName}`));
+      const flatRow = rowFor(names.flat);
+      const flatSvg = flatRow?.querySelector('svg.spark');
+      const flatPath = flatSvg?.querySelector('path');
+      const viewBox = flatSvg?.viewBox.baseVal;
+      const pathBox = flatPath?.getBBox();
+      const strandedRow = rowFor(names.stranded);
+      const point = strandedRow?.querySelector('.spark-point');
+      const pointBox = point?.getBoundingClientRect();
+      return {
+        names,
+        flatRow: !!flatRow,
+        strandedRow: !!strandedRow,
+        strandedSvg: !!strandedRow?.querySelector('svg.spark'),
+        strandedThin: strandedRow?.querySelector('.spark-thin')?.textContent || '',
+        flatCentered:
+          !!viewBox &&
+          !!pathBox &&
+          Math.abs(pathBox.y + pathBox.height / 2 - (viewBox.y + viewBox.height / 2)) < 0.01,
+        strandedPointVisible:
+          !!point && (pointBox?.height || 0) > 0 && getComputedStyle(point).strokeWidth === '4px',
+        strandedStroke: point ? getComputedStyle(point).vectorEffect : '',
+      };
+    }, edgeFixture);
+    check(
+      'a stranded sparkline point stays visible and flat series are centered',
+      edgeGeometry.flatCentered &&
+        edgeGeometry.strandedPointVisible &&
+        edgeGeometry.strandedStroke === 'non-scaling-stroke',
+      JSON.stringify(edgeGeometry),
+    );
+    await popup.evaluate(async ([history, settings]) => {
+      const { setHistory, setSettings } = await import('./lib/storage.js');
+      await setHistory(history);
+      await setSettings(settings);
+    }, [fullHistory, edgeFixture.settings]);
     await popup.reload();
     await popup.waitForFunction(() => document.querySelectorAll('.row').length > 0);
 

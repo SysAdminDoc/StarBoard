@@ -721,6 +721,23 @@ export function historyDeltaForRepo(
   };
 }
 
+/**
+ * Order trend-table deltas without allowing missing comparisons to become
+ * NaN. Repositories without two retained endpoints sort last; ties, including
+ * an all-missing column, use their stable history key for deterministic output.
+ */
+export function compareHistoryDeltas(a, b) {
+  const aDelta = Number.isFinite(a?.delta) ? a.delta : null;
+  const bDelta = Number.isFinite(b?.delta) ? b.delta : null;
+  if (aDelta === null || bDelta === null) {
+    if (aDelta === null && bDelta === null) {
+      return String(a?.key || '').localeCompare(String(b?.key || ''));
+    }
+    return aDelta === null ? 1 : -1;
+  }
+  return bDelta - aDelta || String(a?.key || '').localeCompare(String(b?.key || ''));
+}
+
 /** One key→slot map for a whole board render, so per-row reads stay linear. */
 export function historyRepoIndex(history) {
   return new Map((history?.repos || []).map((entry, at) => [entry[0], at]));

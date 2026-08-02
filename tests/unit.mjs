@@ -1902,6 +1902,23 @@ await test('a sparkline series keeps gaps and never carries a value forward', as
   assert.deepEqual(indexed.values, series.values);
 });
 
+await test('trend delta ordering keeps missing comparisons last and deterministic', async () => {
+  const { compareHistoryDeltas } = await import('../src/lib/history.js');
+  const missingA = { key: 'name:octocat/a', delta: null };
+  const missingB = { key: 'name:octocat/b', delta: null };
+  assert.equal(Number.isNaN(compareHistoryDeltas(missingA, missingB)), false);
+  assert.ok(compareHistoryDeltas(missingA, missingB) < 0);
+  assert.ok(compareHistoryDeltas(missingA, { key: 'name:octocat/c', delta: 0 }) > 0);
+  assert.ok(compareHistoryDeltas({ key: 'name:octocat/d', delta: 3 }, missingA) < 0);
+  assert.equal(
+    compareHistoryDeltas(
+      { key: 'name:octocat/e', delta: 4 },
+      { key: 'name:octocat/f', delta: 4 },
+    ),
+    -1,
+  );
+});
+
 await test('website count parsing covers full, abbreviated, and malformed input', async () => {
   const { parseCount } = await import('../src/lib/scrape.js');
   // What the repositories tab actually renders (verified 2026-07-31): full

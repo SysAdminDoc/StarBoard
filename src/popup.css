@@ -1317,8 +1317,17 @@ select:disabled {
   fill: var(--accent);
 }
 
+.spark .spark-point {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-width: 4px;
+  vector-effect: non-scaling-stroke;
+}
+
 .spark.is-down path,
-.spark.is-down circle {
+.spark.is-down circle,
+.spark.is-down .spark-point {
   stroke: var(--faint);
   fill: var(--faint);
 }
