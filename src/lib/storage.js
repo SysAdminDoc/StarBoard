@@ -347,6 +347,9 @@ function validateCache(value) {
   assert(Array.isArray(value.repos), 'cache repositories must be an array');
   value.repos.forEach(validateRepo);
   assertFinite(value.fetchedAt, 'cache fetchedAt');
+  if (value.authenticated != null) {
+    assert(typeof value.authenticated === 'boolean', 'cache authentication state must be boolean');
+  }
   if (value.confidence != null) {
     assert(
       ['exact', 'approximate', 'partial', 'stale'].includes(value.confidence),

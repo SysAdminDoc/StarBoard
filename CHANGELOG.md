@@ -36,6 +36,9 @@
 
 ### Fixed
 
+- API snapshots now record whether the fetch was authenticated. Losing a session
+  token produces a clearly explained partial snapshot without false repository
+  removals, and GraphQL validates coverage against its paginated total.
 - Settings had no representation for its own async load: until it resolved,
   every field still read its markup defaults, so an activation saved `web` and
   `dark` over the user's real settings. The form is now disabled and marked busy

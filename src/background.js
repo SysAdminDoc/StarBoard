@@ -373,15 +373,31 @@ async function runRefresh(intent) {
       generation,
     });
     const source = result.source || 'api';
-    const complete = result.complete !== false;
+    const authenticated =
+      typeof result.authenticated === 'boolean'
+        ? result.authenticated
+        : source === 'web'
+          ? true
+          : false;
+    const accessReduced =
+      previous?.source === source &&
+      previous.authenticated === true &&
+      authenticated === false;
+    const complete = result.complete !== false && !accessReduced;
     const approximate = !!result.approximate;
     const cache = {
       ...result,
       source,
+      authenticated,
+      accessReduced,
       requestedSource: settings.dataSource,
-      previousSource: previous?.source && previous.source !== source ? previous.source : null,
+      previousSource:
+        previous?.source &&
+        (previous.source !== source || previous.authenticated !== authenticated)
+          ? previous.source
+          : null,
       complete,
-      partialReason: result.partialReason || null,
+      partialReason: accessReduced ? 'access-reduced' : result.partialReason || null,
       confidence: complete ? (approximate ? 'approximate' : 'exact') : 'partial',
       stale: false,
       pendingSource: null,

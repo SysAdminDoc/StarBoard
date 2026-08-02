@@ -30,6 +30,9 @@ export function deriveLifecycleEvents(
   if (
     !previous?.repos ||
     previous.source !== source ||
+    (previous.authenticated != null &&
+      current.authenticated != null &&
+      previous.authenticated !== current.authenticated) ||
     previous.complete === false ||
     current.complete === false
   ) {

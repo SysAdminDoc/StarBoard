@@ -413,6 +413,7 @@ async function fetchAccountGraphQL({ username, token }, options = {}) {
   let user = null;
   let viewer = null;
   let hasNextPage = true;
+  let declared = 0;
   const byKey = new Map();
 
   while (hasNextPage && pagesFetched < MAX_PAGES) {
@@ -429,6 +430,7 @@ async function fetchAccountGraphQL({ username, token }, options = {}) {
       });
     }
     const page = user.repositories;
+    declared = Number(page?.totalCount) || declared;
     for (const node of page?.nodes || []) {
       const repo = trimGraphRepo(node);
       byKey.set(repo.id ?? repo.full_name, repo);
@@ -438,8 +440,10 @@ async function fetchAccountGraphQL({ username, token }, options = {}) {
     if (!cursor) break;
   }
 
-  const declared =
-    (user.publicRepositories?.totalCount || 0) + (user.privateRepositories?.totalCount || 0);
+  // The paginated connection's own totalCount is the independent count for
+  // the exact owner-affiliation view we walked. The public/private profile
+  // connections use separate permission filters and can therefore agree with
+  // an incomplete listing while hiding the missing rows.
   const repos = [...byKey.values()];
   const shortfall = declared > 0 ? declared - repos.length : 0;
   const capped = hasNextPage;
@@ -452,6 +456,7 @@ async function fetchAccountGraphQL({ username, token }, options = {}) {
     rate,
     source: 'api',
     transport: 'graphql',
+    authenticated: true,
     complete,
     partialReason: capped ? 'cap' : shortfall > 0 ? 'shortfall' : null,
     shortfall: shortfall > 0 ? shortfall : 0,
@@ -741,6 +746,7 @@ export async function fetchAccount({ username, token }, options = {}) {
     rate: listed.rate,
     source: 'api',
     transport: 'rest',
+    authenticated: !!token,
     complete,
     partialReason,
     shortfall: shortfall > 0 ? shortfall : 0,

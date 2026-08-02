@@ -845,13 +845,14 @@ await test('REST adapter follows Link pagination and reuses ETag snapshots', asy
   assert.equal(first.repos.length, 2);
   assert.equal(first.pagesFetched, 2);
   assert.equal(first.complete, true);
+  assert.equal(first.authenticated, false);
   assert.ok(
     requests.every(({ headers }) => headers['X-GitHub-Api-Version'] === '2026-03-10'),
     'every REST request must pin the current GitHub API version',
   );
 
   const authenticatedHeaders = [];
-  await fetchAccount(
+  const authenticated = await fetchAccount(
     { username: 'octocat', token: 'ghp_fixture' },
     {
       fetchImpl: async (url, options) => {
@@ -867,6 +868,7 @@ await test('REST adapter follows Link pagination and reuses ETag snapshots', asy
       authenticatedHeaders.every((value) => value === 'Bearer ghp_fixture'),
     'token requests remain authenticated without a host permission',
   );
+  assert.equal(authenticated.authenticated, true);
 
   const conditionalHeaders = [];
   const second = await fetchAccount(
@@ -1586,7 +1588,7 @@ await test('the GraphQL and REST listings normalize to identical records', async
     publicRepositories: { totalCount: 1 },
     privateRepositories: { totalCount: 0 },
     repositories: {
-      totalCount: 1,
+    totalCount: 2,
       pageInfo: { hasNextPage: false, endCursor: null },
       nodes: [graphNode],
     },
@@ -1634,6 +1636,11 @@ await test('the GraphQL and REST listings normalize to identical records', async
 
   assert.equal(viaGraph.transport, 'graphql');
   assert.equal(viaRest.transport, 'rest');
+  assert.equal(viaGraph.authenticated, true);
+  assert.equal(viaRest.authenticated, true);
+  assert.equal(viaGraph.complete, false);
+  assert.equal(viaGraph.partialReason, 'shortfall');
+  assert.equal(viaGraph.shortfall, 1);
   assert.deepEqual(viaGraph.repos, viaRest.repos, 'normalized records must not diverge');
   assert.deepEqual(viaGraph.repos, [restRepo]);
   assert.deepEqual(viaGraph.profile, viaRest.profile);
@@ -2128,6 +2135,16 @@ await test('stable API IDs distinguish rename, addition, and removal', async () 
   );
   assert.equal(mergeLifecycleEvents(events, events).length, 3);
   assert.equal(acknowledgeLifecycleEvents(events, [events[0].id]).length, 2);
+
+  assert.deepEqual(
+    deriveLifecycleEvents(
+      { ...previous, authenticated: true },
+      { ...current, authenticated: false },
+      { generation: 'g2', now: 200, source: 'api' },
+    ),
+    [],
+    'authentication loss is a source boundary, not repository removals',
+  );
 });
 
 await test('lifecycle history keeps exactly MAX_EVENTS at its boundary', async () => {

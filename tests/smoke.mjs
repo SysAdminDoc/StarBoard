@@ -1599,6 +1599,7 @@ async function main() {
           secondRefresh.cache.repos.find((repo) => repo.name === 'alpha').stargazers_count === 34,
         JSON.stringify({ ok: secondRefresh?.ok }),
       );
+
       const movementView = await popup.evaluate(() => ({
         movedRows: document.querySelectorAll('.row.moved').length,
         movedLabel: document.querySelector('.row.moved .movement-tag')?.textContent || '',
@@ -3753,6 +3754,140 @@ async function main() {
     );
     await popup.screenshot({ path: `${SHOTS}/04-popup-light.png` });
 
+    // A session token can disappear after a browser restart. The next API
+    // snapshot must not look exact just because its public count matches the
+    // unauthenticated listing: private rows may simply be invisible now.
+    const installAuthFixtures = async (repos) => {
+      await worker.evaluate((list) => {
+        globalThis.__starboardOriginalFetch ||= globalThis.fetch;
+        globalThis.fetch = async (input) => {
+          const url = String(input?.url || input);
+          const body = url.includes('/repos') ? list : {
+            login: 'octocat',
+            name: 'The Octocat',
+            avatar_url: '',
+            html_url: 'https://github.com/octocat',
+            public_repos: 3,
+            followers: 12,
+          };
+          return new Response(JSON.stringify(body), {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+              'x-ratelimit-limit': '60',
+              'x-ratelimit-remaining': '57',
+              etag: `"auth-${url.length}-${JSON.stringify(body).length}"`,
+            },
+          });
+        };
+        }, repos);
+    };
+    const authRepo = (id, name, stars, forks, privateRepo = false) => ({
+      id,
+      name,
+      full_name: `octocat/${name}`,
+      html_url: `https://github.com/octocat/${name}`,
+      description: `${name} description`,
+      language: 'JavaScript',
+      stargazers_count: stars,
+      forks_count: forks,
+      open_issues_count: 0,
+      private: privateRepo,
+      fork: false,
+      archived: false,
+      updated_at: '2026-07-30T12:00:00Z',
+      pushed_at: '2026-07-30T12:00:00Z',
+    });
+    const authStateBefore = await popup.evaluate(async () => {
+      const { getSettings, getCache, getBaseline, getHistory } = await import('./lib/storage.js');
+      const [settings, cache, baseline, history] = await Promise.all([
+        getSettings(),
+        getCache(),
+        getBaseline(),
+        getHistory(),
+      ]);
+      return { settings, cache, baseline, history };
+    });
+    await popup.evaluate(async () => {
+      const { setSettings } = await import('./lib/storage.js');
+      await setSettings({ token: 'fixture-token', tokenMode: 'session', dataSource: 'api' });
+    });
+    await installAuthFixtures([
+      authRepo(1, 'alpha', 34, 3),
+      authRepo(2, 'bravo', 20, 2),
+      authRepo(3, 'charlie', 10, 1),
+      authRepo(4, 'private', 8, 0, true),
+    ]);
+    const authenticatedRefresh = await popup.evaluate(() =>
+      chrome.runtime.sendMessage({ type: 'refresh', force: true, reason: 'auth-fixture' }),
+    );
+    check(
+      'an authenticated refresh records its access state',
+      authenticatedRefresh?.ok === true &&
+        authenticatedRefresh.cache?.authenticated === true &&
+        authenticatedRefresh.cache?.complete === true,
+      JSON.stringify({
+        authenticated: authenticatedRefresh?.cache?.authenticated,
+        complete: authenticatedRefresh?.cache?.complete,
+      }),
+    );
+
+    await popup.evaluate(async () => {
+      const { setSettings } = await import('./lib/storage.js');
+      await setSettings({ token: '', tokenMode: 'session', dataSource: 'api' });
+    });
+    await installAuthFixtures([
+      authRepo(1, 'alpha', 34, 3),
+      authRepo(2, 'bravo', 20, 2),
+      authRepo(3, 'charlie', 10, 1),
+    ]);
+    const reducedRefresh = await popup.evaluate(() =>
+      chrome.runtime.sendMessage({ type: 'refresh', force: true, reason: 'auth-loss-fixture' }),
+    );
+    check(
+      'losing authentication commits a partial snapshot without removals',
+      reducedRefresh?.ok === true &&
+        reducedRefresh.cache?.authenticated === false &&
+        reducedRefresh.cache?.complete === false &&
+        reducedRefresh.cache?.confidence === 'partial' &&
+        reducedRefresh.cache?.partialReason === 'access-reduced' &&
+        !(reducedRefresh.cache?.lifecycleEvents || []).some((event) => event.type === 'removed'),
+      JSON.stringify({
+        authenticated: reducedRefresh?.cache?.authenticated,
+        complete: reducedRefresh?.cache?.complete,
+        confidence: reducedRefresh?.cache?.confidence,
+        partialReason: reducedRefresh?.cache?.partialReason,
+      }),
+    );
+    await popup.reload();
+    await popup.waitForSelector('#banner:not([hidden])', { timeout: 10000 });
+    const accessBanner = await popup.$eval('#banner', (node) => ({
+      action: node.querySelector('.banner-action')?.textContent || '',
+      text: node.querySelector('.banner-text')?.textContent || '',
+    }));
+    check(
+      'the popup explains reduced access and offers settings recovery',
+      /access reduced/i.test(accessBanner.text) &&
+        /unauthenticated/i.test(accessBanner.text) &&
+        /private repositories/i.test(accessBanner.text) &&
+        accessBanner.action === 'Open settings',
+      JSON.stringify(accessBanner),
+    );
+    await popup.evaluate(async (state) => {
+      const { setSettings, setCache, setBaseline, setHistory } = await import('./lib/storage.js');
+      await setSettings(state.settings);
+      await setCache(state.cache);
+      await setBaseline(state.baseline);
+      await setHistory(state.history);
+    }, authStateBefore);
+    await worker.evaluate(() => {
+      if (globalThis.__starboardOriginalFetch) {
+        globalThis.fetch = globalThis.__starboardOriginalFetch;
+      }
+    });
+    await popup.reload();
+    await popup.waitForSelector('.row', { timeout: 30000 });
+
     // Refresh ownership belongs to the worker, so closing the initiating popup
     // must not cancel the generation.
     const beforePopupClose = await options.evaluate(async () => {
@@ -4358,6 +4493,7 @@ async function main() {
       ),
       seededSettings,
     );
+
     await busyOptions.close();
   } finally {
     await closeContext(ctx);

@@ -1235,6 +1235,16 @@ function renderBannerContent() {
     return;
   }
   if (state.cache?.complete === false) {
+    if (state.cache.partialReason === 'access-reduced') {
+      showBanner(
+        'Access reduced: this refresh was unauthenticated after the previous snapshot used a token. Private repositories may be missing. Add the token again in Settings.',
+        {
+          label: 'Open settings',
+          onClick: () => chrome.runtime.openOptionsPage(),
+        },
+      );
+      return;
+    }
     const reason = {
       cap: `the ${state.cache.cap?.maxRepositories || 1500}-repository safety cap was reached`,
       'parser-drift': 'a later GitHub page could not be parsed',
