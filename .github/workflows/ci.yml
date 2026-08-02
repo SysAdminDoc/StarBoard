@@ -51,6 +51,22 @@ jobs:
       # API traffic is fixture-backed and every other external route is aborted.
       - run: node tests/smoke.mjs --zip --offline
 
+  firefox-advisory:
+    name: Firefox extension smoke (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # The Firefox port is not shipping yet. web-ext still proves that the
+      # disposable compatibility manifest and shared extension page load.
+      - run: npm run test:firefox
+
   reproducible-build:
     name: Reproducible build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

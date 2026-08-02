@@ -175,6 +175,29 @@ Use the API source when you want lower bandwidth, a documented rate-limit
 budget, or private repositories through a token. Otherwise the website source
 is the recommended zero-setup choice.
 
+## What StarBoard cannot show
+
+StarBoard is a local snapshot board, not a GitHub analytics service. Each source
+has deliberate limits:
+
+- **Website mode** can see only the repositories that GitHub renders on the
+  signed-in repositories page. It cannot see private repositories that page
+  does not expose, API quota, release downloads, traffic, or anything that was
+  not present when StarBoard refreshed. It also cannot provide stargazer
+  identities or historical star counts for repositories you do not administer.
+- **API mode** without a token cannot see private repositories. With a token it
+  can see only the repositories and fields that GitHub authorizes for that
+  token; it still does not provide stargazer identities, third-party historical
+  star counts, traffic, or snapshots from before StarBoard was installed and
+  first refreshed.
+
+Stargazer identities and third-party star history are unavailable through the
+supported GitHub access paths after GitHub's 2026-06-30 restriction. StarBoard
+does not ask for a workaround or scrape those records. No token is ever
+required. If you choose API mode, a token is transmitted only to
+`api.github.com`; website mode uses your existing `github.com` session without
+reading or storing its cookie values.
+
 ## Privacy and permissions
 
 StarBoard has no developer telemetry, analytics, advertising, remote backend
@@ -382,6 +405,7 @@ npm run check                    # syntax, JSON, version and pseudo-locale align
 npm run locales                  # regenerate the en_XA pseudo-locale from en
 npm run typecheck                # tsc --checkJs over src/ and scripts/, no emit
 node tests/unit.mjs              # deterministic storage/refresh/request checks
+node tests/firefox.mjs           # advisory web-ext lint + Firefox smoke when installed
 py -3.12 tests/release_test.py   # isolated, reproducible release validation
 node tests/smoke.mjs             # drive the real popup against the live API
 node tests/smoke.mjs --zip       # same, against the built artifact
@@ -409,6 +433,12 @@ production — is bypassed.
 The notification lane similarly copies the extension into a throwaway build
 with `notifications` promoted from optional to declared so automation can test
 real OS-notification creation without clicking a native permission bubble.
+
+The Firefox lane is advisory while the Firefox port is still parked. It creates
+an ephemeral manifest that removes Chrome-only offscreen and side-panel
+surfaces, runs `web-ext` lint, and, when Firefox is installed, opens an
+extension-page smoke check for storage, i18n and packaged UI resources. It does
+not claim Firefox store readiness or AMO publication.
 
 ### Field kill-switch
 
@@ -442,8 +472,8 @@ configuration. Live API/web parity remains a local release check because CI must
 not depend on GitHub quota or credentials.
 
 **No dependency ships inside the extension.** The released ZIP contains only
-StarBoard's own files; Playwright, TypeScript and Pillow exist for tests, type
-checking and icon generation and are never bundled or loaded at runtime. The
+StarBoard's own files; Playwright, web-ext, TypeScript and Pillow exist for
+tests, type checking and icon generation and are never bundled or loaded at runtime. The
 SPDX SBOM emitted next to each build lists them explicitly as `TEST_TOOL_OF`,
 `DEV_TOOL_OF` and `BUILD_TOOL_OF` with `filesAnalyzed: false`, so a scanner
 reading the document can tell they are build-time components rather than

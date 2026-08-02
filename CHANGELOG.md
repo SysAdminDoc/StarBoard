@@ -4,6 +4,9 @@
 
 ### Added
 
+- README trust guidance now states the source-specific visibility limits,
+  unavailable stargazer and third-party history data, and the API-only token
+  destination.
 - Every row now draws an inline SVG sparkline of the selected trend range, with
   no charting library. A gap wider than the carry-forward window splits the line
   into separate segments rather than being drawn through it, and a series with
@@ -26,6 +29,9 @@
   point per 100 repositories, ranked server-side, where REST needed one request
   per 100 and silently ignored `sort=stars`. Tokenless reads are unchanged, and
   every GraphQL failure REST can survive falls back to REST.
+- The development suite now includes a pinned `web-ext` Firefox advisory lane:
+  it lints a disposable Firefox-compatible manifest and runs a small extension
+  page smoke when a Firefox binary is available.
 - Release details are an opt-in row setting: API mode shows the latest tag,
   relative age and cumulative downloads across release assets, while website
   mode says the data is unavailable rather than presenting an empty field.

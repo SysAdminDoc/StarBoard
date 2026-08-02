@@ -4276,7 +4276,7 @@ async function main() {
       await options.check(selector);
     }
     await options.waitForFunction(() => document.body.dataset.settingsState === 'saved');
-    await options.waitForFunction(async () => {
+    await options.waitForFunction(async (expectedReleaseDetails) => {
       const { getSettings } = await import('./lib/storage.js');
       const settings = await getSettings();
       return (
@@ -4284,10 +4284,10 @@ async function main() {
         settings.showDescriptions &&
         settings.showMetadata &&
         settings.showForkStats &&
-        settings.showReleaseStats === OFFLINE &&
+        settings.showReleaseStats === expectedReleaseDetails &&
         settings.showSourceStatus
       );
-    });
+    }, OFFLINE);
     await popup.reload();
     await popup.waitForSelector('.row .stat.forks');
     if (OFFLINE) {

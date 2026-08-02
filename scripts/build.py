@@ -209,6 +209,7 @@ def _spdx_file(path: Path, name: str) -> dict[str, Any]:
 
 DEV_TOOL_RELATIONSHIP = {
     "playwright": "TEST_TOOL_OF",
+    "web-ext": "TEST_TOOL_OF",
     "typescript": "DEV_TOOL_OF",
     "@types/chrome": "DEV_DEPENDENCY_OF",
     "@types/node": "DEV_DEPENDENCY_OF",
