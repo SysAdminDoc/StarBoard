@@ -1317,6 +1317,13 @@ select:disabled {
   fill: var(--accent);
 }
 
+.spark .spark-event {
+  fill: var(--gold);
+  stroke: var(--surface);
+  stroke-width: 0.08;
+  vector-effect: non-scaling-stroke;
+}
+
 .spark .spark-point {
   fill: none;
   stroke: var(--accent);
@@ -1376,6 +1383,13 @@ select:disabled {
   max-width: 150px;
   overflow: hidden;
   text-align: left;
+  text-overflow: ellipsis;
+}
+
+.trend-table th:last-child,
+.trend-table td:last-child {
+  max-width: 180px;
+  overflow: hidden;
   text-overflow: ellipsis;
 }
 

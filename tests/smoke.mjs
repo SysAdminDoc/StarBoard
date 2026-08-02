@@ -2625,6 +2625,42 @@ async function main() {
           { now: cache.fetchedAt - days * 86_400_000 },
         );
       }
+      const annotationIndex = Math.max(0, history.snapshots.length - 1);
+      const annotationDay = history.snapshots[annotationIndex];
+      if (annotationDay) {
+        const priorSource = history.snapshots[annotationIndex - 1]?.source;
+        history = {
+          ...history,
+          snapshots: history.snapshots.map((snapshot, at) =>
+            at === annotationIndex
+              ? {
+                  ...snapshot,
+                  source: priorSource === 'web' ? 'api' : 'web',
+                  confidence: 'partial',
+                }
+              : snapshot,
+          ),
+        };
+      }
+      const latest = history.snapshots.at(-1);
+      cache.lifecycleEvents = [
+        {
+          id: 'trend-rename',
+          type: 'renamed',
+          from: 'octocat/old-name',
+          to: ranked[0].full_name,
+          at: annotationDay?.at || latest?.at || cache.fetchedAt,
+          source: 'api',
+        },
+        {
+          id: 'trend-release',
+          type: 'release',
+          repoId: ranked[0].id,
+          to: ranked[0].full_name,
+          at: latest?.at || cache.fetchedAt,
+          source: 'api',
+        },
+      ];
       await setHistory(history);
       // Keep subsequent popup reloads from starting an unrelated live refresh
       // while deterministic sort/trend assertions are in flight.
@@ -2799,6 +2835,17 @@ async function main() {
           { now: Date.now() - offset * 86_400_000 },
         );
       }
+      const lastIndex = history.snapshots.length - 1;
+      const priorSource = history.snapshots[lastIndex - 1]?.source;
+      history.snapshots = history.snapshots.map((snapshot, at) =>
+        at === lastIndex
+          ? {
+              ...snapshot,
+              source: priorSource === 'web' ? 'api' : 'web',
+              confidence: 'partial',
+            }
+          : snapshot,
+      );
       await setHistory(history);
     });
     await popup.reload();
@@ -2816,6 +2863,7 @@ async function main() {
         preserve: svg.getAttribute('preserveAspectRatio'),
         segments: svg.querySelectorAll('path, line').length,
         strokeEffect: getComputedStyle(svg.querySelector('path, line')).vectorEffect,
+        eventMarkers: svg.querySelectorAll('.spark-event').length,
         width: box.width,
         rowFits: row.getBoundingClientRect().right <= document.body.clientWidth,
         focusables: row.querySelectorAll('a, button, input, select, [tabindex]').length,
@@ -2831,6 +2879,38 @@ async function main() {
         sparkline.strokeEffect === 'non-scaling-stroke' &&
         sparkline.width > 0,
       JSON.stringify(sparkline),
+    );
+    check(
+      'sparkline descriptions and markers name local release, rename, source, and partial events',
+      sparkline.eventMarkers >= 2 &&
+        /Renamed from octocat\/old-name/.test(sparkline.label) &&
+        /Release published/.test(sparkline.label) &&
+        /Source changed to GitHub website/.test(sparkline.label) &&
+        /Partial snapshot/.test(sparkline.label),
+      JSON.stringify(sparkline),
+    );
+    const markerThemes = await popup.evaluate(() => {
+      const root = document.documentElement;
+      const previous = root.dataset.theme;
+      const result = {};
+      for (const theme of ['dark', 'light']) {
+        root.dataset.theme = theme;
+        const marker = document.querySelector('.spark-event');
+        result[theme] = {
+          count: document.querySelectorAll('.spark-event').length,
+          fill: marker ? getComputedStyle(marker).fill : '',
+        };
+      }
+      root.dataset.theme = previous;
+      return result;
+    });
+    check(
+      'trend event markers remain visible in dark and light themes',
+      markerThemes.dark.count >= 2 &&
+        markerThemes.light.count >= 2 &&
+        markerThemes.dark.fill !== 'none' &&
+        markerThemes.light.fill !== 'none',
+      JSON.stringify(markerThemes),
     );
     check(
       'the sparkline states its range, endpoints, change and gap count',
@@ -2857,6 +2937,9 @@ async function main() {
         ),
         rowHeaderScope: first.querySelector('th')?.getAttribute('scope'),
         cells: [...first.children].map((n) => n.textContent),
+        eventCells: [...document.querySelectorAll('#trendTable tbody tr td:last-child')].map(
+          (n) => n.textContent,
+        ),
         rows: document.querySelectorAll('#trendTable tbody tr').length,
         listRows: document.querySelectorAll('.row').length,
       };
@@ -2866,8 +2949,9 @@ async function main() {
       trendTable.expanded === 'true' &&
         trendTable.rowHeaderScope === 'row' &&
         trendTable.headers.join('|') ===
-          'Repository|Stars start|Stars end|Stars change|Stars growth|Forks change|Days measured' &&
+          'Repository|Stars start|Stars end|Stars change|Stars growth|Forks change|Days measured|Events' &&
         /24 of 30/.test(trendTable.cells[6]) &&
+        trendTable.eventCells.some((cell) => /Renamed from octocat\/old-name/.test(cell)) &&
         /Star growth over the last 30 days/.test(trendTable.caption),
       JSON.stringify(trendTable),
     );

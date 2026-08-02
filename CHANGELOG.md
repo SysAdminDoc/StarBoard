@@ -11,6 +11,9 @@
   line only encodes "up or down". Each carries a label naming the range, the
   days actually measured, the change and how many days are missing, and adds no
   focus stops inside the list.
+- Trend sparklines and the comparison table now expose bounded, local event
+  annotations for release publication, repository renames, source changes and
+  partial snapshots without filling gaps or changing measured deltas.
 - The **Trend table** control opens the same series as a real table and doubles
   as the comparison view: biggest movers first, with start and end star counts,
   absolute change, percentage growth and fork change. Growth from a start of

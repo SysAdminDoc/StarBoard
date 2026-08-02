@@ -399,7 +399,7 @@ function validateCache(value) {
     for (const event of value.lifecycleEvents) {
       assert(isObject(event) && typeof event.id === 'string', 'invalid lifecycle event');
       assert(
-        ['added', 'removed', 'renamed'].includes(event.type),
+        ['added', 'removed', 'renamed', 'release', 'released'].includes(event.type),
         'invalid lifecycle event type',
       );
       assertFinite(event.at, 'lifecycle event timestamp');

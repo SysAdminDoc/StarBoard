@@ -45,6 +45,11 @@ import {
   activeAdvancedFilterCount,
   filterRepositories,
 } from './lib/portfolio-views.js';
+import {
+  annotationSummary,
+  annotationsForSeries,
+  trendAnnotations,
+} from './lib/trend-annotations.js';
 
 const LANG_COLORS = {
   JavaScript: '#f1e05a',
@@ -605,10 +610,31 @@ function repoSeriesIndex() {
   return seriesIndex.map;
 }
 
+let annotationState = { history: null, cache: null, values: [] };
+
+function allTrendAnnotations() {
+  if (annotationState.history !== state.history || annotationState.cache !== state.cache) {
+    annotationState = {
+      history: state.history,
+      cache: state.cache,
+      values: trendAnnotations({
+        history: state.history,
+        lifecycleEvents: state.cache?.lifecycleEvents || [],
+        releaseEvents: state.cache?.releaseEvents || [],
+      }),
+    };
+  }
+  return annotationState.values;
+}
+
 function seriesFor(repo) {
   const days = sparklineDays();
   if (!days || !state.history) return null;
-  return historySeriesForRepo(state.history, repo, days, { index: repoSeriesIndex() });
+  const series = historySeriesForRepo(state.history, repo, days, { index: repoSeriesIndex() });
+  return {
+    ...series,
+    annotations: annotationsForSeries(series, allTrendAnnotations(), repo.full_name),
+  };
 }
 
 /** Sentence a screen reader gets in place of the line. */
@@ -625,12 +651,14 @@ function seriesLabel(series) {
   const gaps = series.gaps
     ? ` No data for ${nf.format(series.gaps)} of ${nf.format(series.days)} days.`
     : '';
+  const events = annotationSummary(series.annotations);
+  const eventNote = events === '—' ? '' : ` Events: ${events}.`;
   // The dates have to be the days actually measured. Naming the window's edges
   // instead claimed a reading on a day the series has no point for.
   return (
     `Stars over ${nf.format(series.days)} days (${series.from} to ${series.to}): ` +
     `${nf.format(series.first)} on ${series.firstDay}, ` +
-    `${nf.format(series.last)} on ${series.lastDay}, ${change}.${gaps}`
+    `${nf.format(series.last)} on ${series.lastDay}, ${change}.${gaps}${eventNote}`
   );
 }
 
@@ -700,6 +728,18 @@ function sparklineNode(series) {
     );
     svg.appendChild(path);
   }
+  const valueAtDay = new Map(series.values.map((point, index) => [point.day, { point, index }]));
+  for (const annotation of series.annotations || []) {
+    const located = valueAtDay.get(annotation.day);
+    if (!located) continue;
+    const marker = document.createElementNS(SVG_NS, 'circle');
+    marker.setAttribute('class', `spark-event ${annotation.kind}`);
+    marker.setAttribute('cx', String(located.index));
+    marker.setAttribute('cy', String(min - span * 0.04));
+    marker.setAttribute('r', String(Math.max(span * 0.06, 0.12)));
+    marker.setAttribute('aria-hidden', 'true');
+    svg.appendChild(marker);
+  }
   return svg;
 }
 
@@ -745,7 +785,7 @@ function renderTrendTable(rows) {
     .sort((a, b) => compareHistoryDeltas(a.stars, b.stars));
   const shown = compared.slice(0, TREND_TABLE_MAX_ROWS).map(({ repo }) => ({
     repo,
-    stars: historySeriesForRepo(state.history, repo, days, { index }),
+    stars: seriesFor(repo),
     forks: historySeriesForRepo(state.history, repo, days, { index, metric: 'forks' }),
   }));
   const dropped = compared.length - shown.length;
@@ -769,6 +809,7 @@ function renderTrendTable(rows) {
       growthText(stars, 'percent'),
       growthText(forks, 'absolute'),
       `${nf.format(stars.measured)} of ${nf.format(stars.days)}`,
+      annotationSummary(stars.annotations),
     ];
     cells.forEach((text, at) => {
       const cell = document.createElement(at === 0 ? 'th' : 'td');

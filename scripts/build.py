@@ -51,6 +51,7 @@ ALLOWED_FILES = (
     "src/lib/request.js",
     "src/lib/scrape.js",
     "src/lib/storage.js",
+    "src/lib/trend-annotations.js",
     "src/lib/transfer.js",
     "src/offscreen.html",
     "src/offscreen.js",

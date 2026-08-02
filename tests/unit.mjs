@@ -154,6 +154,12 @@ const {
   privacyNoticeForUpdate,
 } = await import('../src/lib/install.js');
 const {
+  MAX_TREND_ANNOTATIONS,
+  annotationSummary,
+  annotationsForSeries,
+  trendAnnotations,
+} = await import('../src/lib/trend-annotations.js');
+const {
   acknowledgeNotifications,
   DEFAULT_NOTIFICATION_CONFIG,
   emptyNotificationState,
@@ -2006,6 +2012,47 @@ await test('the GraphQL and REST listings normalize to identical records', async
     fetchAccount({ username: 'octocat', token: 'ghp_test' }, { fetchImpl: limited, retries: 0 }),
     (error) => error.code === 'RATE_LIMITED',
   );
+});
+
+await test('trend annotations use only bounded local lifecycle and history facts', async () => {
+  const day = (offset) => Date.UTC(2026, 7, 2 - offset);
+  const history = {
+    snapshots: [
+      { day: '2026-07-30', at: day(3), source: 'api', confidence: 'exact' },
+      { day: '2026-07-31', at: day(2), source: 'web', confidence: 'partial' },
+      { day: '2026-08-01', at: day(1), source: 'web', confidence: 'exact' },
+    ],
+  };
+  const original = structuredClone(history);
+  const annotations = trendAnnotations({
+    history,
+    lifecycleEvents: [
+      {
+        type: 'renamed',
+        from: 'octocat/old-name',
+        to: 'octocat/demo',
+        at: day(2),
+      },
+      { type: 'release', to: 'octocat/demo', at: day(1) },
+    ],
+  });
+  assert.ok(annotations.length <= MAX_TREND_ANNOTATIONS);
+  assert.deepEqual(
+    annotations.map((annotation) => annotation.kind),
+    ['source-change', 'partial', 'rename', 'release'],
+  );
+  const series = {
+    values: [
+      { day: '2026-07-30', value: 1 },
+      { day: '2026-07-31', value: 2 },
+      { day: '2026-08-01', value: 3 },
+    ],
+  };
+  const scoped = annotationsForSeries(series, annotations, 'octocat/demo');
+  assert.equal(scoped.length, 4);
+  assert.match(annotationSummary(scoped), /Source changed to GitHub website/);
+  assert.match(annotationSummary(scoped), /Release published/);
+  assert.deepEqual(history, original, 'annotation generation must not alter measurements');
 });
 
 await test('a sparkline series keeps gaps and never carries a value forward', async () => {
