@@ -231,14 +231,15 @@ function createSystemNotification(options) {
 }
 
 async function deliverPendingNotifications() {
-  const [config, state, permitted] = await Promise.all([
+  const [config, state, permitted, notificationsOff] = await Promise.all([
     getNotificationConfig(),
     getNotificationState(),
     hasNotificationPermission(),
+    capabilityOff('notifications'),
   ]);
   await chrome.alarms.clear(NOTIFICATION_ALARM);
   const pending = state.pending.filter((event) => !event.notifiedAt);
-  if (!config.enabled || !permitted || !pending.length) return state;
+  if (notificationsOff || !config.enabled || !permitted || !pending.length) return state;
 
   const availability = notificationAvailability(config, state);
   if (!availability.allowed) {
@@ -270,7 +271,7 @@ async function deliverPendingNotifications() {
 
 async function evaluateNotifications(previous, current, settings, generation) {
   const config = await getNotificationConfig();
-  if (!config.enabled) return;
+  if (!config.enabled || (await capabilityOff('notifications'))) return;
   const state = await getNotificationState();
   const next = evaluateNotificationEvents(previous, current, config, state, {
     generation,

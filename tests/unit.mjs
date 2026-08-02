@@ -1425,7 +1425,9 @@ await test('the kill-switch disables named capabilities and ignores everything e
   const {
     CAPABILITY_MANIFEST_URL,
     CAPABILITY_MAX_BYTES,
+    CAPABILITY_MAX_AGE_MS,
     KNOWN_CAPABILITIES,
+    capabilityStateIsStale,
     capabilityFetchIsDue,
     compareVersions,
     disabledCapabilities,
@@ -1453,9 +1455,10 @@ await test('the kill-switch disables named capabilities and ignores everything e
   );
   // The rule lifts itself the moment the installed build reaches the version
   // that fixes it — nobody has to publish a second document to re-enable it.
-  assert.deepEqual(disabledCapabilities(parsed, '1.4.0'), ['web-source', 'api-graphql']);
-  assert.deepEqual(disabledCapabilities(parsed, '1.5.0'), ['web-source']);
-  assert.deepEqual(disabledCapabilities(parsed, '1.6.0'), []);
+  const activeState = { ...parsed, fetchedAt: 1000 };
+  assert.deepEqual(disabledCapabilities(activeState, '1.4.0', { now: 1000 }), ['web-source', 'api-graphql']);
+  assert.deepEqual(disabledCapabilities(activeState, '1.5.0', { now: 1000 }), ['web-source']);
+  assert.deepEqual(disabledCapabilities(activeState, '1.6.0', { now: 1000 }), []);
 
   // The document can only ever switch a known capability off. Everything else
   // it might try to say is discarded, so it can never introduce behaviour.
@@ -1495,10 +1498,32 @@ await test('the kill-switch disables named capabilities and ignores everything e
   assert.equal(validateCapabilityState(state), state);
   assert.throws(() => validateCapabilityState({ formatVersion: 1, fetchedAt: 0, rules: [{}] }));
 
+  // A stale or future-dated document fails open. The future timestamp also
+  // remains immediately due for a corrective fetch rather than freezing the
+  // six-hour poll forever.
+  assert.equal(capabilityStateIsStale(state, { now: 1000 + CAPABILITY_MAX_AGE_MS }), true);
+  assert.equal(capabilityStateIsStale(state, { now: 1000 + 1 }), false);
+  assert.equal(capabilityStateIsStale({ ...state, fetchedAt: 2000 }, { now: 1000 }), true);
+  assert.deepEqual(
+    disabledCapabilities(state, '1.4.0', { now: 1000 + CAPABILITY_MAX_AGE_MS }),
+    [],
+  );
+
   // At most one fetch per six hours.
   assert.equal(capabilityFetchIsDue({ fetchedAt: 0 }, { now: 1 }), true);
   assert.equal(capabilityFetchIsDue({ fetchedAt: 1000 }, { now: 1000 + 6 * 3600 * 1000 }), true);
   assert.equal(capabilityFetchIsDue({ fetchedAt: 1000 }, { now: 1000 + 3600 * 1000 }), false);
+  assert.equal(capabilityFetchIsDue({ fetchedAt: 2000 }, { now: 1000 }), true);
+
+  // Every remotely nameable capability must have a local enforcement point.
+  // This keeps adding a manifest name from silently becoming a no-op.
+  const backgroundSource = await readFile(resolve(HERE, '..', 'src', 'background.js'), 'utf8');
+  for (const name of KNOWN_CAPABILITIES) {
+    assert.match(
+      backgroundSource,
+      new RegExp(`capabilityOff\\('${name.replaceAll('-', '\\-')}'\\)`),
+    );
+  }
 
   const respond = (body, init = {}) =>
     new Response(body, { status: 200, headers: { 'content-type': 'application/json' }, ...init });

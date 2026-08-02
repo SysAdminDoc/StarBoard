@@ -21,6 +21,10 @@ export const CAPABILITY_MANIFEST_URL =
   'https://sysadmindoc.github.io/StarBoard/capabilities.json';
 export const CAPABILITY_MANIFEST_ORIGIN = 'https://sysadmindoc.github.io';
 export const CAPABILITY_POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
+// A fetched rule is trusted for at most 24 hours. Beyond that window the
+// extension fails open while continuing to poll, so an unreachable document
+// cannot pin a capability off indefinitely.
+export const CAPABILITY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const CAPABILITY_FORMAT_VERSION = 1;
 /** A hostile or accidental 40 MB response must not be read into memory. */
 export const CAPABILITY_MAX_BYTES = 16 * 1024;
@@ -88,15 +92,22 @@ export function parseCapabilityManifest(raw) {
 }
 
 /** The capability names disabled for `installedVersion`. */
-export function disabledCapabilities(state, installedVersion) {
+export function capabilityStateIsStale(state, { now = Date.now() } = {}) {
+  const fetchedAt = Number(state?.fetchedAt);
+  if (!Number.isFinite(fetchedAt) || fetchedAt <= 0 || fetchedAt > now) return true;
+  return now - fetchedAt >= CAPABILITY_MAX_AGE_MS;
+}
+
+export function disabledCapabilities(state, installedVersion, options = {}) {
+  if (capabilityStateIsStale(state, options)) return [];
   const rules = Array.isArray(state?.rules) ? state.rules : [];
   return rules
     .filter((rule) => compareVersions(installedVersion, rule.fixedInVersion) < 0)
     .map((rule) => rule.name);
 }
 
-export function isCapabilityDisabled(state, name, installedVersion) {
-  return disabledCapabilities(state, installedVersion).includes(name);
+export function isCapabilityDisabled(state, name, installedVersion, options = {}) {
+  return disabledCapabilities(state, installedVersion, options).includes(name);
 }
 
 export function emptyCapabilityState() {
@@ -130,6 +141,8 @@ export function capabilityFetchIsDue(state, { now = Date.now() } = {}) {
   // A fresh install has never fetched. Waiting six hours from the epoch would
   // leave the very state the switch exists for — a broken build — unprotected.
   if (fetchedAt <= 0) return true;
+  // Clock rollback or a malformed future timestamp must not suppress polling.
+  if (fetchedAt > now) return true;
   return now - fetchedAt >= CAPABILITY_POLL_INTERVAL_MS;
 }
 
