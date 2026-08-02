@@ -3142,9 +3142,10 @@ async function main() {
       const { getPortfolioViewState } = await import('./lib/storage.js');
       return (await getPortfolioViewState()).comparisonKeys;
     });
+    const checkedPins = await popup.$$eval('.trend-pin:checked', (nodes) => nodes.length);
     check(
       'selected repositories pin into the local comparison set',
-      pinned.length === 1 && document.querySelectorAll('.trend-pin:checked').length >= 1,
+      pinned.length === 1 && checkedPins >= 1,
       JSON.stringify(pinned),
     );
     await popup.click('#clearTrendSelection');
