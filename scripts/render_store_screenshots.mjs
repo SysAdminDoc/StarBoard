@@ -36,7 +36,7 @@ const frames = [
     capture: '06-web-mode.png',
     eyebrow: 'TOKEN-OPTIONAL',
     title: 'Start with the GitHub session you already use.',
-    detail: 'Website mode reads your repository list through github.com without storing a personal access token.',
+    detail: 'Website mode reads your repository list through github.com without storing a personal access token; current data stays in this browser profile.',
     tags: ['No token required', 'Signed-in session', 'Source status'],
   },
 ];
