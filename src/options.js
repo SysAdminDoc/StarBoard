@@ -20,7 +20,7 @@ import {
 } from './lib/transfer.js';
 import { testApiConnection } from './lib/github.js';
 import { testWebsiteConnection } from './lib/scrape.js';
-import { localizeDocument, message as i18nMessage } from './lib/i18n.js';
+import { formatters, localizeDocument, message as i18nMessage } from './lib/i18n.js';
 
 const GITHUB_ORIGIN = 'https://github.com/*';
 const WEB_MIN_REFRESH_MINUTES = 360;
@@ -222,7 +222,9 @@ function formatRetryAt(timestamp) {
   if (!Number.isFinite(timestamp)) return '';
   const seconds = Math.max(0, Math.round((timestamp - Date.now()) / 1000));
   if (seconds <= 90) return ` Try again in about ${Math.max(1, seconds)} seconds.`;
-  const time = new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const time = formatters
+    .dateTime({ hour: 'numeric', minute: '2-digit' })
+    .format(new Date(timestamp));
   return ` The quota resets at ${time}.`;
 }
 
@@ -286,7 +288,7 @@ async function showStorageInfo() {
       ? ` ${diagnostics.quarantined} storage record${diagnostics.quarantined === 1 ? '' : 's'} quarantined.`
       : '');
   $('storageDiagnosticsLink').hidden = diagnostics.quarantined === 0;
-  $('badgePreview').textContent = stars == null ? '—' : stars.toLocaleString();
+  $('badgePreview').textContent = stars == null ? '—' : formatters.number().format(stars);
 }
 
 async function load() {

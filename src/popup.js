@@ -23,7 +23,7 @@ import {
   STORAGE_KEYS,
   applyTheme,
 } from './lib/storage.js';
-import { localizeDocument, message } from './lib/i18n.js';
+import { formatters, localizeDocument, message } from './lib/i18n.js';
 import {
   SPARKLINE_MIN_POINTS,
   historyPointsForRepos,
@@ -380,10 +380,14 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
 /* ---------- formatting ---------- */
 
-const nf = new Intl.NumberFormat();
-const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-const dateTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-const percentFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+// Every formatter is bound to chrome.i18n.getUILanguage(), not to
+// navigator.language: the two disagree often enough that leaving it implicit
+// ships English grouping beside translated text.
+const nf = formatters.number();
+const signed = formatters.signed();
+const rtf = formatters.relativeTime();
+const dateTime = formatters.dateTime({ dateStyle: 'medium', timeStyle: 'short' });
+const percentFormat = formatters.signed({ maximumFractionDigits: 1 });
 
 /** @type {[Intl.RelativeTimeFormatUnit, number][]} */
 const UNITS = [
@@ -448,10 +452,12 @@ function deltaNode(value, cls = 'delta', missing = false) {
     span.title = 'No comparison point was retained for this range';
   } else if (value > 0) {
     span.classList.add('up');
-    span.textContent = `+${nf.format(value)}`;
+    // signDisplay, not a concatenated "+": it produces the locale's real minus
+    // sign for negatives and places the sign correctly in RTL.
+    span.textContent = signed.format(value);
   } else if (value < 0) {
     span.classList.add('down');
-    span.textContent = `−${nf.format(Math.abs(value))}`;
+    span.textContent = signed.format(value);
   }
   return span;
 }
@@ -677,10 +683,10 @@ function growthText(series, metric) {
     // both be inventions.
     if (!series.first) return series.delta > 0 ? 'from 0' : '—';
     const percent = (series.delta / series.first) * 100;
-    return `${percent > 0 ? '+' : ''}${percentFormat.format(percent)}%`;
+    return `${percentFormat.format(percent)}%`;
   }
   const mark = series.approximate ? '~' : '';
-  return `${series.delta > 0 ? '+' : ''}${mark}${nf.format(series.delta)}`;
+  return `${mark}${signed.format(series.delta)}`;
 }
 
 function renderTrendTable(rows) {

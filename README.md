@@ -317,7 +317,8 @@ py -3.12 -m pip install -r requirements-icons.txt
 py -3.12 scripts/make_icons.py   # regenerate toolbar icons
 py -3.12 scripts/build.py        # build ZIP, checksums and SPDX SBOM
 npm ci                           # exact dev-tool lock (nothing ships in the artifact)
-npm run check                    # syntax, JSON and version alignment
+npm run check                    # syntax, JSON, version and pseudo-locale alignment
+npm run locales                  # regenerate the en_XA pseudo-locale from en
 npm run typecheck                # tsc --checkJs over src/ and scripts/, no emit
 node tests/unit.mjs              # deterministic storage/refresh/request checks
 py -3.12 tests/release_test.py   # isolated, reproducible release validation

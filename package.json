@@ -7,9 +7,10 @@
   "type": "module",
   "scripts": {
     "icons": "py -3.12 scripts/make_icons.py",
+    "locales": "node scripts/build_locales.mjs",
     "screenshots:store": "node scripts/render_store_screenshots.mjs",
     "build": "py -3.12 scripts/build.py",
-    "check": "node scripts/check.mjs",
+    "check": "node scripts/check.mjs && node scripts/build_locales.mjs --check",
     "typecheck": "tsc -p jsconfig.json && tsc -p jsconfig.scripts.json",
     "test": "npm run typecheck && npm run test:unit && npm run test:release && npm run test:smoke",
     "test:unit": "node tests/unit.mjs",

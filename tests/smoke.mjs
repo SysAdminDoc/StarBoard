@@ -588,6 +588,71 @@ async function main() {
         localization.actionTitle === 'StarBoard — GitHub repo standings',
       JSON.stringify(localization),
     );
+    // Formatting has to follow the extension UI language, not navigator's.
+    // The two disagree often enough that leaving it implicit ships English
+    // grouping beside translated text.
+    const localeBinding = await popup.evaluate(async () => {
+      const { formatters, uiLocale, applyDirection } = await import('./lib/i18n.js');
+      const forced = new Intl.NumberFormat('de-DE').format(1234.5);
+      return {
+        uiLocale: uiLocale(),
+        matchesUiLocale:
+          formatters.number().resolvedOptions().locale ===
+          new Intl.NumberFormat(chrome.i18n.getUILanguage()).resolvedOptions().locale,
+        // signDisplay, not a concatenated "+": it also yields the real minus
+        // sign rather than a hyphen.
+        positive: formatters.signed().format(12),
+        negative: formatters.signed().format(-12),
+        zero: formatters.signed().format(0),
+        intlPositive: new Intl.NumberFormat(chrome.i18n.getUILanguage(), {
+          signDisplay: 'exceptZero',
+        }).format(12),
+        intlNegative: new Intl.NumberFormat(chrome.i18n.getUILanguage(), {
+          signDisplay: 'exceptZero',
+        }).format(-12),
+        intlZero: new Intl.NumberFormat(chrome.i18n.getUILanguage(), {
+          signDisplay: 'exceptZero',
+        }).format(0),
+        direction: applyDirection(),
+        documentDir: document.documentElement.getAttribute('dir'),
+        german: forced,
+      };
+    });
+    check(
+      'number and date formatting follow the extension UI language',
+      localeBinding.matchesUiLocale &&
+        !!localeBinding.uiLocale &&
+        // signDisplay gives the locale its own sign for both directions and no
+        // sign at zero, which concatenating "+" never did.
+        localeBinding.positive === localeBinding.intlPositive &&
+        localeBinding.negative === localeBinding.intlNegative &&
+        localeBinding.positive !== localeBinding.zero &&
+        localeBinding.zero === localeBinding.intlZero &&
+        !/[+]/.test(localeBinding.zero),
+      JSON.stringify(localeBinding),
+    );
+    check(
+      'the document writing direction comes from the catalog',
+      localeBinding.direction === 'ltr' && localeBinding.documentDir === 'ltr',
+      JSON.stringify(localeBinding),
+    );
+    // A missing key returns undefined rather than throwing, so the only symptom
+    // of a broken lookup is a blank label. It has to be reported.
+    const missingKey = await popup.evaluate(async () => {
+      const { message } = await import('./lib/i18n.js');
+      const warnings = [];
+      const nativeWarn = console.warn;
+      console.warn = (...args) => warnings.push(args.join(' '));
+      const rendered = message('a string that is deliberately not in the catalog');
+      console.warn = nativeWarn;
+      return { rendered, warnings };
+    });
+    check(
+      'a message with no catalog entry falls back and reports the missing key',
+      missingKey.rendered === 'a string that is deliberately not in the catalog' &&
+        missingKey.warnings.some((entry) => /no message for text_[0-9a-f]{8}/.test(entry)),
+      JSON.stringify(missingKey),
+    );
     check(
       'setup-only popup controls start disabled',
       await popup.evaluate(() =>

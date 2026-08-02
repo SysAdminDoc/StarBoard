@@ -1,4 +1,5 @@
 import { repositoryHistoryKey } from './history.js';
+import { formatters } from './i18n.js';
 
 export const NOTIFICATION_FORMAT_VERSION = 1;
 export const DEFAULT_NOTIFICATION_CONFIG = Object.freeze({
@@ -14,6 +15,11 @@ export const DEFAULT_NOTIFICATION_CONFIG = Object.freeze({
 
 const MAX_PENDING = 50;
 const MAX_SEEN = 500;
+// Bound to the extension UI language, not navigator.language: an OS
+// notification showing `1,234` beside German text is the same defect as in the
+// popup, just harder to notice.
+const localeCount = (value) => formatters.number().format(value);
+
 const SEEN_RETENTION_MS = 365 * 86_400_000;
 
 function assert(condition, message) {
@@ -187,7 +193,7 @@ export function evaluateNotificationEvents(
         after,
         normalized.portfolioMilestone,
         'Portfolio milestone',
-        (crossed) => `Your repositories reached ${crossed.toLocaleString()} stars.`,
+        (crossed) => `Your repositories reached ${localeCount(crossed)} stars.`,
         now,
       ),
       deltaEvent(
@@ -196,7 +202,7 @@ export function evaluateNotificationEvents(
         normalized.portfolioDelta,
         generation,
         'Portfolio growth',
-        (delta) => `Your repositories gained ${delta.toLocaleString()} stars.`,
+        (delta) => `Your repositories gained ${localeCount(delta)} stars.`,
         now,
       ),
     );
@@ -215,7 +221,7 @@ export function evaluateNotificationEvents(
         repo.stargazers_count,
         normalized.repositoryMilestone,
         `${repo.name} milestone`,
-        (crossed) => `${repo.full_name} reached ${crossed.toLocaleString()} stars.`,
+        (crossed) => `${repo.full_name} reached ${localeCount(crossed)} stars.`,
         now,
       ),
       deltaEvent(
@@ -224,7 +230,7 @@ export function evaluateNotificationEvents(
         normalized.repositoryDelta,
         generation,
         `${repo.name} is moving`,
-        (delta) => `${repo.full_name} gained ${delta.toLocaleString()} stars.`,
+        (delta) => `${repo.full_name} gained ${localeCount(delta)} stars.`,
         now,
       ),
     );
