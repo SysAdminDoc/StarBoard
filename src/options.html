@@ -58,6 +58,26 @@
             <span class="hint">The account whose repos you want to track.</span>
           </label>
 
+          <div class="local-account-panel" aria-labelledby="localAccountsTitle">
+            <h3 id="localAccountsTitle">Stored local accounts</h3>
+            <p class="hint">
+              Switch between recoverable local portfolios. Identifiers stay redacted here; tokens
+              are never listed or exported.
+            </p>
+            <div class="local-account-actions">
+              <label class="field">
+                <span class="label">Switch local account</span>
+                <select id="localAccountSelect" aria-describedby="localAccountStatus">
+                  <option value="">No stored accounts</option>
+                </select>
+              </label>
+              <button id="forgetAccount" class="secondary-btn" type="button">
+                Forget this account's local data
+              </button>
+            </div>
+            <p id="localAccountStatus" class="note" role="status" aria-live="polite"></p>
+          </div>
+
           <label class="field">
             <span class="label">Where to read from</span>
             <select id="dataSource">
@@ -264,6 +284,37 @@
               <input id="showSourceStatus" type="checkbox" role="switch" />
             </label>
           </div>
+        </section>
+
+        <section class="card attention-card">
+          <div class="section-heading">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20"><path d="M10 1.75 17 4v5.15c0 4.23-2.8 7.53-7 9.1-4.2-1.57-7-4.87-7-9.1V4l7-2.25Zm0 3.1L6 6.1v3.05c0 2.73 1.67 5.03 4 6.28 2.33-1.25 4-3.55 4-6.28V6.1l-4-1.25Z" /></svg>
+            </span>
+            <span>
+              <h2>Repository attention</h2>
+              <p>Opt in to bounded API checks for work that may need your attention.</p>
+            </span>
+          </div>
+          <label class="toggle-row notification-master">
+            <span>
+              <b>Attention lane</b>
+              <small>Shows open issues, open pull requests, failing checks, last push and latest release age. It never creates a composite health score.</small>
+            </span>
+            <input id="attentionEnabled" type="checkbox" role="switch" />
+          </label>
+          <div class="attention-settings">
+            <label class="field">
+              <span>Attention scope</span>
+              <select id="attentionMode">
+                <option value="all">First 50 visible repositories</option>
+                <option value="selected">Only selected repositories</option>
+              </select>
+            </label>
+            <p id="attentionTrackingStatus" class="note" role="status" aria-live="polite"></p>
+          </div>
+          <div id="attentionRepositoryList" class="repository-alert-list" role="group" aria-label="Repositories in the attention lane"></div>
+          <p class="note callout">API mode only. Each REST fallback is bounded and every field can say unavailable or denied; website mode never requests attention endpoints.</p>
         </section>
 
         <section class="card notification-card">

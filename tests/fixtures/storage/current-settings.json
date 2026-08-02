@@ -19,6 +19,9 @@
     "showMetadata": true,
     "showForkStats": true,
     "showReleaseStats": false,
-    "showSourceStatus": true
+    "showSourceStatus": true,
+    "attentionEnabled": false,
+    "attentionMode": "all",
+    "attentionRepositories": []
   }
 }

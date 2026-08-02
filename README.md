@@ -58,10 +58,16 @@ telemetry — the API token, if you choose to use one, is sent only to
   keep a small side-by-side comparison set at the top of the locally retained
   series. Missing days remain visible as gaps; pinning is account-scoped and
   does not make another GitHub request.
+- **Opt-in attention lane** — in API mode, inspect bounded open issue/PR
+  counts, check-rollup state, last push and release age. Each field reports its
+  own unavailable or denied state; there is no opaque health score, website
+  fallback or unbounded request fan-out.
 - **Multiple accounts** — switching the configured GitHub username keeps each
   account's snapshot, baseline, trend history, saved views and local alert
-  preferences in its own namespace; existing single-account data migrates on
-  first use.
+  preferences in its own namespace; Settings lists redacted accounts with
+  source/auth metadata, switches to one atomically, and supports a two-step
+  local-data forget with ten-minute undo. Existing single-account data migrates
+  on first use; tokens are never shown in the account list.
 - **Portable by choice** — download a checksummed JSON backup or timestamped
   CSV, dry-run restores before applying them, and roll back an import for 10
   minutes.
@@ -221,7 +227,8 @@ the release check requires every declared entry to opt into Chrome's
 
 - **Data kept locally:** your username, display preferences, repository/profile
   snapshot, comparison baseline, daily/weekly trend points, refresh metadata and
-  recovery metadata, saved portfolio views and repository labels, alert preferences and bounded
+  recovery metadata, saved portfolio views and repository labels, attention
+  scope, alert preferences and bounded
   alert-delivery state stay in this Chromium profile until you clear them or
   uninstall StarBoard. Account data is kept in separate local namespaces, so
   switching usernames does not blend their snapshots or history.
@@ -236,6 +243,10 @@ the release check requires every declared entry to opt into Chrome's
   comparison baseline, daily history and queued alert-delivery state it will
   remove, requires a second activation, and keeps one local undo snapshot for
   10 minutes. Settings, alert preferences and credentials remain untouched.
+  The account-specific **Forget local data** action has the same confirmation
+  and undo window but also removes that account's saved views, labels, alert
+  preferences and refresh-failure records; it leaves the configured username
+  and credentials untouched.
 - **Portable files:** JSON backup and CSV export are user-initiated only.
   Private repository names and trend history each require an unchecked-by-
   default opt-in. Saved views and local labels are included; without the
@@ -439,7 +450,7 @@ sorting, source defaults, popup-detail switches, the toolbar badge, the options
 page, credential handling, lifecycle/confidence labels, offline history ranges,
 portable-file privacy, import rollback, destructive-action recovery, worker
 termination, diagnostics redaction, notification opt-in/deduplication and both
-themes, plus saved-view filtering and recovery — 90 checks. It
+themes, plus saved-view filtering, account switching and recovery — 95 checks. It
 hits the live GitHub API unauthenticated (3–4 of your 60 hourly requests); set
 `GITHUB_TOKEN` to use the authenticated limit.
 
@@ -516,7 +527,7 @@ src/popup.*          the ranked list UI
 src/options.*        settings page
 src/background.js    service worker — owns every fetch, the alarm and the badge
 src/offscreen.*      hidden DOM host; web mode's parser lives here
-src/lib/github.js    REST client: pagination, rate limits, error mapping
+src/lib/github.js    REST/GraphQL client: pagination, rate limits, attention and error mapping
 src/lib/scrape.js    github.com HTML -> the same shape github.js returns
 src/lib/request.js   timeout, Retry-After and bounded retry policy
 src/lib/refresh-coordinator.js  refresh intent serialization/coalescing

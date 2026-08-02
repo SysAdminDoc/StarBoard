@@ -340,6 +340,46 @@ h1 {
   font-weight: 620;
 }
 
+.local-account-panel {
+  margin: -2px 0 18px;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+
+.local-account-panel h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 11.5px;
+}
+
+.local-account-panel > .hint {
+  margin: 4px 0 11px;
+}
+
+.local-account-actions {
+  display: flex;
+  align-items: end;
+  gap: 9px;
+}
+
+.local-account-actions .field {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+}
+
+.local-account-actions .secondary-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+#localAccountStatus {
+  min-height: 1.55em;
+  margin: 9px 0 0;
+}
+
 .opt {
   margin-left: 6px;
   padding: 1px 6px;
@@ -1074,6 +1114,13 @@ input[type='checkbox'][role='switch']:focus-visible {
   border-top: 1px solid var(--border-soft);
 }
 
+.attention-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .repository-alert-settings .field {
   max-width: 320px;
   margin-bottom: 8px;
@@ -1209,6 +1256,11 @@ footer::before {
   }
 
   .actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .local-account-actions {
     align-items: stretch;
     flex-direction: column;
   }

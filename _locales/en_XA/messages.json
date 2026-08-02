@@ -95,6 +95,18 @@
   "optionsAccessRemoved": {
     "message": "［Áççéšš tó gíthúb.çóm wáš rémóvéd. Wébšíté módé çáññót réád ýóúr répóšítóríéš úñtíl ýóú šéléçt thé wébšíté šóúrçé ágáíñ, ór šwítçh tó thé GítHúb ÁPÍ. ············································］"
   },
+  "optionsAccountForgotten": {
+    "message": "［Thíš áççóúñt’š lóçál dátá wáš fórgóttéñ. Úñdó íš áváíláblé fór 10 míñútéš. ······················］"
+  },
+  "optionsAccountSwitchError": {
+    "message": "［Çóúld ñót šwítçh lóçál áççóúñtš. ··········］"
+  },
+  "optionsAccountSwitched": {
+    "message": "［Lóçál áççóúñt šwítçhéd. Thé šéléçtéd pórtfólíó íš ñów áçtívé. ··················］"
+  },
+  "optionsAccountSwitchedOffline": {
+    "message": "［Lóçál áççóúñt šwítçhéd. ŠtárBóárd íš ófflíñé, šó ítš šñápšhót wíll lóád whéñ ýóú réçóññéçt. ···························］"
+  },
   "optionsAlertsDisabled": {
     "message": "［Lóçál álértš díšábléd. ·······］"
   },
@@ -109,6 +121,21 @@
   },
   "optionsApproximateCounts": {
     "message": "［ (šómé çóúñtš ábbrévíátéd bý GítHúb) ···········］"
+  },
+  "optionsAttentionOff": {
+    "message": "［Áttéñtíóñ çhéçkš áré óff. ········］"
+  },
+  "optionsAttentionSaveError": {
+    "message": "［Çóúld ñót šávé áttéñtíóñ répóšítórý šéléçtíóñ. ··············］"
+  },
+  "optionsAttentionSaved": {
+    "message": "［Áttéñtíóñ répóšítórý šéléçtíóñ šávéd lóçállý. ··············］"
+  },
+  "optionsAttentionStatus": {
+    "message": "［Áttéñtíóñ çhéçkš: $1 óf $2 répóšítóríéš çhéçkéd, $3 wíth át léášt óñé úñáváíláblé fíéld. Lášt çhéçkéd $4. ································］"
+  },
+  "optionsAttentionWebsite": {
+    "message": "［Áttéñtíóñ çhéçkš réqúíré ÁPÍ módé; wébšíté módé ñévér réqúéštš théšé éñdpóíñtš. ························］"
   },
   "optionsAuthAction": {
     "message": "［ Áçtíóñ: $1 ···］"
@@ -188,6 +215,12 @@
   "optionsConfirmClearScope": {
     "message": "［Çóñfírm thé éxáçt dátá šçópé bélów. ···········］"
   },
+  "optionsConfirmForgetAccount": {
+    "message": "［Çóñfírm fórgét lóçál áççóúñt dátá ··········］"
+  },
+  "optionsConfirmForgetAccountScope": {
+    "message": "［Çóñfírm tó rémóvé thíš áççóúñt’š šñápšhót, híštórý, víéwš áñd lóçál álért štáté. Úñdó rémáíñš áváíláblé fór 10 míñútéš. ····································］"
+  },
   "optionsConfirmKeep": {
     "message": "［Çóñfírm kéép $1 dáýš ······］"
   },
@@ -218,11 +251,20 @@
   "optionsDiagnosticsError": {
     "message": "［Çóúld ñót búíld díágñóštíçš. ········］"
   },
+  "optionsForgetAccount": {
+    "message": "［Fórgét thíš áççóúñt'š lóçál dátá ··········］"
+  },
+  "optionsForgetAccountError": {
+    "message": "［Çóúld ñót fórgét thíš áççóúñt’š lóçál dátá. ·············］"
+  },
   "optionsForgetToken": {
     "message": "［Fórgéttíñg… ···］"
   },
   "optionsForgetTokenError": {
     "message": "［Çóúld ñót fórgét thé tókéñ. ········］"
+  },
+  "optionsForgettingAccount": {
+    "message": "［Fórgéttíñg… ···］"
   },
   "optionsGitHubApi": {
     "message": "［GítHúb ÁPÍ ···］"
@@ -248,11 +290,17 @@
   "optionsLastActionUndone": {
     "message": "［Lášt dátá áçtíóñ úñdóñé. ·······］"
   },
+  "optionsLocalAccountsAvailable": {
+    "message": "［$1 lóçál áççóúñt$2 áváíláblé. Áççóúñt ñáméš áré rédáçtéd. ·················］"
+  },
   "optionsNoNetwork": {
     "message": "［Ñó ñétwórk çóññéçtíóñ — $1 ········］"
   },
   "optionsNoRepositoriesForAlerts": {
     "message": "［Ñó répóšítóríéš áré áváíláblé fór íñdívídúál álértš ýét. ·················］"
+  },
+  "optionsNoStoredAccounts": {
+    "message": "［Ñó štóréd áççóúñtš ·····］"
   },
   "optionsNotAuthenticated": {
     "message": "［ñót áúthéñtíçátéd ·····］"
@@ -443,6 +491,12 @@
   "optionsStorageSummary": {
     "message": "［$1 répóš çáçhéd, $2 dáílý tréñd póíñtš áçróšš $3 dáý$4, $5 KB tótál.$6 ·····················］"
   },
+  "optionsStoredAccount": {
+    "message": "［$1 · $2 · $3 répóšítóríéš · $4 ·········］"
+  },
+  "optionsSwitchingAccount": {
+    "message": "［Šwítçhíñg tó lóçál áççóúñt $1… ·········］"
+  },
   "optionsSwitchingSource": {
     "message": "［Šwítçhíñg tó $1… ·····］"
   },
@@ -535,6 +589,36 @@
   },
   "popupAsOf": {
     "message": "［Áš óf $1 ··］"
+  },
+  "popupAttentionCiFailing": {
+    "message": "［ÇÍ fáílíñg ···］"
+  },
+  "popupAttentionCiPassing": {
+    "message": "［ÇÍ páššíñg ···］"
+  },
+  "popupAttentionCiUnknown": {
+    "message": "［ÇÍ úñkñówñ ···］"
+  },
+  "popupAttentionDenied": {
+    "message": "［déñíéd ··］"
+  },
+  "popupAttentionIssues": {
+    "message": "［$1 ópéñ íššúéš ····］"
+  },
+  "popupAttentionNoRelease": {
+    "message": "［ñó públíšhéd réléášé ······］"
+  },
+  "popupAttentionPulls": {
+    "message": "［$1 ópéñ PRš ···］"
+  },
+  "popupAttentionPushed": {
+    "message": "［púšhéd $1 ···］"
+  },
+  "popupAttentionRelease": {
+    "message": "［réléášé $1 ···］"
+  },
+  "popupAttentionUnavailable": {
+    "message": "［úñáváíláblé ···］"
   },
   "popupBaselineReset": {
     "message": "［Çómpáríšóñ bášélíñé réšét fór $1 répóšítóríéš. ··············］"
@@ -1112,6 +1196,9 @@
   "text_040b54bc": {
     "message": "［Réléášé álért šçópé ······］"
   },
+  "text_04427e5f": {
+    "message": "［Ñó štóréd áççóúñtš ·····］"
+  },
   "text_06cc87f5": {
     "message": "［Ápplý réštóré ····］"
   },
@@ -1202,6 +1289,9 @@
   "text_27b1b222": {
     "message": "［6 hóúrš ··］"
   },
+  "text_27be6ae6": {
+    "message": "［Fórgét thíš áççóúñt'š lóçál dátá ··········］"
+  },
   "text_2800ff28": {
     "message": "［Tréñd híštórý ····］"
   },
@@ -1265,8 +1355,14 @@
   "text_3f3460bb": {
     "message": "［Šhów láñgúágé, lášt púšh tímé áñd répóšítórý tágš. ···············］"
   },
+  "text_3f3be2bd": {
+    "message": "［Ópt íñ tó bóúñdéd ÁPÍ çhéçkš fór wórk thát máý ñééd ýóúr áttéñtíóñ. ····················］"
+  },
   "text_3f656c12": {
     "message": "［Éxáçt çóúñtš óñlý ·····］"
+  },
+  "text_3f8ff143": {
+    "message": "［Répóšítórý áttéñtíóñ ······］"
   },
   "text_41cb8e69": {
     "message": "［50 štárš ··］"
@@ -1288,6 +1384,9 @@
   },
   "text_4413b4bf": {
     "message": "［Áççéšš tó gíthúb.çóm wáš rémóvéd. Wébšíté módé çáññót réád ýóúr répóšítóríéš úñtíl ·························］"
+  },
+  "text_44f6bbaf": {
+    "message": "［Štóréd lóçál áççóúñtš ······］"
   },
   "text_45570065": {
     "message": "［Dárk ·］"
@@ -1313,6 +1412,9 @@
   "text_49694818": {
     "message": "［Íñçlúdé príváté répóšítórý ñáméš ··········］"
   },
+  "text_49948142": {
+    "message": "［Šwítçh bétwééñ réçóvéráblé lóçál pórtfólíóš. Ídéñtífíérš štáý rédáçtéd héré; tókéñš áré ñévér líštéd ór éxpórtéd. ··································］"
+  },
   "text_49c5d8f9": {
     "message": "［óptíóñál ··］"
   },
@@ -1331,6 +1433,9 @@
   "text_4cb08905": {
     "message": "［Víšíbílítý ···］"
   },
+  "text_4cba1f09": {
+    "message": "［Áttéñtíóñ láñé ····］"
+  },
   "text_4d2d5d68": {
     "message": "［Šávé ·］"
   },
@@ -1339,6 +1444,9 @@
   },
   "text_4e8771e0": {
     "message": "［Íñšpéçt, prúñé ór réçóvér thé dátá štóréd íñ thíš brówšér prófílé. ····················］"
+  },
+  "text_4e9e2d31": {
+    "message": "［Áttéñtíóñ šçópé ·····］"
   },
   "text_4eaf7c92": {
     "message": "［Thémé ··］"
@@ -1462,6 +1570,9 @@
   },
   "text_785e43ec": {
     "message": "［fór wébšíté módé, ·····］"
+  },
+  "text_79fc5ad4": {
+    "message": "［Fíršt 50 víšíblé répóšítóríéš ·········］"
   },
   "text_79fc9539": {
     "message": "［250 štárš ···］"
@@ -1616,6 +1727,9 @@
   "text_adab1a19": {
     "message": "［štár áñd fórk çháñgéš áré méášúréd ágáíñšt. Réšét ít áñý tímé fróm thé pópúp bý çlíçkíñg thé “Δ šíñçé …” búttóñ. ··································］"
   },
+  "text_ae30ae8d": {
+    "message": "［Répóšítóríéš íñ thé áttéñtíóñ láñé ··········］"
+  },
   "text_aefb5799": {
     "message": "［Fíltér répóšítóríéš ······］"
   },
@@ -1649,11 +1763,17 @@
   "text_b81b8b70": {
     "message": "［Móré tháñ óñé ýéár ·····］"
   },
+  "text_b9af9e63": {
+    "message": "［Šhówš ópéñ íššúéš, ópéñ púll réqúéštš, fáílíñg çhéçkš, lášt púšh áñd látéšt réléášé ágé. Ít ñévér çréátéš á çómpóšíté héálth šçóré. ·······································］"
+  },
   "text_ba4b8279": {
     "message": "［7 dáýš ··］"
   },
   "text_bc963964": {
     "message": "［Óñlý šéléçtéd répóšítóríéš ········］"
+  },
+  "text_bfa6f57c": {
+    "message": "［ÁPÍ módé óñlý. Éáçh RÉŠT fállbáçk íš bóúñdéd áñd évérý fíéld çáñ šáý úñáváíláblé ór déñíéd; wébšíté módé ñévér réqúéštš áttéñtíóñ éñdpóíñtš. ··········································］"
   },
   "text_c0a5b02e": {
     "message": "［Répóšítórý fíltérš ·····］"
@@ -1837,6 +1957,9 @@
   },
   "text_f1be7b6c": {
     "message": "［Répóšítórý lábélš ·····］"
+  },
+  "text_f1db3829": {
+    "message": "［Šwítçh lóçál áççóúñt ······］"
   },
   "text_f41a3f02": {
     "message": "［GítHúb úšérñámé ·····］"

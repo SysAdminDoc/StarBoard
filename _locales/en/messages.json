@@ -95,6 +95,18 @@
   "optionsAccessRemoved": {
     "message": "Access to github.com was removed. Website mode cannot read your repositories until you select the website source again, or switch to the GitHub API."
   },
+  "optionsAccountForgotten": {
+    "message": "This account’s local data was forgotten. Undo is available for 10 minutes."
+  },
+  "optionsAccountSwitched": {
+    "message": "Local account switched. The selected portfolio is now active."
+  },
+  "optionsAccountSwitchedOffline": {
+    "message": "Local account switched. StarBoard is offline, so its snapshot will load when you reconnect."
+  },
+  "optionsAccountSwitchError": {
+    "message": "Could not switch local accounts."
+  },
   "optionsAlertsDisabled": {
     "message": "Local alerts disabled."
   },
@@ -109,6 +121,21 @@
   },
   "optionsApproximateCounts": {
     "message": " (some counts abbreviated by GitHub)"
+  },
+  "optionsAttentionOff": {
+    "message": "Attention checks are off."
+  },
+  "optionsAttentionSaved": {
+    "message": "Attention repository selection saved locally."
+  },
+  "optionsAttentionSaveError": {
+    "message": "Could not save attention repository selection."
+  },
+  "optionsAttentionStatus": {
+    "message": "Attention checks: $1 of $2 repositories checked, $3 with at least one unavailable field. Last checked $4."
+  },
+  "optionsAttentionWebsite": {
+    "message": "Attention checks require API mode; website mode never requests these endpoints."
   },
   "optionsAuthAction": {
     "message": " Action: $1"
@@ -188,6 +215,12 @@
   "optionsConfirmClearScope": {
     "message": "Confirm the exact data scope below."
   },
+  "optionsConfirmForgetAccount": {
+    "message": "Confirm forget local account data"
+  },
+  "optionsConfirmForgetAccountScope": {
+    "message": "Confirm to remove this account’s snapshot, history, views and local alert state. Undo remains available for 10 minutes."
+  },
   "optionsConfirmKeep": {
     "message": "Confirm keep $1 days"
   },
@@ -217,6 +250,15 @@
   },
   "optionsDiagnosticsError": {
     "message": "Could not build diagnostics."
+  },
+  "optionsForgetAccount": {
+    "message": "Forget this account's local data"
+  },
+  "optionsForgetAccountError": {
+    "message": "Could not forget this account’s local data."
+  },
+  "optionsForgettingAccount": {
+    "message": "Forgetting…"
   },
   "optionsForgetToken": {
     "message": "Forgetting…"
@@ -248,11 +290,17 @@
   "optionsLastActionUndone": {
     "message": "Last data action undone."
   },
+  "optionsLocalAccountsAvailable": {
+    "message": "$1 local account$2 available. Account names are redacted."
+  },
   "optionsNoNetwork": {
     "message": "No network connection — $1"
   },
   "optionsNoRepositoriesForAlerts": {
     "message": "No repositories are available for individual alerts yet."
+  },
+  "optionsNoStoredAccounts": {
+    "message": "No stored accounts"
   },
   "optionsNotAuthenticated": {
     "message": "not authenticated"
@@ -443,6 +491,12 @@
   "optionsStorageSummary": {
     "message": "$1 repos cached, $2 daily trend points across $3 day$4, $5 KB total.$6"
   },
+  "optionsStoredAccount": {
+    "message": "$1 · $2 · $3 repositories · $4"
+  },
+  "optionsSwitchingAccount": {
+    "message": "Switching to local account $1…"
+  },
   "optionsSwitchingSource": {
     "message": "Switching to $1…"
   },
@@ -535,6 +589,36 @@
   },
   "popupAsOf": {
     "message": "As of $1"
+  },
+  "popupAttentionCiFailing": {
+    "message": "CI failing"
+  },
+  "popupAttentionCiPassing": {
+    "message": "CI passing"
+  },
+  "popupAttentionCiUnknown": {
+    "message": "CI unknown"
+  },
+  "popupAttentionDenied": {
+    "message": "denied"
+  },
+  "popupAttentionIssues": {
+    "message": "$1 open issues"
+  },
+  "popupAttentionNoRelease": {
+    "message": "no published release"
+  },
+  "popupAttentionPulls": {
+    "message": "$1 open PRs"
+  },
+  "popupAttentionPushed": {
+    "message": "pushed $1"
+  },
+  "popupAttentionRelease": {
+    "message": "release $1"
+  },
+  "popupAttentionUnavailable": {
+    "message": "unavailable"
   },
   "popupBaselineReset": {
     "message": "Comparison baseline reset for $1 repositories."
@@ -1112,6 +1196,9 @@
   "text_040b54bc": {
     "message": "Release alert scope"
   },
+  "text_04427e5f": {
+    "message": "No stored accounts"
+  },
   "text_06cc87f5": {
     "message": "Apply restore"
   },
@@ -1202,6 +1289,9 @@
   "text_27b1b222": {
     "message": "6 hours"
   },
+  "text_27be6ae6": {
+    "message": "Forget this account's local data"
+  },
   "text_2800ff28": {
     "message": "Trend history"
   },
@@ -1265,8 +1355,14 @@
   "text_3f3460bb": {
     "message": "Show language, last push time and repository tags."
   },
+  "text_3f3be2bd": {
+    "message": "Opt in to bounded API checks for work that may need your attention."
+  },
   "text_3f656c12": {
     "message": "Exact counts only"
+  },
+  "text_3f8ff143": {
+    "message": "Repository attention"
   },
   "text_41cb8e69": {
     "message": "50 stars"
@@ -1288,6 +1384,9 @@
   },
   "text_4413b4bf": {
     "message": "Access to github.com was removed. Website mode cannot read your repositories until"
+  },
+  "text_44f6bbaf": {
+    "message": "Stored local accounts"
   },
   "text_45570065": {
     "message": "Dark"
@@ -1313,6 +1412,9 @@
   "text_49694818": {
     "message": "Include private repository names"
   },
+  "text_49948142": {
+    "message": "Switch between recoverable local portfolios. Identifiers stay redacted here; tokens are never listed or exported."
+  },
   "text_49c5d8f9": {
     "message": "optional"
   },
@@ -1331,6 +1433,9 @@
   "text_4cb08905": {
     "message": "Visibility"
   },
+  "text_4cba1f09": {
+    "message": "Attention lane"
+  },
   "text_4d2d5d68": {
     "message": "Save"
   },
@@ -1339,6 +1444,9 @@
   },
   "text_4e8771e0": {
     "message": "Inspect, prune or recover the data stored in this browser profile."
+  },
+  "text_4e9e2d31": {
+    "message": "Attention scope"
   },
   "text_4eaf7c92": {
     "message": "Theme"
@@ -1462,6 +1570,9 @@
   },
   "text_785e43ec": {
     "message": "for website mode,"
+  },
+  "text_79fc5ad4": {
+    "message": "First 50 visible repositories"
   },
   "text_79fc9539": {
     "message": "250 stars"
@@ -1616,6 +1727,9 @@
   "text_adab1a19": {
     "message": "star and fork changes are measured against. Reset it any time from the popup by clicking the “Δ since …” button."
   },
+  "text_ae30ae8d": {
+    "message": "Repositories in the attention lane"
+  },
   "text_aefb5799": {
     "message": "Filter repositories"
   },
@@ -1649,11 +1763,17 @@
   "text_b81b8b70": {
     "message": "More than one year"
   },
+  "text_b9af9e63": {
+    "message": "Shows open issues, open pull requests, failing checks, last push and latest release age. It never creates a composite health score."
+  },
   "text_ba4b8279": {
     "message": "7 days"
   },
   "text_bc963964": {
     "message": "Only selected repositories"
+  },
+  "text_bfa6f57c": {
+    "message": "API mode only. Each REST fallback is bounded and every field can say unavailable or denied; website mode never requests attention endpoints."
   },
   "text_c0a5b02e": {
     "message": "Repository filters"
@@ -1837,6 +1957,9 @@
   },
   "text_f1be7b6c": {
     "message": "Repository labels"
+  },
+  "text_f1db3829": {
+    "message": "Switch local account"
   },
   "text_f41a3f02": {
     "message": "GitHub username"

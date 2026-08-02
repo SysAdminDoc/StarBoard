@@ -118,6 +118,7 @@ const {
   fetchAccount,
   readRate,
   parseLinkHeader,
+  trimGraphRepo,
   GitHubError,
 } = await import('../src/lib/github.js');
 const {
@@ -603,6 +604,53 @@ await test('account namespaces preserve snapshots, trends, alerts, and views acr
       'alice/alice-repo',
       'switching back never exposes the other account snapshot',
     );
+  } finally {
+    replaceAreaValues(area, originalLocal);
+    replaceAreaValues(sessionArea, originalSession);
+  }
+});
+
+await test('local accounts expose metadata only and account forgetting is undoable', async () => {
+  const originalLocal = clone(area.values);
+  const originalSession = clone(sessionArea.values);
+  try {
+    replaceAreaValues(area, {});
+    replaceAreaValues(sessionArea, {});
+    await storage.setSettings({ username: 'alice', dataSource: 'api' });
+    const alice = {
+      id: 1,
+      name: 'alice-repo',
+      full_name: 'alice/alice-repo',
+      stargazers_count: 1,
+      forks_count: 0,
+    };
+    await storage.commitRefresh(
+      { profile: { login: 'alice' }, repos: [alice], fetchedAt: 100, source: 'api', confidence: 'exact' },
+      storage.snapshotOf([alice], { now: 100 }),
+      'alice-list',
+    );
+    await storage.setAuthStatus({ status: 'active', at: 100 });
+    await storage.setSettings({ username: 'bob', dataSource: 'web' });
+    const accounts = await storage.listLocalAccounts();
+    assert.deepEqual(accounts, [
+      {
+        accountId: 'alice',
+        source: 'api',
+        repositories: 1,
+        authentication: 'active',
+        hasData: true,
+      },
+    ]);
+    assert.equal(JSON.stringify(accounts).includes('token'), false);
+
+    await storage.setSettings({ username: 'alice' });
+    await storage.forgetLocalAccountData();
+    assert.equal(await storage.getCache(), null);
+    assert.deepEqual(await storage.listLocalAccounts(), []);
+    assert.equal((await storage.getUndoStatus()).scope, 'forget-account');
+    const restored = await storage.restoreUndoSnapshot();
+    assert.equal(restored.cache.profile.login, 'alice');
+    assert.equal((await storage.getCache()).repos[0].full_name, 'alice/alice-repo');
   } finally {
     replaceAreaValues(area, originalLocal);
     replaceAreaValues(sessionArea, originalSession);
@@ -2471,6 +2519,80 @@ await test('selected release tracking bounds REST endpoints and reports request 
   assert.equal(Object.hasOwn(result.repos.find((repo) => repo.id === 1), 'release'), false);
 });
 
+await test('attention metadata is field-level, bounded, and never removes repositories', async () => {
+  const graph = trimGraphRepo(
+    {
+      databaseId: 7,
+      name: 'demo',
+      nameWithOwner: 'octocat/demo',
+      url: 'https://github.com/octocat/demo',
+      stargazerCount: 1,
+      forkCount: 0,
+      openIssues: { totalCount: 4 },
+      openPullRequests: { totalCount: 2 },
+      isPrivate: false,
+      isFork: false,
+      isArchived: false,
+      pushedAt: '2026-08-01T00:00:00Z',
+      defaultBranchRef: { target: { statusCheckRollup: { state: 'FAILURE' } } },
+      latestRelease: { publishedAt: '2026-07-30T00:00:00Z' },
+    },
+    { includeAttentionStats: true },
+  );
+  assert.deepEqual(graph.attention.issues, { value: 4, status: 'ok' });
+  assert.deepEqual(graph.attention.pullRequests, { value: 2, status: 'ok' });
+  assert.equal(graph.attention.ci.value, 'failing');
+
+  const repos = [1, 2].map((id) => ({
+    id,
+    name: `repo-${id}`,
+    full_name: `octocat/repo-${id}`,
+    stargazers_count: id,
+    forks_count: 0,
+    private: false,
+    fork: false,
+    archived: false,
+    pushed_at: '2026-08-01T00:00:00Z',
+  }));
+  const requested = [];
+  const result = await fetchAccount(
+    { username: 'octocat', token: '' },
+    {
+      graphql: false,
+      includeAttentionStats: true,
+      attentionMode: 'selected',
+      attentionRepositories: ['id:2'],
+      retries: 0,
+      now: () => 2000,
+      fetchImpl: async (url) => {
+        const parsed = new URL(url);
+        if (parsed.pathname === '/users/octocat') {
+          return new Response(JSON.stringify({ login: 'octocat', public_repos: 2, followers: 0 }), { status: 200 });
+        }
+        if (parsed.pathname.endsWith('/repos')) return new Response(JSON.stringify(repos), { status: 200 });
+        requested.push(parsed.pathname + parsed.search);
+        if (parsed.pathname === '/search/issues') {
+          return new Response(JSON.stringify({ total_count: parsed.searchParams.get('q').includes('is:pr') ? 2 : 4 }), { status: 200 });
+        }
+        if (parsed.pathname.endsWith('/actions/runs')) {
+          return new Response(JSON.stringify({ workflow_runs: [] }), { status: 200 });
+        }
+        if (parsed.pathname.endsWith('/releases/latest')) return new Response('', { status: 404 });
+        throw new Error(`unexpected attention endpoint ${parsed.pathname}`);
+      },
+      sleep: async () => {},
+    },
+  );
+  assert.equal(result.repos.length, 2);
+  assert.equal(Object.hasOwn(result.repos[0], 'attention'), false);
+  assert.equal(result.repos[1].attention.issues.value, 4);
+  assert.equal(result.repos[1].attention.pullRequests.value, 2);
+  assert.equal(result.attentionTracking.requestedCount, 1);
+  assert.equal(result.attentionTracking.attemptedCount, 1);
+  assert.equal(result.attentionTracking.skippedCount, 1);
+  assert.equal(requested.filter((path) => path.includes('repo-1')).length, 0);
+});
+
 await test('trend annotations use only bounded local lifecycle and history facts', async () => {
   const day = (offset) => Date.UTC(2026, 7, 2 - offset);
   const history = {
@@ -2946,6 +3068,7 @@ await test('shared request policy retries 5xx responses serially', async () => {
     },
     sleep: async (ms) => sleeps.push(ms),
     random: () => 0,
+    now: () => 1000,
     baseDelayMs: 100,
   });
   assert.equal(result.value, 'ok');

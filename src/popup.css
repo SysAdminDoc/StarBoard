@@ -1341,6 +1341,16 @@ select:disabled {
   margin-top: 3px;
 }
 
+.attention {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .label-chip {
   max-width: 18ch;
   overflow: hidden;

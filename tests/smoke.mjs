@@ -1176,6 +1176,20 @@ async function main() {
       'PAT storage defaults to the browser session',
       (await firstRunOptions.inputValue('#tokenMode')) === 'session',
     );
+    const localAccountSurface = await firstRunOptions.$eval('#localAccountSelect', (select) => ({
+      placeholder: select.options[0]?.textContent || '',
+      disabled: select.disabled,
+      forgetDisabled: document.querySelector('#forgetAccount')?.disabled,
+      hasTokenText: document.querySelector('.local-account-panel')?.textContent.includes('ghp_'),
+    }));
+    check(
+      'local account controls start empty, disabled, and credential-free',
+      localAccountSurface.placeholder === 'No stored accounts' &&
+        localAccountSurface.disabled &&
+        localAccountSurface.forgetDisabled &&
+        !localAccountSurface.hasTokenText,
+      JSON.stringify(localAccountSurface),
+    );
     for (const theme of ['dark', 'light']) {
       const text = await minimumTextContrast(firstRunOptions, theme);
       check(

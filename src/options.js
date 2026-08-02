@@ -11,6 +11,7 @@ import {
   getRefreshFailures,
   getStorageDiagnostics,
   getAuthStatus,
+  listLocalAccounts,
   AUTH_STATUS_KEY,
   STORAGE_KEYS,
   createUndoSnapshot,
@@ -64,6 +65,8 @@ const fields = {
   showForkStats: $('showForkStats'),
   showReleaseStats: $('showReleaseStats'),
   showSourceStatus: $('showSourceStatus'),
+  attentionEnabled: $('attentionEnabled'),
+  attentionMode: $('attentionMode'),
 };
 const notificationFields = {
   portfolioMilestone: $('portfolioMilestone'),
@@ -139,6 +142,7 @@ function syncSourceUI() {
   ) {
     fields.refreshMinutes.value = String(WEB_MIN_REFRESH_MINUTES);
   }
+  if (optionSettings) renderAttentionUI(notificationCache);
 }
 
 const AUTH_STATUS_LABELS = {
@@ -172,6 +176,61 @@ function renderAuthStatus(status) {
 
 async function loadAuthStatus() {
   renderAuthStatus(await getAuthStatus().catch(() => ({ status: 'unknown' })));
+}
+
+function normalizedLocalAccount(value) {
+  return String(value || '').trim().replace(/^@/, '').toLowerCase();
+}
+
+function redactAccountId(accountId) {
+  const value = String(accountId || '');
+  if (value.length <= 4) return `${value.slice(0, 1)}â€¦`;
+  return `${value.slice(0, 2)}â€¦${value.slice(-2)}`;
+}
+
+function storedAccountAuthLabel(status) {
+  const keys = {
+    active: 'optionsAuthActive',
+    expired: 'optionsAuthExpired',
+    revoked: 'optionsAuthRevoked',
+    denied: 'optionsAuthDenied',
+    'rate-limited': 'optionsAuthRateLimited',
+  };
+  return t(keys[status] || 'optionsAuthUnknown');
+}
+
+function renderLocalAccounts() {
+  const select = $('localAccountSelect');
+  const forget = $('forgetAccount');
+  const current = normalizedLocalAccount(fields.username.value);
+  select.replaceChildren();
+  const empty = document.createElement('option');
+  empty.value = '';
+  empty.textContent = t('optionsNoStoredAccounts');
+  select.append(empty);
+  for (const account of localAccounts) {
+    const option = document.createElement('option');
+    option.value = account.accountId;
+    option.textContent = t('optionsStoredAccount', [
+      redactAccountId(account.accountId),
+      sourceLabel(account.source),
+      account.repositories,
+      storedAccountAuthLabel(account.authentication),
+    ]);
+    option.selected = account.accountId === current;
+    select.append(option);
+  }
+  select.disabled = pageBusy || localAccounts.length === 0;
+  forget.disabled =
+    pageBusy || !localAccounts.some((account) => account.accountId === current);
+  $('localAccountStatus').textContent = localAccounts.length
+    ? t('optionsLocalAccountsAvailable', [localAccounts.length, localAccounts.length === 1 ? '' : 's'])
+    : t('optionsNoStoredAccounts');
+}
+
+async function loadLocalAccounts() {
+  localAccounts = await listLocalAccounts().catch(() => []);
+  renderLocalAccounts();
 }
 
 function renderRefreshFailures(history) {
@@ -273,10 +332,14 @@ function busyControls() {
     ...Object.values(notificationFields),
     $('notificationsEnabled'),
     $('releaseAlertsEnabled'),
+    fields.attentionEnabled,
+    fields.attentionMode,
     $('save'),
     $('test'),
     $('forgetToken'),
     $('replaceToken'),
+    $('localAccountSelect'),
+    $('forgetAccount'),
     $('historyKeep'),
     $('pruneHistory'),
     $('includePrivateExport'),
@@ -301,6 +364,7 @@ let notificationState = null;
 let notificationCache = null;
 let optionSettings = null;
 let optionPortfolioViews = null;
+let localAccounts = [];
 
 function setPageBusy(busy) {
   pageBusy = busy;
@@ -321,6 +385,8 @@ function setPageBusy(busy) {
     );
   }
   if (optionPortfolioViews) renderRepositoryLabels(notificationCache, optionPortfolioViews);
+  renderAttentionUI(notificationCache);
+  renderLocalAccounts();
   $('copyDiagnostics').disabled = !diagnosticsText;
   syncOfflineState();
 }
@@ -440,6 +506,52 @@ function renderRepositoryLabels(cache, views = optionPortfolioViews) {
   }
 }
 
+function renderAttentionUI(cache = notificationCache) {
+  const enabled = fields.attentionEnabled.checked;
+  const api = fields.dataSource.value === 'api';
+  fields.attentionEnabled.disabled = pageBusy;
+  fields.attentionMode.disabled = pageBusy || !enabled || !api;
+  const list = $('attentionRepositoryList');
+  list.replaceChildren();
+  const repos = [...(cache?.repos || [])].sort((a, b) => a.full_name.localeCompare(b.full_name));
+  const selected = new Set(optionSettings?.attentionRepositories || []);
+  for (const repo of repos) {
+    const key = repositoryAlertKey(repo);
+    const label = document.createElement('label');
+    label.className = 'repository-alert-row';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.dataset.repositoryKey = key;
+    input.checked = fields.attentionMode.value === 'selected' && selected.has(key);
+    input.disabled = pageBusy || !enabled || !api || fields.attentionMode.value !== 'selected';
+    const name = document.createElement('span');
+    name.textContent = repo.full_name;
+    label.append(input, name);
+    list.append(label);
+  }
+  const status = $('attentionTrackingStatus');
+  if (!enabled) {
+    status.textContent = t('optionsAttentionOff');
+    return;
+  }
+  if (!api) {
+    status.textContent = t('optionsAttentionWebsite');
+    return;
+  }
+  const tracking = cache?.attentionTracking;
+  if (!tracking) {
+    status.textContent = t('optionsAttentionStatus', [0, 0, 0, 'never']);
+    return;
+  }
+  const checked = formatters.dateTime({ dateStyle: 'medium', timeStyle: 'short' }).format(new Date(tracking.fetchedAt));
+  status.textContent = t('optionsAttentionStatus', [
+    tracking.attemptedCount,
+    tracking.requestedCount,
+    tracking.unavailableCount,
+    checked,
+  ]);
+}
+
 let labelSaveQueue = Promise.resolve();
 $('repositoryLabelsList').addEventListener('change', (event) => {
   if (!(event.target instanceof HTMLInputElement)) return;
@@ -456,6 +568,26 @@ $('repositoryLabelsList').addEventListener('change', (event) => {
   }).finally(() => {
     input.disabled = pageBusy;
   });
+});
+
+$('attentionRepositoryList').addEventListener('change', async (event) => {
+  if (!(event.target instanceof HTMLInputElement)) return;
+  event.target.disabled = true;
+  try {
+    const current = new Set(optionSettings?.attentionRepositories || []);
+    const key = event.target.dataset.repositoryKey;
+    if (event.target.checked) current.add(key);
+    else current.delete(key);
+    const patch = { attentionRepositories: [...current].slice(0, 50) };
+    await patchSettings(patch);
+    optionSettings = { ...optionSettings, ...patch };
+    renderAttentionUI(notificationCache);
+    await chrome.runtime.sendMessage({ type: 'settings-changed', refresh: true, reason: 'attention-lane' });
+    sayT('optionsAttentionSaved', null, 'ok', 'account');
+  } catch (error) {
+    renderAttentionUI(notificationCache);
+    say(error.message || t('optionsAttentionSaveError'), 'err', 'account');
+  }
 });
 
 async function load() {
@@ -491,6 +623,8 @@ async function load() {
   fields.showForkStats.checked = s.showForkStats;
   fields.showReleaseStats.checked = s.showReleaseStats;
   fields.showSourceStatus.checked = s.showSourceStatus;
+  fields.attentionEnabled.checked = s.attentionEnabled;
+  fields.attentionMode.value = s.attentionMode;
   syncSourceUI();
   applyTheme(s.theme);
   $('version').textContent = `v${chrome.runtime.getManifest().version}`;
@@ -502,7 +636,9 @@ async function load() {
   ]);
   optionSettings = s;
   optionPortfolioViews = await getPortfolioViewState();
+  await loadLocalAccounts();
   renderRepositoryLabels(cache, optionPortfolioViews);
+  renderAttentionUI(cache);
 }
 
 function renderPrivacyNotice(notice) {
@@ -538,6 +674,9 @@ function collect() {
     showForkStats: fields.showForkStats.checked,
     showReleaseStats: fields.showReleaseStats.checked,
     showSourceStatus: fields.showSourceStatus.checked,
+    attentionEnabled: fields.attentionEnabled.checked,
+    attentionMode: fields.attentionMode.value,
+    attentionRepositories: optionSettings?.attentionRepositories || [],
   };
 }
 
@@ -829,6 +968,7 @@ $('save').addEventListener('click', async () => {
     if (offline()) {
       sayT('optionsSavedOffline', null, 'ok');
       await showStorageInfo();
+      await loadLocalAccounts();
       return;
     }
     sayT('optionsSavedRefreshing');
@@ -848,6 +988,7 @@ $('save').addEventListener('click', async () => {
         sayT('optionsSyncedRepos', [res.cache.repos.length, res.cache.profile.login], 'ok');
       }
       await showStorageInfo();
+      await loadLocalAccounts();
     } else {
       if (res?.error?.credentialCleared) {
         fields.token.value = '';
@@ -859,6 +1000,43 @@ $('save').addEventListener('click', async () => {
       reportError(res?.error, 'account', 'Refresh failed.');
     }
   }).catch((err) => reportError(err, 'account', t('optionsSaveSettingsError')));
+});
+
+$('localAccountSelect').addEventListener('change', async () => {
+  const accountId = normalizedLocalAccount($('localAccountSelect').value);
+  const current = normalizedLocalAccount(fields.username.value);
+  if (!accountId || accountId === current) return;
+  const select = $('localAccountSelect');
+  select.disabled = true;
+  $('forgetAccount').disabled = true;
+  $('localAccountStatus').textContent = t('optionsSwitchingAccount', [redactAccountId(accountId)]);
+  try {
+    const next = await patchSettings({ username: accountId });
+    optionSettings = { ...optionSettings, ...next, username: accountId };
+    configured = true;
+    fields.username.value = accountId;
+    await chrome.runtime.sendMessage({ type: 'settings-changed' });
+    if (offline()) {
+      await load();
+      sayT('optionsAccountSwitchedOffline', null, 'ok');
+      return;
+    }
+    const response = await chrome.runtime.sendMessage({
+      type: 'refresh',
+      force: true,
+      source: next.dataSource,
+      reason: 'account-switch',
+    });
+    await load();
+    if (!response?.ok) {
+      reportError(response?.error, 'account', t('optionsAccountSwitchError'));
+      return;
+    }
+    sayT('optionsAccountSwitched', null, 'ok');
+  } catch (error) {
+    await loadLocalAccounts();
+    reportError(error, 'account', t('optionsAccountSwitchError'));
+  }
 });
 
 let connectionController = null;
@@ -980,6 +1158,37 @@ $('clear').addEventListener('click', async () => {
     $('undoClear').hidden = !response.undo?.available;
     sayT('optionsCleared', null, 'ok', 'clear');
   }).catch((error) => reportError(error, 'clear', t('optionsClearError')));
+});
+
+let forgetAccountArmedUntil = 0;
+let forgetAccountResetTimer;
+
+function resetForgetAccountConfirmation() {
+  forgetAccountArmedUntil = 0;
+  $('forgetAccount').textContent = t('optionsForgetAccount');
+  $('localAccountStatus').textContent = localAccounts.length
+    ? t('optionsLocalAccountsAvailable', [localAccounts.length, localAccounts.length === 1 ? '' : 's'])
+    : t('optionsNoStoredAccounts');
+}
+
+$('forgetAccount').addEventListener('click', async () => {
+  if (Date.now() > forgetAccountArmedUntil) {
+    forgetAccountArmedUntil = Date.now() + 8000;
+    $('forgetAccount').textContent = t('optionsConfirmForgetAccount');
+    $('localAccountStatus').textContent = t('optionsConfirmForgetAccountScope');
+    clearTimeout(forgetAccountResetTimer);
+    forgetAccountResetTimer = setTimeout(resetForgetAccountConfirmation, 8000);
+    return;
+  }
+  clearTimeout(forgetAccountResetTimer);
+  resetForgetAccountConfirmation();
+  await withBusy($('forgetAccount'), t('optionsForgettingAccount'), async () => {
+    const response = await chrome.runtime.sendMessage({ type: 'forget-account' });
+    if (!response?.ok) throw messageError(response?.error, t('optionsForgetAccountError'));
+    await load();
+    $('undoClear').hidden = !response.undo?.available;
+    sayT('optionsAccountForgotten', null, 'ok');
+  }).catch((error) => reportError(error, 'account', t('optionsForgetAccountError')));
 });
 
 let pruneArmedUntil = 0;
@@ -1448,6 +1657,8 @@ const INSTANT_SETTING_KEYS = [
   'showForkStats',
   'showReleaseStats',
   'showSourceStatus',
+  'attentionEnabled',
+  'attentionMode',
 ];
 for (const key of INSTANT_SETTING_KEYS) {
   fields[key].addEventListener('change', () => {
@@ -1460,11 +1671,18 @@ for (const key of INSTANT_SETTING_KEYS) {
           INSTANT_SETTING_KEYS.map((settingKey) => [settingKey, values[settingKey]]),
         );
         await patchSettings(patch);
+        optionSettings = { ...optionSettings, ...patch };
         if (key === 'theme') applyTheme(values.theme);
+        renderAttentionUI(notificationCache);
         await chrome.runtime.sendMessage({
           type: 'settings-changed',
-          refresh: key === 'showReleaseStats' && values.showReleaseStats,
-          reason: key === 'showReleaseStats' ? 'release-details' : undefined,
+          refresh: ['showReleaseStats', 'attentionEnabled', 'attentionMode'].includes(key),
+          reason:
+            key === 'showReleaseStats'
+              ? 'release-details'
+              : ['attentionEnabled', 'attentionMode'].includes(key)
+                ? 'attention-lane'
+                : undefined,
         });
         sayT('optionsSettingSaved', [t(`optionsSetting_${key}`)], 'ok');
       })

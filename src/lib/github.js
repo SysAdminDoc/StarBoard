@@ -17,6 +17,7 @@ const MAX_PAGES = 20;
 const REQUEST_TIMEOUT_MS = 20_000;
 const REQUEST_RETRIES = 2;
 export const MAX_RELEASE_TRACKING_REPOSITORIES = 500;
+export const MAX_ATTENTION_REPOSITORIES = 50;
 
 export class GitHubError extends Error {
   constructor(
@@ -299,6 +300,13 @@ query StarBoardRepositories($login: String!, $cursor: String) {
         isArchived
         updatedAt
         pushedAt
+        defaultBranchRef {
+          target {
+            ... on Commit {
+              statusCheckRollup { state }
+            }
+          }
+        }
         latestRelease {
           tagName
           publishedAt
@@ -335,7 +343,25 @@ export function trimGraphRelease(release) {
   };
 }
 
-export function trimGraphRepo(node, { includeReleaseStats = false } = {}) {
+function attentionFromGraph(node) {
+  const checkState = node.defaultBranchRef?.target?.statusCheckRollup?.state;
+  const ci = checkState === 'SUCCESS' || checkState === 'FAILURE' || checkState === 'ERROR' || checkState === 'PENDING'
+    ? (checkState === 'SUCCESS' ? 'passing' : checkState === 'PENDING' ? 'unknown' : 'failing')
+    : 'unknown';
+  return {
+    issues: { value: node.openIssues?.totalCount ?? null, status: 'ok' },
+    pullRequests: { value: node.openPullRequests?.totalCount ?? null, status: 'ok' },
+    ci: { value: ci, status: checkState ? 'ok' : 'unavailable' },
+    release: node.latestRelease?.publishedAt
+      ? { value: node.latestRelease.publishedAt, status: 'ok' }
+      : { value: null, status: 'none' },
+    pushed: node.pushedAt
+      ? { value: node.pushedAt, status: 'ok' }
+      : { value: null, status: 'unavailable' },
+  };
+}
+
+export function trimGraphRepo(node, { includeReleaseStats = false, includeAttentionStats = false } = {}) {
   const repo = {
     id: node.databaseId,
     name: node.name,
@@ -353,6 +379,12 @@ export function trimGraphRepo(node, { includeReleaseStats = false } = {}) {
     pushed_at: node.pushedAt || null,
   };
   if (includeReleaseStats) repo.release = trimGraphRelease(node.latestRelease);
+  if (includeAttentionStats) {
+    repo.attention = {
+      ...attentionFromGraph(node),
+      fetchedAt: Date.now(),
+    };
+  }
   return repo;
 }
 
@@ -472,6 +504,17 @@ async function fetchAccountGraphQL({ username, token }, options = {}) {
   let hasNextPage = true;
   let declared = 0;
   const byKey = new Map();
+  const attentionMode = options.attentionMode === 'selected' ? 'selected' : 'all';
+  const attentionSelection = new Set(
+    Array.isArray(options.attentionRepositories)
+      ? options.attentionRepositories.slice(0, MAX_ATTENTION_REPOSITORIES)
+      : [],
+  );
+  const attentionRequested = options.includeAttentionStats === true;
+  const attentionSelected = (node) =>
+    attentionMode !== 'selected' ||
+    attentionSelection.has(`id:${node.databaseId}`) ||
+    attentionSelection.has(`name:${node.nameWithOwner}`);
 
   while (hasNextPage && pagesFetched < MAX_PAGES) {
     const { data, attempts: used } = await graphRequest(token, { login: username, cursor }, requestOptions);
@@ -491,6 +534,7 @@ async function fetchAccountGraphQL({ username, token }, options = {}) {
     for (const node of page?.nodes || []) {
       const repo = trimGraphRepo(node, {
         includeReleaseStats: options.includeReleaseStats === true,
+        includeAttentionStats: attentionRequested && attentionSelected(node),
       });
       byKey.set(repo.id ?? repo.full_name, repo);
     }
@@ -535,6 +579,23 @@ async function fetchAccountGraphQL({ username, token }, options = {}) {
           attemptedCount: repos.length,
           skippedCount: 0,
           unavailableCount: repos.filter((repo) => repo.releaseUnavailable).length,
+          requests: pagesFetched,
+          rateLimited: false,
+          fetchedAt: (options.now || Date.now)(),
+          authorization: 'authenticated',
+          source: 'api',
+        }
+      : null,
+    attentionTracking: attentionRequested
+      ? {
+          enabled: true,
+          mode: attentionMode,
+          requestedCount: attentionMode === 'selected'
+            ? repos.filter((repo) => attentionSelection.has(`id:${repo.id}`) || attentionSelection.has(`name:${repo.full_name}`)).length
+            : repos.length,
+          attemptedCount: repos.filter((repo) => repo.attention).length,
+          skippedCount: repos.filter((repo) => !repo.attention).length,
+          unavailableCount: repos.filter((repo) => repo.attention && Object.values(repo.attention).some((field) => field?.status === 'unavailable')).length,
           requests: pagesFetched,
           rateLimited: false,
           fetchedAt: (options.now || Date.now)(),
@@ -707,6 +768,161 @@ async function fetchReleaseMetadata(repos, token, options = {}) {
       attemptedCount: attempted,
       skippedCount: Math.max(0, repos.length - requested.length),
       unavailableCount: unavailable,
+      requests: attempts,
+      rateLimited,
+      fetchedAt: (options.now || Date.now)(),
+      authorization: token ? 'authenticated' : 'anonymous',
+      source: 'api',
+    },
+  };
+}
+
+function attentionRepoPath(fullName, suffix = '') {
+  const parts = String(fullName || '').split('/');
+  if (parts.length !== 2 || parts.some((part) => !part)) return null;
+  return `/repos/${parts.map(encodeURIComponent).join('/')}${suffix}`;
+}
+
+function attentionField(value, status = 'ok') {
+  return { value, status };
+}
+
+function attentionErrorStatus(error) {
+  if (error?.code === 'RATE_LIMITED') return 'rate-limited';
+  if (error?.code === 'USER_NOT_FOUND') return 'none';
+  if (error?.code === 'FORBIDDEN' || error?.code === 'TOKEN_REJECTED') return 'denied';
+  return 'unavailable';
+}
+
+/** Fetch bounded REST attention fields when GraphQL is unavailable. */
+async function fetchAttentionMetadata(repos, token, options = {}) {
+  const requestOptions = {
+    fetchImpl: options.fetchImpl,
+    sleep: options.sleep,
+    random: options.random,
+    now: options.now,
+    timeoutMs: options.timeoutMs,
+    retries: options.retries,
+    signal: options.signal,
+  };
+  const mode = options.attentionMode === 'selected' ? 'selected' : 'all';
+  const selected = new Set(
+    Array.isArray(options.attentionRepositories)
+      ? options.attentionRepositories.slice(0, MAX_ATTENTION_REPOSITORIES)
+      : [],
+  );
+  const isSelected = (repo) =>
+    selected.has(`id:${repo.id}`) || selected.has(`name:${repo.full_name}`);
+  const requested = mode === 'selected'
+    ? repos.filter(isSelected).slice(0, MAX_ATTENTION_REPOSITORIES)
+    : repos.slice(0, MAX_ATTENTION_REPOSITORIES);
+  const requestedNames = new Set(requested.map((repo) => repo.full_name));
+  const byName = new Map();
+  let attempts = 0;
+  let unavailableCount = 0;
+  let rateLimited = false;
+
+  for (const repo of requested) {
+    const base = attentionRepoPath(repo.full_name);
+    const fetchedAt = (options.now || Date.now)();
+    const attention = {
+      issues: attentionField(null, 'unavailable'),
+      pullRequests: attentionField(null, 'unavailable'),
+      ci: attentionField('unknown', 'unavailable'),
+      release: attentionField(null, 'none'),
+      pushed: attentionField(repo.pushed_at || null, repo.pushed_at ? 'ok' : 'unavailable'),
+      fetchedAt,
+    };
+    if (!base) {
+      byName.set(repo.full_name, attention);
+      unavailableCount += 1;
+      continue;
+    }
+    const read = async (path, apply, fallbackStatus = 'unavailable') => {
+      try {
+        const result = await request(path, token, requestOptions);
+        attempts += result.attempts;
+        apply(result.body);
+        return true;
+      } catch (error) {
+        const status = attentionErrorStatus(error);
+        if (status === 'rate-limited') rateLimited = true;
+        apply(null, status || fallbackStatus);
+        return false;
+      }
+    };
+    let ok = await read(
+      `/search/issues?q=${encodeURIComponent(`repo:${repo.full_name} is:issue is:open`)}&per_page=1`,
+      (body, status = 'ok') => {
+        attention.issues = status === 'ok'
+          ? attentionField(Number.isFinite(body?.total_count) ? body.total_count : null)
+          : attentionField(null, status);
+      },
+    );
+    if (rateLimited) ok = false;
+    if (ok) {
+      await read(
+        `/search/issues?q=${encodeURIComponent(`repo:${repo.full_name} is:pr is:open`)}&per_page=1`,
+        (body, status = 'ok') => {
+          attention.pullRequests = status === 'ok'
+            ? attentionField(Number.isFinite(body?.total_count) ? body.total_count : null)
+            : attentionField(null, status);
+        },
+      );
+    }
+    if (!rateLimited) {
+      await read(
+        `${base}/actions/runs?status=failure&per_page=1`,
+        (body, status = 'ok') => {
+          attention.ci = status === 'ok'
+            ? attentionField(body?.workflow_runs?.length ? 'failing' : 'unknown')
+            : attentionField('unknown', status);
+        },
+      );
+    }
+    if (!rateLimited) {
+      await read(
+        `${base}/releases/latest`,
+        (body, status = 'ok') => {
+          if (status === 'ok' && body?.published_at) {
+            attention.release = attentionField(body.published_at);
+          } else if (status === 'none') {
+            attention.release = attentionField(null, 'none');
+          } else {
+            attention.release = attentionField(null, status);
+          }
+        },
+        'none',
+      );
+    }
+    if (rateLimited) {
+      for (const field of ['issues', 'pullRequests', 'ci', 'release']) {
+        if (attention[field].status === 'unavailable') attention[field] = attentionField(attention[field].value, 'rate-limited');
+      }
+    }
+    if (Object.values(attention).some((field) => field?.status === 'denied' || field?.status === 'unavailable' || field?.status === 'rate-limited')) {
+      unavailableCount += 1;
+    }
+    byName.set(repo.full_name, attention);
+    if (rateLimited) break;
+  }
+
+  const enriched = repos.map((repo) =>
+    requestedNames.has(repo.full_name) && byName.has(repo.full_name)
+      ? { ...repo, attention: byName.get(repo.full_name) }
+      : { ...repo },
+  );
+  return {
+    repos: enriched,
+    attempts,
+    rate: null,
+    attentionTracking: {
+      enabled: true,
+      mode,
+      requestedCount: requested.length,
+      attemptedCount: byName.size,
+      skippedCount: Math.max(0, repos.length - requested.length),
+      unavailableCount,
       requests: attempts,
       rateLimited,
       fetchedAt: (options.now || Date.now)(),
@@ -930,6 +1146,19 @@ export async function fetchAccount({ username, token }, options = {}) {
       })
     : { repos: listed.repos, rate: listed.rate, attempts: 0, releaseTracking: null };
   attempts += releaseData.attempts;
+  const attentionData = options.includeAttentionStats
+    ? await fetchAttentionMetadata(releaseData.repos, token, {
+        ...requestOptions,
+        attentionMode: options.attentionMode,
+        attentionRepositories: options.attentionRepositories,
+      })
+    : {
+        repos: releaseData.repos,
+        rate: releaseData.rate,
+        attempts: 0,
+        attentionTracking: null,
+      };
+  attempts += attentionData.attempts;
 
   // GitHub states how many repositories the account owns. If pagination
   // returned fewer, something was dropped between pages and the snapshot is
@@ -951,8 +1180,8 @@ export async function fetchAccount({ username, token }, options = {}) {
   return {
     profile: trimProfile(profile),
     authProfile: tokenProfile ? trimProfile(tokenProfile) : null,
-    repos: releaseData.repos,
-    rate: releaseData.rate || listed.rate,
+    repos: attentionData.repos,
+    rate: attentionData.rate || releaseData.rate || listed.rate,
     source: 'api',
     transport: 'rest',
     authenticated: !!token,
@@ -964,6 +1193,7 @@ export async function fetchAccount({ username, token }, options = {}) {
     pagesFetched: listed.pagesFetched,
     requestAttempts: attempts,
     releaseTracking: releaseData.releaseTracking,
+    attentionTracking: attentionData.attentionTracking,
     validators: nextValidators,
     fetchedAt: (options.now || Date.now)(),
   };

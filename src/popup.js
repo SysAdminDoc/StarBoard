@@ -929,6 +929,26 @@ function rowNode(repo, rank, changes) {
     main.appendChild(labelRow);
   }
 
+  if (state.settings.attentionEnabled && repo.attention) {
+    const attention = document.createElement('div');
+    attention.className = 'attention';
+    const valueOrStatus = (field, format) => {
+      if (field?.status === 'denied') return t('popupAttentionDenied');
+      if (field?.status === 'none') return t('popupAttentionNoRelease');
+      if (field?.status !== 'ok') return t('popupAttentionUnavailable');
+      return format(field.value);
+    };
+    const details = [
+      valueOrStatus(repo.attention.issues, (value) => t('popupAttentionIssues', [nf.format(value)])),
+      valueOrStatus(repo.attention.pullRequests, (value) => t('popupAttentionPulls', [nf.format(value)])),
+      valueOrStatus(repo.attention.ci, (value) => value === 'failing' ? t('popupAttentionCiFailing') : value === 'passing' ? t('popupAttentionCiPassing') : t('popupAttentionCiUnknown')),
+      valueOrStatus(repo.attention.release, (value) => t('popupAttentionRelease', [relative(value)])),
+      valueOrStatus(repo.attention.pushed, (value) => t('popupAttentionPushed', [relative(value)])),
+    ];
+    attention.textContent = details.join(' · ');
+    main.appendChild(attention);
+  }
+
   if (state.settings.showDescriptions && repo.description) {
     const desc = document.createElement('div');
     desc.className = 'desc';

@@ -132,6 +132,9 @@ export const DEFAULTS = Object.freeze({
   showForkStats: true,
   showReleaseStats: false,
   showSourceStatus: true,
+  attentionEnabled: false,
+  attentionMode: 'all',
+  attentionRepositories: [],
 });
 
 const VALID = Object.freeze({
@@ -140,6 +143,7 @@ const VALID = Object.freeze({
   badgeMode: new Set(['stars', 'delta', 'off']),
   theme: new Set(['dark', 'light', 'auto']),
   tokenMode: new Set(['session', 'persistent']),
+  attentionMode: new Set(['all', 'selected']),
 });
 const SETTINGS_KEYS = new Set(Object.keys(DEFAULTS));
 const AREA = chrome.storage.local;
@@ -395,9 +399,19 @@ function validateSettings(value) {
     'showForkStats',
     'showReleaseStats',
     'showSourceStatus',
+    'attentionEnabled',
   ]) {
-    if (key === 'showReleaseStats' && !Object.hasOwn(value, key)) continue;
+    if (['showReleaseStats', 'attentionEnabled'].includes(key) && !Object.hasOwn(value, key)) continue;
     assert(typeof value[key] === 'boolean', `${key} must be boolean`);
+  }
+  if (Object.hasOwn(value, 'attentionMode')) {
+    assert(VALID.attentionMode.has(value.attentionMode), 'invalid attention mode');
+  }
+  if (Object.hasOwn(value, 'attentionRepositories')) {
+    assert(Array.isArray(value.attentionRepositories) && value.attentionRepositories.length <= 50, 'too many attention repositories');
+    for (const key of value.attentionRepositories) {
+      assert(typeof key === 'string' && key.length >= 3 && key.length <= 240, 'invalid attention repository key');
+    }
   }
 }
 
@@ -418,6 +432,22 @@ function validateRepo(repo) {
   }
   if (repo.releaseUnavailable != null) {
     assert(typeof repo.releaseUnavailable === 'boolean', 'invalid release availability');
+  }
+  if (repo.attention != null) {
+    assert(isObject(repo.attention), 'invalid repository attention');
+    for (const field of ['issues', 'pullRequests', 'ci', 'release', 'pushed']) {
+      const value = repo.attention[field];
+      assert(isObject(value), `invalid repository attention ${field}`);
+      assert(['ok', 'none', 'denied', 'unavailable', 'rate-limited'].includes(value.status), `invalid repository attention ${field} status`);
+    }
+    for (const field of ['issues', 'pullRequests']) {
+      if (repo.attention[field].value != null) assertFinite(repo.attention[field].value, `invalid repository attention ${field} value`);
+    }
+    if (repo.attention.ci.value != null) assert(['passing', 'failing', 'unknown'].includes(repo.attention.ci.value), 'invalid repository attention ci value');
+    for (const field of ['release', 'pushed']) {
+      if (repo.attention[field].value != null) assert(typeof repo.attention[field].value === 'string', `invalid repository attention ${field} value`);
+    }
+    assertFinite(repo.attention.fetchedAt, 'invalid repository attention timestamp');
   }
 }
 
@@ -462,6 +492,19 @@ function validateCache(value) {
     assert(Number.isFinite(value.releaseTracking.fetchedAt), 'invalid release tracking timestamp');
     assert(['authenticated', 'anonymous', 'website-session'].includes(value.releaseTracking.authorization), 'invalid release tracking authorization');
     assert(['api', 'web'].includes(value.releaseTracking.source), 'invalid release tracking source');
+  }
+  if (value.attentionTracking != null) {
+    assert(isObject(value.attentionTracking), 'invalid attention tracking status');
+    assert(typeof value.attentionTracking.enabled === 'boolean', 'invalid attention tracking enabled state');
+    assert(['all', 'selected'].includes(value.attentionTracking.mode), 'invalid attention tracking mode');
+    for (const key of ['requestedCount', 'attemptedCount', 'skippedCount', 'unavailableCount', 'requests']) {
+      assertFinite(value.attentionTracking[key], `invalid attention tracking ${key}`);
+      assert(value.attentionTracking[key] >= 0, `invalid attention tracking ${key}`);
+    }
+    assert(typeof value.attentionTracking.rateLimited === 'boolean', 'invalid attention tracking rate state');
+    assert(Number.isFinite(value.attentionTracking.fetchedAt), 'invalid attention tracking timestamp');
+    assert(['authenticated', 'anonymous', 'website-session'].includes(value.attentionTracking.authorization), 'invalid attention tracking authorization');
+    assert(['api', 'web'].includes(value.attentionTracking.source), 'invalid attention tracking source');
   }
   if (value.lifecycleEvents != null) {
     assert(Array.isArray(value.lifecycleEvents), 'cache lifecycle events must be an array');
@@ -512,6 +555,9 @@ export function normalizeSettings(value, { validate = true } = {}) {
   next.token = typeof next.token === 'string' ? next.token.trim() : '';
   next.refreshMinutes = Number(next.refreshMinutes);
   next.baselineHours = Number(next.baselineHours);
+  next.attentionRepositories = Array.isArray(next.attentionRepositories)
+    ? [...new Set(next.attentionRepositories.filter((key) => typeof key === 'string').slice(0, 50))]
+    : [];
   if (next.dataSource === 'web' && next.refreshMinutes > 0 && next.refreshMinutes < 360) {
     next.refreshMinutes = 360;
   }
@@ -955,6 +1001,116 @@ export async function getSettings() {
   const settings = await getStoredSettings();
   if (settings.tokenMode !== 'session') return settings;
   return { ...settings, token: await getSessionToken() };
+}
+
+function storedRecordData(raw) {
+  return isObject(raw?.data) ? raw.data : isObject(raw) ? raw : null;
+}
+
+function accountRecordHasMeaningfulData(recordKey, data) {
+  if (!data) return false;
+  if (recordKey === STORAGE_KEYS.cache) return true;
+  if (recordKey === STORAGE_KEYS.baseline) return Object.keys(data.counts || {}).length > 0;
+  if (recordKey === STORAGE_KEYS.history) {
+    return (data.snapshots || []).length > 0 || (data.weekly || []).length > 0;
+  }
+  if (recordKey === STORAGE_KEYS.notificationConfig) {
+    return Boolean(
+      data.enabled ||
+        data.releaseAlertsEnabled ||
+        (data.repositoryAlerts || []).length ||
+        (data.releaseAlerts || []).length ||
+        data.portfolioMilestone !== DEFAULT_NOTIFICATION_CONFIG.portfolioMilestone ||
+        data.repositoryMilestone !== DEFAULT_NOTIFICATION_CONFIG.repositoryMilestone ||
+        data.portfolioDelta !== DEFAULT_NOTIFICATION_CONFIG.portfolioDelta ||
+        data.repositoryDelta !== DEFAULT_NOTIFICATION_CONFIG.repositoryDelta ||
+        data.quietStart !== DEFAULT_NOTIFICATION_CONFIG.quietStart ||
+        data.quietEnd !== DEFAULT_NOTIFICATION_CONFIG.quietEnd ||
+        data.cooldownMinutes !== DEFAULT_NOTIFICATION_CONFIG.cooldownMinutes,
+    );
+  }
+  if (recordKey === STORAGE_KEYS.notificationState) {
+    return Boolean(
+      (data.pending || []).length ||
+        Object.keys(data.seen || {}).length ||
+        data.dropped ||
+        data.lastEvaluatedGeneration ||
+        data.lastSentAt,
+    );
+  }
+  if (recordKey === STORAGE_KEYS.portfolioViews) {
+    const active = data.active || {};
+    return Boolean(
+      (data.views || []).length ||
+        Object.keys(data.labels || {}).length ||
+        (data.comparisonKeys || []).length ||
+        active.query ||
+        active.language !== 'all' ||
+        active.visibility !== 'all' ||
+        active.archivedStatus !== 'all' ||
+        active.forkStatus !== 'sources' ||
+        active.lifecycle !== 'all' ||
+        active.activity !== 'all' ||
+        active.precision !== 'all' ||
+        active.sortKey !== 'stars',
+    );
+  }
+  if (recordKey === STORAGE_KEYS.refreshFailures) return (data.records || []).length > 0;
+  if (recordKey === AUTH_STATUS_KEY) return data.status && data.status !== 'unknown';
+  return false;
+}
+
+/**
+ * Enumerate only account-scoped local records. The account id is retained for
+ * an explicit switch operation, while no credential-bearing record is ever
+ * returned to the settings page.
+ */
+export async function listLocalAccounts() {
+  const stored = await AREA.get(null);
+  const accounts = new Map();
+  for (const [physicalKey, raw] of Object.entries(stored)) {
+    if (!physicalKey.startsWith(ACCOUNT_NAMESPACE_PREFIX)) continue;
+    const separator = physicalKey.lastIndexOf(':');
+    if (separator <= ACCOUNT_NAMESPACE_PREFIX.length) continue;
+    let accountId;
+    try {
+      accountId = normalizeAccountId(
+        decodeURIComponent(physicalKey.slice(ACCOUNT_NAMESPACE_PREFIX.length, separator)),
+      );
+    } catch {
+      continue;
+    }
+    const recordKey = physicalKey.slice(separator + 1);
+    if (!accountId || !ACCOUNT_SCOPED_KEYS.includes(recordKey)) continue;
+    const entry = accounts.get(accountId) || {
+      accountId,
+      records: new Set(),
+      meaningful: false,
+      source: 'unknown',
+      repositories: 0,
+      authentication: 'unknown',
+    };
+    entry.records.add(recordKey);
+    const data = storedRecordData(raw);
+    entry.meaningful = entry.meaningful || accountRecordHasMeaningfulData(recordKey, data);
+    if (recordKey === STORAGE_KEYS.cache) {
+      if (data?.source === 'api' || data?.source === 'web') entry.source = data.source;
+      entry.repositories = Array.isArray(data?.repos) ? data.repos.length : 0;
+    } else if (recordKey === AUTH_STATUS_KEY && AUTH_STATUS_VALUES.includes(data?.status)) {
+      entry.authentication = data.status;
+    }
+    accounts.set(accountId, entry);
+  }
+  return [...accounts.values()]
+    .filter((entry) => entry.meaningful)
+    .map(({ accountId, records, source, repositories, authentication }) => ({
+      accountId,
+      source,
+      repositories,
+      authentication,
+      hasData: records.size > 0,
+    }))
+    .sort((first, second) => first.accountId.localeCompare(second.accountId));
 }
 
 async function getStoredSettings() {
@@ -1411,6 +1567,17 @@ export async function clearPortfolioData() {
   });
 }
 
+/** Forget all recoverable records for the selected account, with undo. */
+export async function forgetLocalAccountData() {
+  await serialized(async () => {
+    await saveUndoSnapshotInternal('forget-account', ACCOUNT_RECORD_KEYS);
+    await removeRecoveryRecords(ACCOUNT_RECORD_KEYS);
+    await removeActiveRecords(ACCOUNT_RECORD_KEYS);
+    const accountId = await activeAccountId();
+    await AREA.remove(accountStorageKey(AUTH_STATUS_KEY, accountId));
+  });
+}
+
 async function saveUndoSnapshotInternal(scope, keys) {
   const snapshot = {};
   for (const key of keys) snapshot[key] = await readRecord(key);
@@ -1481,6 +1648,7 @@ export async function restoreUndoSnapshot() {
       STORAGE_KEYS.notificationConfig,
       STORAGE_KEYS.notificationState,
       STORAGE_KEYS.portfolioViews,
+      STORAGE_KEYS.refreshFailures,
     ];
     for (const key of restorableKeys) {
       if (undo.snapshot[key]) records[key] = undo.snapshot[key];
@@ -1510,6 +1678,7 @@ export async function restoreUndoSnapshot() {
       notificationConfig: await readRecord(STORAGE_KEYS.notificationConfig),
       notificationState: await readRecord(STORAGE_KEYS.notificationState),
       portfolioViews: await readRecord(STORAGE_KEYS.portfolioViews),
+      refreshFailures: await readRecord(STORAGE_KEYS.refreshFailures),
     };
   });
 }

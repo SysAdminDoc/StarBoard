@@ -73,6 +73,13 @@
   rows stay together across refreshes and account switches, retain explicit
   missing-data markers, and use no additional network request; the selection
   follows the existing credential-free backup privacy filter.
+- API mode has an opt-in attention lane for bounded open issue/PR counts, check
+  state, last push and release age. GraphQL reads these in its existing listing;
+  REST fallback checks at most 50 repositories and preserves field-level
+  denied/unavailable states without assigning a composite health score.
+- Settings now lists redacted local accounts with source/auth metadata, switches
+  namespaces atomically, and offers a two-step account-data forget action with
+  the shared ten-minute undo window. Credentials stay outside the account list.
 
 ### Fixed
 

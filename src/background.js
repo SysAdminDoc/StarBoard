@@ -20,6 +20,8 @@ import {
   acknowledgeLifecycle,
   createUndoSnapshot,
   clearPortfolioData,
+  forgetLocalAccountData,
+  listLocalAccounts,
   getUndoStatus,
   restoreUndoSnapshot,
   pruneStoredHistory,
@@ -379,6 +381,8 @@ async function runRefresh(intent) {
       notificationConfig.enabled &&
       notificationConfig.releaseAlertsEnabled;
     const releaseTrackingRequested = settings.showReleaseStats || releaseAlertsEnabled;
+    const attentionRequested = settings.dataSource === 'api' && settings.attentionEnabled;
+    const attentionMode = attentionRequested && settings.attentionMode === 'selected' ? 'selected' : 'all';
     const releaseTrackingMode =
       releaseTrackingRequested && notificationConfig.releaseAlertMode === 'selected'
         ? 'selected'
@@ -408,6 +412,9 @@ async function runRefresh(intent) {
           includeReleaseStats: releaseTrackingRequested,
           releaseTrackingMode,
           releaseRepositories,
+          includeAttentionStats: attentionRequested,
+          attentionMode,
+          attentionRepositories: attentionMode === 'selected' ? settings.attentionRepositories : [],
         });
     const result =
       useWeb && releaseTrackingRequested
@@ -433,7 +440,25 @@ async function runRefresh(intent) {
               reason: 'website-mode',
             },
           }
-        : fetched;
+        : useWeb && attentionRequested
+          ? {
+              ...fetched,
+              attentionTracking: {
+                enabled: true,
+                mode: attentionMode,
+                requestedCount: 0,
+                attemptedCount: 0,
+                skippedCount: fetched.repos.length,
+                unavailableCount: fetched.repos.length,
+                requests: 0,
+                rateLimited: false,
+                fetchedAt: Date.now(),
+                authorization: 'website-session',
+                source: 'web',
+                reason: 'website-mode',
+              },
+            }
+          : fetched;
 
     // Comparing one account's live counts against another account's snapshot
     // produces confident nonsense, and blending both into one history series
@@ -801,6 +826,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       case 'clear-portfolio': {
         await clearPortfolioData();
+        await chrome.alarms.clear(NOTIFICATION_ALARM);
+        await updateBadge();
+        sendResponse({ ok: true, undo: await getUndoStatus() });
+        break;
+      }
+      case 'local-accounts':
+        sendResponse({ ok: true, accounts: await listLocalAccounts() });
+        break;
+      case 'forget-account': {
+        await forgetLocalAccountData();
         await chrome.alarms.clear(NOTIFICATION_ALARM);
         await updateBadge();
         sendResponse({ ok: true, undo: await getUndoStatus() });
