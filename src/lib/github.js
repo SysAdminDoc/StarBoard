@@ -213,6 +213,264 @@ async function request(
   };
 }
 
+/**
+ * REST cannot rank server-side. `sort=stars` on `/users/{u}/repos` returns HTTP
+ * 200 and silently ignores the parameter — the accepted values are
+ * `created|updated|pushed|full_name` — so the ranked listing costs one request
+ * per 100 repositories and is ordered client-side either way. GraphQL does both
+ * in one point per 100 repositories, but is 403 unauthenticated, so this can
+ * never be the default path.
+ *
+ * A POST with `Authorization` and `Content-Type: application/json` needs a CORS
+ * preflight that no unauthenticated test here can exercise. Every failure mode
+ * that REST can survive — preflight refused, network error, an organization
+ * login, a missing scope — falls back to REST, so an unsupported browser lane
+ * costs one wasted request and nothing else.
+ */
+const GRAPHQL_PATH = '/graphql';
+const GRAPHQL_PAGE = 100;
+
+const REPOSITORIES_QUERY = `
+query StarBoardRepositories($login: String!, $cursor: String) {
+  rateLimit { limit remaining resetAt }
+  viewer {
+    login
+    name
+    avatarUrl
+    url
+    followers { totalCount }
+    repositories(privacy: PUBLIC, ownerAffiliations: OWNER) { totalCount }
+  }
+  user(login: $login) {
+    login
+    name
+    avatarUrl
+    url
+    followers { totalCount }
+    publicRepositories: repositories(privacy: PUBLIC, ownerAffiliations: OWNER) {
+      totalCount
+    }
+    privateRepositories: repositories(privacy: PRIVATE, ownerAffiliations: OWNER) {
+      totalCount
+    }
+    repositories(
+      first: ${GRAPHQL_PAGE}
+      after: $cursor
+      ownerAffiliations: OWNER
+      orderBy: { field: STARGAZERS, direction: DESC }
+    ) {
+      totalCount
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        databaseId
+        name
+        nameWithOwner
+        url
+        description
+        primaryLanguage { name }
+        stargazerCount
+        forkCount
+        openIssues: issues(states: OPEN) { totalCount }
+        openPullRequests: pullRequests(states: OPEN) { totalCount }
+        isPrivate
+        isFork
+        isArchived
+        updatedAt
+        pushedAt
+      }
+    }
+  }
+}`;
+
+/**
+ * Normalize a GraphQL node into the record the REST path produces. The shapes
+ * must not drift: `tests/unit.mjs` runs one fixture through both and compares.
+ *
+ * `open_issues_count` is the one field where the two APIs disagree by design —
+ * REST counts open pull requests as issues, GraphQL does not — so the two
+ * GraphQL counts are summed to reproduce the REST number.
+ */
+export function trimGraphRepo(node) {
+  return {
+    id: node.databaseId,
+    name: node.name,
+    full_name: node.nameWithOwner,
+    html_url: node.url,
+    description: node.description || '',
+    language: node.primaryLanguage?.name || null,
+    stargazers_count: node.stargazerCount || 0,
+    forks_count: node.forkCount || 0,
+    open_issues_count: (node.openIssues?.totalCount || 0) + (node.openPullRequests?.totalCount || 0),
+    private: !!node.isPrivate,
+    fork: !!node.isFork,
+    archived: !!node.isArchived,
+    updated_at: node.updatedAt || null,
+    pushed_at: node.pushedAt || null,
+  };
+}
+
+export function trimGraphProfile(user) {
+  return {
+    login: user.login,
+    name: user.name || user.login,
+    avatar_url: user.avatarUrl,
+    html_url: user.url,
+    public_repos:
+      user.publicRepositories?.totalCount ?? user.repositories?.totalCount ?? 0,
+    followers: user.followers?.totalCount || 0,
+  };
+}
+
+function graphRate(rateLimit) {
+  if (!rateLimit) return { limit: null, remaining: null, resetAt: null, used: null };
+  const resetAt = Date.parse(rateLimit.resetAt);
+  return {
+    limit: rateLimit.limit ?? null,
+    remaining: rateLimit.remaining ?? null,
+    resetAt: Number.isFinite(resetAt) ? resetAt : null,
+    used: rateLimit.limit != null && rateLimit.remaining != null
+      ? rateLimit.limit - rateLimit.remaining
+      : null,
+  };
+}
+
+async function graphRequest(token, variables, options) {
+  let requested;
+  try {
+    requested = await requestWithRetry(`${API}${GRAPHQL_PATH}`, {
+      fetchImpl: options.fetchImpl,
+      sleep: options.sleep,
+      random: options.random,
+      now: options.now,
+      timeoutMs: options.timeoutMs ?? REQUEST_TIMEOUT_MS,
+      retries: options.retries ?? REQUEST_RETRIES,
+      signal: options.signal ?? null,
+      method: 'POST',
+      headers: { ...headers(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: REPOSITORIES_QUERY, variables }),
+      parse: parseJson,
+    });
+  } catch (error) {
+    mapPolicyError(error);
+  }
+  const { response, value } = requested;
+  if (response.status === 401) {
+    throw new GitHubError('Token rejected (401). Check it in Settings.', {
+      code: 'TOKEN_REJECTED',
+      status: 401,
+    });
+  }
+  // GraphQL reports the same exhaustion through the same headers. Falling back
+  // to REST here would spend the budget twice for one refresh.
+  const rate = readRate(response);
+  const retryAt =
+    parseRetryAfter(response.headers.get('retry-after')) ||
+    (rate.remaining === 0 ? rate.resetAt : null);
+  if (response.status === 403 && (rate.remaining === 0 || retryAt)) {
+    throw new GitHubError('GitHub rate limit reached.', {
+      code: 'RATE_LIMITED',
+      status: 403,
+      rateLimited: true,
+      resetAt: retryAt,
+    });
+  }
+  if (!response.ok) {
+    throw new GitHubError(`GitHub GraphQL returned ${response.status}.`, {
+      code: 'GRAPHQL_UNAVAILABLE',
+      status: response.status,
+    });
+  }
+  // A GraphQL error arrives with HTTP 200. Treating it as success shipped an
+  // empty repository list that downstream read as "every repository removed".
+  if (Array.isArray(value?.errors) && value.errors.length) {
+    throw new GitHubError(value.errors[0]?.message || 'GitHub GraphQL returned an error.', {
+      code: 'GRAPHQL_ERROR',
+      status: 200,
+    });
+  }
+  return { data: value?.data, attempts: requested.attempts };
+}
+
+/**
+ * The ranked listing in one query per 100 repositories, ordered server-side.
+ * Throws for anything the REST path can still do — an organization login, a
+ * missing scope, GraphQL being unavailable — so the caller can fall back.
+ */
+async function fetchAccountGraphQL({ username, token }, options = {}) {
+  const requestOptions = {
+    fetchImpl: options.fetchImpl,
+    sleep: options.sleep,
+    random: options.random,
+    now: options.now,
+    timeoutMs: options.timeoutMs,
+    retries: options.retries,
+    signal: options.signal,
+  };
+  let cursor = null;
+  let attempts = 0;
+  let pagesFetched = 0;
+  let rate = null;
+  let user = null;
+  let viewer = null;
+  let hasNextPage = true;
+  const byKey = new Map();
+
+  while (hasNextPage && pagesFetched < MAX_PAGES) {
+    const { data, attempts: used } = await graphRequest(token, { login: username, cursor }, requestOptions);
+    attempts += used;
+    pagesFetched += 1;
+    rate = graphRate(data?.rateLimit);
+    viewer = viewer || data?.viewer || null;
+    user = data?.user || null;
+    if (!user?.login) {
+      // `user(login:)` is null for an organization; REST lists those fine.
+      throw new GitHubError('GraphQL returned no user for that login.', {
+        code: 'GRAPHQL_NO_USER',
+      });
+    }
+    const page = user.repositories;
+    for (const node of page?.nodes || []) {
+      const repo = trimGraphRepo(node);
+      byKey.set(repo.id ?? repo.full_name, repo);
+    }
+    hasNextPage = !!page?.pageInfo?.hasNextPage;
+    cursor = page?.pageInfo?.endCursor || null;
+    if (!cursor) break;
+  }
+
+  const declared =
+    (user.publicRepositories?.totalCount || 0) + (user.privateRepositories?.totalCount || 0);
+  const repos = [...byKey.values()];
+  const shortfall = declared > 0 ? declared - repos.length : 0;
+  const capped = hasNextPage;
+  const complete = !capped && shortfall <= 0;
+
+  return {
+    profile: trimGraphProfile(user),
+    authProfile: viewer?.login ? trimGraphProfile(viewer) : null,
+    repos,
+    rate,
+    source: 'api',
+    transport: 'graphql',
+    complete,
+    partialReason: capped ? 'cap' : shortfall > 0 ? 'shortfall' : null,
+    shortfall: shortfall > 0 ? shortfall : 0,
+    confidence: complete ? 'exact' : 'partial',
+    cap: {
+      maxPages: MAX_PAGES,
+      maxRepositories: MAX_PAGES * GRAPHQL_PAGE,
+      reached: capped,
+    },
+    pagesFetched,
+    requestAttempts: attempts,
+    // GraphQL is a POST and carries no ETag, so nothing here can be
+    // revalidated. Prior REST validators are preserved by the caller so a
+    // fallback still gets its 304s.
+    validators: {},
+    fetchedAt: (options.now || Date.now)(),
+  };
+}
+
 /** Validate API access with exactly one profile request. */
 export async function testApiConnection({ username, token }, options = {}) {
   if (!username && !token) {
@@ -380,6 +638,22 @@ export async function fetchAccount({ username, token }, options = {}) {
   }
 
   const previous = options.previous?.source === 'api' ? options.previous : null;
+
+  // With a token the whole ranked listing is one point per 100 repositories
+  // instead of one request per 100. Without one GraphQL answers 403, so the
+  // REST path stays the default and the fallback for everything else.
+  if (token && username && options.graphql !== false) {
+    try {
+      const graph = await fetchAccountGraphQL({ username, token }, options);
+      // Keep REST validators alive: a later fallback still wants its 304s.
+      return { ...graph, validators: previous?.validators || {} };
+    } catch (error) {
+      // A rejected token or an exhausted budget means the same thing on both
+      // transports; only re-try REST for failures REST can actually survive.
+      if (error?.code === 'TOKEN_REJECTED' || error?.code === 'RATE_LIMITED') throw error;
+    }
+  }
+
   const validators = previous?.validators || {};
   const nextValidators = {};
   const requestOptions = {
@@ -466,6 +740,7 @@ export async function fetchAccount({ username, token }, options = {}) {
     repos: listed.repos,
     rate: listed.rate,
     source: 'api',
+    transport: 'rest',
     complete,
     partialReason,
     shortfall: shortfall > 0 ? shortfall : 0,

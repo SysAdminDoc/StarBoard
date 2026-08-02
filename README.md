@@ -266,6 +266,16 @@ minutes. The same recovery window applies when clearing the cached snapshot and
 baseline from Settings; starting another destructive action replaces the prior
 undo snapshot.
 
+When a personal access token is configured, the ranked listing is fetched with
+one GraphQL query per 100 repositories instead of one REST request per 100, and
+GitHub does the ranking server-side. REST cannot: `sort=stars` returns HTTP 200
+and silently ignores the parameter. Without a token nothing changes — GraphQL
+answers 403 unauthenticated — and any GraphQL failure REST can survive falls
+back to REST automatically. GraphQL is a POST and carries no ETag, so a refresh
+on that lane always transfers its payload where a REST refresh can answer 304
+for free; automatic sweeps on it are therefore held to a 15-minute floor.
+Manual refreshes are not.
+
 The popup's **Trend** selector instead reads retained daily points for 7, 30 or
 90-day comparisons without contacting GitHub. Numeric API repository IDs keep
 renames connected across time; website-only changes remain explicit
@@ -288,6 +298,17 @@ because a two-point line only encodes "up or down". Every sparkline carries a
 label stating its range, its measured endpoints, the change and how many days
 are missing. Sparklines add no focus stops to the list; the **Trend table**
 control beside Filters opens the same series as a real table.
+
+That table is also the comparison view: biggest movers first, with each
+repository's start and end star counts, absolute change, percentage growth and
+fork change over the selected range. Growth from a start of zero is reported as
+`from 0` rather than an invented percentage, a `~` marks any count GitHub
+abbreviated, and the days-measured column is muted whenever the series has
+holes. The set compared is whatever the current search, filters and saved view
+leave visible, capped at 50 rows — the caption says how many were excluded. The
+**Trend** selector also accepts a custom range in days, bounded by what the
+history actually retains; asking for more is clamped to the retained window and
+announced rather than silently returning dashes.
 
 ## Development
 

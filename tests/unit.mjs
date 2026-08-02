@@ -1343,6 +1343,172 @@ await test('a migrating read validates the record it writes back exactly once', 
   );
 });
 
+await test('the GraphQL and REST listings normalize to identical records', async () => {
+  // One repository, described the way each API describes it. REST counts open
+  // pull requests inside open_issues_count; GraphQL does not, so the adapter
+  // has to add them back or the two records diverge by exactly the PR count.
+  const restRepo = {
+    id: 4242,
+    name: 'starboard',
+    full_name: 'octocat/starboard',
+    html_url: 'https://github.com/octocat/starboard',
+    description: 'Portfolio signal',
+    language: 'JavaScript',
+    stargazers_count: 52,
+    forks_count: 7,
+    open_issues_count: 5,
+    private: false,
+    fork: false,
+    archived: false,
+    updated_at: '2026-07-30T10:00:00Z',
+    pushed_at: '2026-07-31T09:00:00Z',
+  };
+  const graphNode = {
+    databaseId: 4242,
+    name: 'starboard',
+    nameWithOwner: 'octocat/starboard',
+    url: 'https://github.com/octocat/starboard',
+    description: 'Portfolio signal',
+    primaryLanguage: { name: 'JavaScript' },
+    stargazerCount: 52,
+    forkCount: 7,
+    openIssues: { totalCount: 3 },
+    openPullRequests: { totalCount: 2 },
+    isPrivate: false,
+    isFork: false,
+    isArchived: false,
+    updatedAt: '2026-07-30T10:00:00Z',
+    pushedAt: '2026-07-31T09:00:00Z',
+  };
+  const profile = {
+    login: 'octocat',
+    name: 'The Octocat',
+    avatar_url: 'https://avatars.githubusercontent.com/u/1',
+    html_url: 'https://github.com/octocat',
+    public_repos: 1,
+    followers: 12,
+  };
+  const graphUser = {
+    login: 'octocat',
+    name: 'The Octocat',
+    avatarUrl: 'https://avatars.githubusercontent.com/u/1',
+    url: 'https://github.com/octocat',
+    followers: { totalCount: 12 },
+    publicRepositories: { totalCount: 1 },
+    privateRepositories: { totalCount: 0 },
+    repositories: {
+      totalCount: 1,
+      pageInfo: { hasNextPage: false, endCursor: null },
+      nodes: [graphNode],
+    },
+  };
+
+  const json = (body, headers = {}) =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json', ...headers },
+    });
+  const restHeaders = {
+    'x-ratelimit-limit': '5000',
+    'x-ratelimit-remaining': '4998',
+    'x-ratelimit-reset': '2000000',
+  };
+
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    const path = new URL(String(url)).pathname;
+    calls.push(`${init.method || 'GET'} ${path}`);
+    if (path === '/graphql') {
+      return json({
+        data: {
+          rateLimit: { limit: 5000, remaining: 4996, resetAt: '2033-05-18T03:33:20.000Z' },
+          viewer: { ...graphUser, repositories: { totalCount: 1 } },
+          user: graphUser,
+        },
+      });
+    }
+    if (path === '/user' || path === '/users/octocat') return json(profile, restHeaders);
+    if (path.endsWith('/repos')) return json([restRepo], restHeaders);
+    throw new Error(`unexpected request: ${path}`);
+  };
+
+  const viaGraph = await fetchAccount(
+    { username: 'octocat', token: 'ghp_test' },
+    { fetchImpl, retries: 0 },
+  );
+  const graphCalls = calls.splice(0);
+  const viaRest = await fetchAccount(
+    { username: 'octocat', token: 'ghp_test' },
+    { fetchImpl, retries: 0, graphql: false },
+  );
+  const restCalls = calls.splice(0);
+
+  assert.equal(viaGraph.transport, 'graphql');
+  assert.equal(viaRest.transport, 'rest');
+  assert.deepEqual(viaGraph.repos, viaRest.repos, 'normalized records must not diverge');
+  assert.deepEqual(viaGraph.repos, [restRepo]);
+  assert.deepEqual(viaGraph.profile, viaRest.profile);
+  // One point for the whole listing versus a request per resource.
+  assert.deepEqual(graphCalls, ['POST /graphql']);
+  assert.ok(restCalls.length >= 2, JSON.stringify(restCalls));
+
+  // GraphQL is 403 without a token, so a tokenless read must never try it.
+  const anonymous = await fetchAccount({ username: 'octocat', token: '' }, { fetchImpl, retries: 0 });
+  assert.equal(anonymous.transport, 'rest');
+  assert.ok(!calls.splice(0).some((call) => call.includes('/graphql')));
+
+  // A GraphQL failure that REST can survive falls back rather than erroring.
+  const failing = async (url, init = {}) => {
+    const path = new URL(String(url)).pathname;
+    calls.push(`${init.method || 'GET'} ${path}`);
+    // An organization login: GraphQL `user(login:)` resolves to null, REST lists it.
+    if (path === '/graphql') return json({ data: { rateLimit: null, viewer: null, user: null } });
+    return fetchImpl(url, init);
+  };
+  const fellBack = await fetchAccount(
+    { username: 'octocat', token: 'ghp_test' },
+    { fetchImpl: failing, retries: 0 },
+  );
+  assert.equal(fellBack.transport, 'rest');
+  assert.deepEqual(fellBack.repos, [restRepo]);
+
+  // A GraphQL error arrives with HTTP 200; treating it as success once shipped
+  // an empty list that downstream read as "every repository removed".
+  const errored = async (url, init = {}) => {
+    const path = new URL(String(url)).pathname;
+    if (path === '/graphql') return json({ errors: [{ message: 'Bad credentials' }] });
+    return fetchImpl(url, init);
+  };
+  const afterError = await fetchAccount(
+    { username: 'octocat', token: 'ghp_test' },
+    { fetchImpl: errored, retries: 0 },
+  );
+  assert.equal(afterError.transport, 'rest');
+  assert.deepEqual(afterError.repos, [restRepo]);
+
+  // A rate limit means the same on both transports; retrying REST only burns
+  // the budget again.
+  const limited = async (url, init = {}) => {
+    const path = new URL(String(url)).pathname;
+    if (path === '/graphql') {
+      return new Response('{}', {
+        status: 403,
+        headers: {
+          'content-type': 'application/json',
+          'x-ratelimit-limit': '5000',
+          'x-ratelimit-remaining': '0',
+          'x-ratelimit-reset': '2000000',
+        },
+      });
+    }
+    return fetchImpl(url, init);
+  };
+  await assert.rejects(
+    fetchAccount({ username: 'octocat', token: 'ghp_test' }, { fetchImpl: limited, retries: 0 }),
+    (error) => error.code === 'RATE_LIMITED',
+  );
+});
+
 await test('a sparkline series keeps gaps and never carries a value forward', async () => {
   const {
     SPARKLINE_MAX_GAP_DAYS,

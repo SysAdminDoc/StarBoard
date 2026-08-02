@@ -61,6 +61,9 @@ export function buildDiagnostics({
         ? cache.requestedSource
         : null,
       pending: ['api', 'web'].includes(cache?.pendingSource) ? cache.pendingSource : null,
+      // Which API lane produced the snapshot. GraphQL revalidates nothing, so
+      // a support question about refresh cost starts here.
+      transport: ['rest', 'graphql'].includes(cache?.transport) ? cache.transport : null,
     },
     permissions: {
       githubApiHostAccess: false,

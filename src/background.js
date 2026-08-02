@@ -420,11 +420,23 @@ async function refresh({ rebase = false, force = false, reason = 'manual', sourc
   }
 }
 
+/**
+ * The GraphQL listing carries no ETag — it is a POST, so a refresh that finds
+ * nothing changed still costs its full point budget and transfers the whole
+ * payload, where a REST refresh answers 304 for free. The budget itself is not
+ * the constraint: 4 points per sweep at 343 repositories against 5,000/hour is
+ * 48 points even at the 5-minute floor. The transfer is, so an automatic sweep
+ * on the unconditional transport is held to a quarter hour. Manual refreshes
+ * and the popup's own reads are untouched.
+ */
+const GRAPHQL_MIN_AUTOMATIC_MINUTES = 15;
+
 async function syncAlarm() {
-  const { refreshMinutes } = await getSettings();
+  const [{ refreshMinutes }, cache] = await Promise.all([getSettings(), getCache()]);
   await chrome.alarms.clear(ALARM);
   if (refreshMinutes > 0) {
-    const period = Math.max(5, refreshMinutes);
+    const floor = cache?.transport === 'graphql' ? GRAPHQL_MIN_AUTOMATIC_MINUTES : 5;
+    const period = Math.max(floor, refreshMinutes);
     chrome.alarms.create(ALARM, { periodInMinutes: period, delayInMinutes: period });
   }
 }
