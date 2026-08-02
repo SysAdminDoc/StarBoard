@@ -6,6 +6,8 @@
  * no source object is spread into the result.
  */
 
+import { NETWORK_DESTINATIONS } from './network-contract.js';
+
 export const DIAGNOSTICS_FORMAT_VERSION = 1;
 
 function timestamp(value) {
@@ -75,6 +77,9 @@ export function buildDiagnostics({
       githubApiHostAccess: false,
       githubWebsite: !!websitePermission,
       notifications: !!notificationPermission,
+    },
+    network: {
+      capabilityStatusHost: NETWORK_DESTINATIONS.capability.host,
     },
     authentication: {
       status: ['unknown', 'active', 'expired', 'revoked', 'denied', 'rate-limited'].includes(

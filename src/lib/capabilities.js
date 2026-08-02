@@ -17,9 +17,13 @@
  * permission — the same reason the API lane dropped its `api.github.com` grant.
  */
 
-export const CAPABILITY_MANIFEST_URL =
-  'https://sysadmindoc.github.io/StarBoard/capabilities.json';
-export const CAPABILITY_MANIFEST_ORIGIN = 'https://sysadmindoc.github.io';
+import {
+  CAPABILITY_MANIFEST_URL,
+  NETWORK_DESTINATIONS,
+} from './network-contract.js';
+
+export { CAPABILITY_MANIFEST_URL } from './network-contract.js';
+export const CAPABILITY_MANIFEST_ORIGIN = NETWORK_DESTINATIONS.capability.origin;
 export const CAPABILITY_POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 // A fetched rule is trusted for at most 24 hours. Beyond that window the
 // extension fails open while continuing to poll, so an unreachable document

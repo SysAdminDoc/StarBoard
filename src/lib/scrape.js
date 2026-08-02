@@ -21,6 +21,7 @@
 
 import { RequestPolicyError, requestText } from './request.js';
 import { runtimeMessage as t } from './i18n-messages.js';
+import { NETWORK_DESTINATIONS } from './network-contract.js';
 
 const PAGE_SIZE = 30; // rows per repositories-tab page
 const MAX_PAGES = 50; // 1,500 repos — a stop so a broken "next" link can't spin
@@ -51,7 +52,7 @@ export class WebSourceError extends Error {
  */
 export function reposUrl(username, page = 1) {
   const u = encodeURIComponent(username);
-  return `https://github.com/${u}?tab=repositories&sort=name&direction=asc&page=${page}`;
+  return `${NETWORK_DESTINATIONS.website.origin}/${u}?tab=repositories&sort=name&direction=asc&page=${page}`;
 }
 
 /**
@@ -86,7 +87,7 @@ export function parseProfile(doc, fallbackLogin) {
   const avatar_url =
     avatarLink?.getAttribute('href') ||
     avatarImg?.getAttribute('src') ||
-    `https://github.com/${login}.png`;
+    `${NETWORK_DESTINATIONS.website.origin}/${login}.png`;
 
   // The followers link wraps an icon plus a bolded count.
   let followers = 0;
@@ -107,7 +108,7 @@ export function parseProfile(doc, fallbackLogin) {
     login,
     name,
     avatar_url,
-    html_url: `https://github.com/${login}`,
+    html_url: `${NETWORK_DESTINATIONS.website.origin}/${login}`,
     public_repos: 0, // filled in by the caller once every page is parsed
     followers,
   };
@@ -137,7 +138,7 @@ function parseRow(li, owner) {
     id: full_name,
     name,
     full_name,
-    html_url: `https://github.com/${full_name}`,
+    html_url: `${NETWORK_DESTINATIONS.website.origin}/${full_name}`,
     description: textOf(li.querySelector('[itemprop="description"]')),
     language: textOf(li.querySelector('[itemprop="programmingLanguage"]')) || null,
     stargazers_count: stars,

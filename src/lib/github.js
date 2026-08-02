@@ -8,8 +8,9 @@
 
 import { RequestPolicyError, parseRetryAfter, requestWithRetry } from './request.js';
 import { runtimeMessage as t } from './i18n-messages.js';
+import { NETWORK_DESTINATIONS } from './network-contract.js';
 
-const API = 'https://api.github.com';
+const API = NETWORK_DESTINATIONS.api.origin;
 const API_VERSION = '2026-03-10';
 const PER_PAGE = 100;
 const MAX_PAGES = 20;

@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
+import { NETWORK_DESTINATIONS } from '../src/lib/network-contract.js';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const SOURCE_ROOTS = ['src', 'scripts', 'tests'];
@@ -130,6 +131,27 @@ const changelog = readFileSync(resolve(ROOT, 'CHANGELOG.md'), 'utf8');
 const optionsPrivacyText = readFileSync(resolve(ROOT, 'src/options.html'), 'utf8').toLowerCase();
 const optionsText = readFileSync(resolve(ROOT, 'src/options.html'), 'utf8');
 const version = manifest.version;
+
+// The adapters and all user-facing privacy surfaces must agree on every
+// external destination. This is deliberately a small, static contract: the
+// extension has no analytics, remote backend, or user-data upload lane.
+const destinationHosts = Object.values(NETWORK_DESTINATIONS).map((entry) => entry.host);
+const privacySurface = `${readme}\n${JSON.stringify(storeListing.privacyDisclosure)}\n${optionsPrivacyText}`.toLowerCase();
+for (const host of destinationHosts) {
+  if (!privacySurface.includes(host.toLowerCase())) {
+    failures.push(`network contract destination ${host} is missing from a privacy disclosure`);
+  }
+}
+const capabilityUrl = `${NETWORK_DESTINATIONS.capability.origin}${NETWORK_DESTINATIONS.capability.path}`;
+if (!privacySurface.includes(capabilityUrl.toLowerCase())) {
+  failures.push(`network contract capability URL ${capabilityUrl} is missing from a privacy disclosure`);
+}
+for (const file of ['src/lib/capabilities.js', 'src/lib/github.js', 'src/lib/scrape.js']) {
+  const source = readFileSync(resolve(ROOT, file), 'utf8');
+  if (!source.includes("from './network-contract.js'")) {
+    failures.push(`${file} does not use the network destination contract`);
+  }
+}
 
 const repositoryUrl = String(manifest.homepage_url || '').replace(/\/+$/, '');
 const repositoryMatch = repositoryUrl.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)$/i);

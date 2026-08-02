@@ -201,8 +201,10 @@ reading or storing its cookie values.
 ## Privacy and permissions
 
 StarBoard has no developer telemetry, analytics, advertising, remote backend
-or third-party data sharing. Its only network destinations are the two GitHub
-hosts described above, and API mode does not request host access for either.
+or third-party data sharing. Its network destinations are `api.github.com`,
+`github.com` only after website mode is selected and access is granted, and
+`sysadmindoc.github.io` only for the credential-free capability status check.
+API mode does not request host access for either GitHub host.
 The manifest intentionally declares no `web_accessible_resources`, so web pages
 cannot probe the extension for exposed files. If a future feature needs one,
 the release check requires every declared entry to opt into Chrome's

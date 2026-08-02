@@ -65,6 +65,11 @@
 
 ### Fixed
 
+- The network destination contract now covers API, website and capability
+  fetches in one source module. README, Settings, store metadata and the
+  release check all disclose the same three hosts, including the
+  credential-free GitHub Pages status request.
+
 - Field kill-switch rules now expire after 24 hours, treat future timestamps as
   immediately due for polling, and enforce the notifications capability as
   well as the web and GraphQL lanes. An unreachable manifest therefore fails

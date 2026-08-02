@@ -45,6 +45,7 @@ ALLOWED_FILES = (
     "src/lib/i18n-messages.js",
     "src/lib/install.js",
     "src/lib/lifecycle.js",
+    "src/lib/network-contract.js",
     "src/lib/notifications.js",
     "src/lib/portfolio-views.js",
     "src/lib/refresh-coordinator.js",
