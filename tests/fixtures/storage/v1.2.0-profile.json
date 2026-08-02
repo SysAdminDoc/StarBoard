@@ -1,0 +1,188 @@
+{
+  "capturedVersion": "1.2.0",
+  "records": {
+    "settings": {
+      "schemaVersion": 4,
+      "savedAt": 1767225600000,
+      "generation": null,
+      "data": {
+        "username": "octocat",
+        "token": "",
+        "tokenMode": "session",
+        "dataSource": "web",
+        "refreshMinutes": 360,
+        "baselineHours": 48,
+        "includeForks": true,
+        "includeArchived": false,
+        "sortKey": "updated",
+        "badgeMode": "delta",
+        "theme": "light",
+        "showFollowers": true,
+        "showDescriptions": false,
+        "showMetadata": true,
+        "showForkStats": true,
+        "showSourceStatus": true
+      }
+    },
+    "cache": {
+      "schemaVersion": 4,
+      "savedAt": 1767225600000,
+      "generation": "v12-refresh-17",
+      "data": {
+        "profile": {
+          "login": "octocat",
+          "name": "The Octocat",
+          "followers": 42,
+          "html_url": "https://github.com/octocat",
+          "avatar_url": "https://avatars.githubusercontent.com/u/583231?v=4"
+        },
+        "repos": [
+          {
+            "id": 1,
+            "name": "Hello-World",
+            "full_name": "octocat/Hello-World",
+            "html_url": "https://github.com/octocat/Hello-World",
+            "stargazers_count": 100,
+            "forks_count": 7,
+            "private": false,
+            "fork": false,
+            "archived": false,
+            "language": "Ruby",
+            "updated_at": "2025-12-30T09:00:00Z",
+            "pushed_at": "2025-12-29T09:00:00Z"
+          },
+          {
+            "id": 2,
+            "name": "StarBoard",
+            "full_name": "octocat/StarBoard",
+            "html_url": "https://github.com/octocat/StarBoard",
+            "stargazers_count": 4,
+            "forks_count": 1,
+            "private": false,
+            "fork": false,
+            "archived": true,
+            "language": "JavaScript",
+            "updated_at": "2025-12-28T09:00:00Z",
+            "pushed_at": "2025-12-27T09:00:00Z",
+            "approx": true
+          }
+        ],
+        "fetchedAt": 1767225600000,
+        "source": "web",
+        "approximate": true,
+        "complete": true,
+        "partialReason": null,
+        "confidence": "approximate",
+        "stale": false
+      }
+    },
+    "baseline": {
+      "schemaVersion": 4,
+      "savedAt": 1767225600000,
+      "generation": "v12-refresh-17",
+      "data": {
+        "at": 1767139200000,
+        "counts": {
+          "octocat/Hello-World": [98, 7],
+          "octocat/StarBoard": [3, 1]
+        },
+        "generation": "v12-refresh-17"
+      }
+    },
+    "history": {
+      "schemaVersion": 4,
+      "savedAt": 1767225600000,
+      "generation": null,
+      "data": {
+        "formatVersion": 1,
+        "snapshots": [
+          {
+            "day": "2026-01-01",
+            "at": 1767225600000,
+            "source": "web",
+            "confidence": "approximate",
+            "repos": [
+              {
+                "key": "name:octocat/Hello-World",
+                "fullName": "octocat/Hello-World",
+                "stars": 100,
+                "forks": 7,
+                "private": false,
+                "approximate": false
+              },
+              {
+                "key": "name:octocat/StarBoard",
+                "fullName": "octocat/StarBoard",
+                "stars": 4,
+                "forks": 1,
+                "private": false,
+                "approximate": true
+              }
+            ]
+          },
+          {
+            "day": "2026-01-02",
+            "at": 1767312000000,
+            "source": "web",
+            "confidence": "exact",
+            "repos": [
+              {
+                "key": "name:octocat/Hello-World",
+                "fullName": "octocat/Hello-World",
+                "stars": 101,
+                "forks": 8,
+                "private": false,
+                "approximate": false
+              },
+              {
+                "key": "name:octocat/New-Repo",
+                "fullName": "octocat/New-Repo",
+                "stars": 12,
+                "forks": 2,
+                "private": false,
+                "approximate": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "portfolioViews": {
+      "schemaVersion": 4,
+      "savedAt": 1767225600000,
+      "generation": null,
+      "data": {
+        "formatVersion": 1,
+        "activeViewId": "view-maintained",
+        "active": {
+          "query": "star",
+          "sortKey": "updated",
+          "language": "JavaScript",
+          "visibility": "public",
+          "forkStatus": "all",
+          "archivedStatus": "active",
+          "precision": "all",
+          "lifecycle": "changed",
+          "activity": "90"
+        },
+        "views": [
+          {
+            "id": "view-maintained",
+            "name": "Maintained JavaScript",
+            "filters": {
+              "query": "star",
+              "sortKey": "updated",
+              "language": "JavaScript",
+              "visibility": "public",
+              "forkStatus": "all",
+              "archivedStatus": "active",
+              "precision": "all",
+              "lifecycle": "changed",
+              "activity": "90"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

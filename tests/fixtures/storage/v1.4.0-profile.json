@@ -1,0 +1,191 @@
+{
+  "capturedVersion": "1.4.0",
+  "records": {
+    "settings": {
+      "schemaVersion": 5,
+      "savedAt": 1785283200000,
+      "generation": null,
+      "data": {
+        "username": "octocat",
+        "token": "",
+        "tokenMode": "session",
+        "dataSource": "api",
+        "refreshMinutes": 60,
+        "baselineHours": 24,
+        "includeForks": false,
+        "includeArchived": true,
+        "sortKey": "starsDelta",
+        "badgeMode": "stars",
+        "theme": "dark",
+        "showFollowers": true,
+        "showDescriptions": true,
+        "showMetadata": true,
+        "showForkStats": false,
+        "showSourceStatus": true
+      }
+    },
+    "cache": {
+      "schemaVersion": 5,
+      "savedAt": 1785283200000,
+      "generation": "v14-refresh-203",
+      "data": {
+        "profile": {
+          "login": "octocat",
+          "name": "The Octocat",
+          "followers": 44,
+          "html_url": "https://github.com/octocat",
+          "avatar_url": "https://avatars.githubusercontent.com/u/583231?v=4"
+        },
+        "repos": [
+          {
+            "id": 1,
+            "name": "Hello-World",
+            "full_name": "octocat/Hello-World",
+            "html_url": "https://github.com/octocat/Hello-World",
+            "stargazers_count": 120,
+            "forks_count": 8,
+            "private": false,
+            "fork": false,
+            "archived": false,
+            "language": "Ruby",
+            "updated_at": "2026-07-30T09:00:00Z",
+            "pushed_at": "2026-07-29T09:00:00Z"
+          },
+          {
+            "id": 2,
+            "name": "StarBoard",
+            "full_name": "octocat/StarBoard",
+            "html_url": "https://github.com/octocat/StarBoard",
+            "stargazers_count": 52,
+            "forks_count": 3,
+            "private": true,
+            "fork": false,
+            "archived": false,
+            "language": "JavaScript",
+            "updated_at": "2026-07-28T09:00:00Z",
+            "pushed_at": "2026-07-27T09:00:00Z"
+          }
+        ],
+        "fetchedAt": 1785283200000,
+        "source": "api",
+        "complete": false,
+        "partialReason": "The repository list ended at the API page cap.",
+        "confidence": "partial",
+        "stale": false,
+        "sourceDowngrade": {
+          "requested": "api",
+          "effective": "web",
+          "reason": "The token was rejected by GitHub."
+        },
+        "lifecycleEvents": [
+          {
+            "id": "renamed:octocat/Old-Name:octocat/StarBoard:1785283200000",
+            "type": "renamed",
+            "from": "octocat/Old-Name",
+            "to": "octocat/StarBoard",
+            "at": 1785283200000
+          }
+        ]
+      }
+    },
+    "baseline": {
+      "schemaVersion": 5,
+      "savedAt": 1785283200000,
+      "generation": "v14-refresh-203",
+      "data": {
+        "at": 1785196800000,
+        "counts": {
+          "octocat/Hello-World": [118, 8],
+          "octocat/StarBoard": [50, 3]
+        },
+        "generation": "v14-refresh-203"
+      }
+    },
+    "history": {
+      "schemaVersion": 5,
+      "savedAt": 1785283200000,
+      "generation": null,
+      "data": {
+        "formatVersion": 2,
+        "repos": [
+          ["id:1", "octocat/Hello-World", 0],
+          ["name:octocat/Hello-World", "octocat/Hello-World", 0],
+          ["id:2", "octocat/StarBoard", 1]
+        ],
+        "snapshots": [
+          {
+            "day": "2026-07-29",
+            "at": 1785283200000,
+            "source": "api",
+            "confidence": "exact",
+            "stars": [120, null, 50],
+            "forks": [8, null, 3],
+            "approx": []
+          },
+          {
+            "day": "2026-07-30",
+            "at": 1785369600000,
+            "source": "web",
+            "confidence": "partial",
+            "stars": [null, 121, 52],
+            "forks": [null, 9, 3],
+            "approx": [2],
+            "truncated": true
+          }
+        ]
+      }
+    },
+    "portfolioViews": {
+      "schemaVersion": 5,
+      "savedAt": 1785283200000,
+      "generation": null,
+      "data": {
+        "formatVersion": 1,
+        "activeViewId": "view-private",
+        "active": {
+          "query": "",
+          "sortKey": "starsDelta",
+          "language": "all",
+          "visibility": "private",
+          "forkStatus": "sources",
+          "archivedStatus": "all",
+          "precision": "exact",
+          "lifecycle": "all",
+          "activity": "all"
+        },
+        "views": [
+          {
+            "id": "view-private",
+            "name": "Private repositories",
+            "filters": {
+              "query": "",
+              "sortKey": "starsDelta",
+              "language": "all",
+              "visibility": "private",
+              "forkStatus": "sources",
+              "archivedStatus": "all",
+              "precision": "exact",
+              "lifecycle": "all",
+              "activity": "all"
+            }
+          },
+          {
+            "id": "view-recent",
+            "name": "Recently active",
+            "filters": {
+              "query": "",
+              "sortKey": "updated",
+              "language": "all",
+              "visibility": "all",
+              "forkStatus": "all",
+              "archivedStatus": "active",
+              "precision": "all",
+              "lifecycle": "all",
+              "activity": "30"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

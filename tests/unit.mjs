@@ -170,6 +170,15 @@ async function fixture(name) {
   return JSON.parse(await readFile(resolve(FIXTURES, name), 'utf8'));
 }
 
+function migrateProfile(profile) {
+  return Object.fromEntries(
+    Object.entries(profile.records).map(([key, raw]) => [
+      key,
+      storage.migrateRecord(key, raw, 1_800_000_000_000),
+    ]),
+  );
+}
+
 /** Return both areas to a pristine state so cases cannot depend on order. */
 function resetStorage() {
   area.quotaBytes = Infinity;
@@ -252,6 +261,146 @@ await test('current settings migration is idempotent', async () => {
   const migrated = storage.migrateRecord('settings', current, storage.SCHEMA_VERSION);
   assert.equal(migrated.changed, false);
   assert.deepEqual(migrated.envelope.data, current.data);
+});
+
+await test('v1.2 profile migrates every persisted record without losing fields', async () => {
+  const profile = await fixture('v1.2.0-profile.json');
+  assert.equal(profile.capturedVersion, '1.2.0');
+  const migrated = migrateProfile(profile);
+
+  for (const [key, raw] of Object.entries(profile.records)) {
+    assert.equal(migrated[key].envelope.schemaVersion, storage.SCHEMA_VERSION);
+    assert.equal(migrated[key].envelope.savedAt, raw.savedAt, `${key} savedAt is preserved`);
+    assert.equal(migrated[key].envelope.generation, raw.generation, `${key} generation is preserved`);
+  }
+
+  const settings = migrated.settings.envelope.data;
+  assert.equal(settings.username, 'octocat');
+  assert.equal(settings.dataSource, 'web');
+  assert.equal(settings.refreshMinutes, 360);
+  assert.equal(settings.baselineHours, 48);
+  assert.equal(settings.theme, 'light');
+  assert.equal(settings.showDescriptions, false);
+
+  const sourceCache = profile.records.cache.data;
+  const cache = migrated.cache.envelope.data;
+  assert.deepEqual(cache.profile, sourceCache.profile);
+  assert.deepEqual(cache.repos, sourceCache.repos);
+  assert.equal(cache.fetchedAt, sourceCache.fetchedAt);
+  assert.equal(cache.source, sourceCache.source);
+  assert.equal(cache.approximate, true);
+  assert.equal(cache.complete, true);
+  assert.equal(cache.partialReason, null);
+  assert.equal(cache.confidence, 'approximate');
+  assert.equal(cache.stale, false);
+
+  const sourceBaseline = profile.records.baseline.data;
+  const baseline = migrated.baseline.envelope.data;
+  assert.equal(baseline.at, sourceBaseline.at);
+  assert.deepEqual(baseline.counts, sourceBaseline.counts);
+  assert.equal(baseline.generation, sourceBaseline.generation);
+
+  assert.deepEqual(migrated.history.envelope.data, {
+    formatVersion: 3,
+    repos: [
+      ['name:octocat/Hello-World', 'octocat/Hello-World', 0],
+      ['name:octocat/StarBoard', 'octocat/StarBoard', 0],
+      ['name:octocat/New-Repo', 'octocat/New-Repo', 0],
+    ],
+    snapshots: [
+      {
+        day: '2026-01-01',
+        at: 1767225600000,
+        source: 'web',
+        confidence: 'approximate',
+        stars: [100, 4, null],
+        forks: [7, 1, null],
+        approx: [1],
+      },
+      {
+        day: '2026-01-02',
+        at: 1767312000000,
+        source: 'web',
+        confidence: 'exact',
+        stars: [101, null, 12],
+        forks: [8, null, 2],
+        approx: [],
+      },
+    ],
+  });
+
+  const sourceViews = profile.records.portfolioViews.data;
+  const views = migrated.portfolioViews.envelope.data;
+  assert.equal(views.formatVersion, sourceViews.formatVersion);
+  assert.equal(views.activeViewId, sourceViews.activeViewId);
+  assert.deepEqual(views.active, sourceViews.active);
+  assert.deepEqual(views.views, sourceViews.views);
+});
+
+await test('v1.4 profile rekeys history while preserving all other records', async () => {
+  const profile = await fixture('v1.4.0-profile.json');
+  assert.equal(profile.capturedVersion, '1.4.0');
+  const migrated = migrateProfile(profile);
+
+  for (const [key, raw] of Object.entries(profile.records)) {
+    assert.equal(migrated[key].envelope.schemaVersion, storage.SCHEMA_VERSION);
+    assert.equal(migrated[key].envelope.savedAt, raw.savedAt, `${key} savedAt is preserved`);
+    assert.equal(migrated[key].envelope.generation, raw.generation, `${key} generation is preserved`);
+  }
+
+  const sourceCache = profile.records.cache.data;
+  const cache = migrated.cache.envelope.data;
+  assert.deepEqual(cache.profile, sourceCache.profile);
+  assert.deepEqual(cache.repos, sourceCache.repos);
+  assert.equal(cache.fetchedAt, sourceCache.fetchedAt);
+  assert.equal(cache.source, sourceCache.source);
+  assert.equal(cache.complete, false);
+  assert.equal(cache.partialReason, sourceCache.partialReason);
+  assert.equal(cache.confidence, 'partial');
+  assert.deepEqual(cache.sourceDowngrade, sourceCache.sourceDowngrade);
+  assert.deepEqual(cache.lifecycleEvents, sourceCache.lifecycleEvents);
+
+  const sourceBaseline = profile.records.baseline.data;
+  const baseline = migrated.baseline.envelope.data;
+  assert.equal(baseline.at, sourceBaseline.at);
+  assert.deepEqual(baseline.counts, sourceBaseline.counts);
+  assert.equal(baseline.generation, sourceBaseline.generation);
+
+  assert.deepEqual(migrated.history.envelope.data, {
+    formatVersion: 3,
+    repos: [
+      ['name:octocat/Hello-World', 'octocat/Hello-World', 0],
+      ['name:octocat/StarBoard', 'octocat/StarBoard', 1],
+    ],
+    snapshots: [
+      {
+        day: '2026-07-29',
+        at: 1785283200000,
+        source: 'api',
+        confidence: 'exact',
+        stars: [120, 50],
+        forks: [8, 3],
+        approx: [],
+      },
+      {
+        day: '2026-07-30',
+        at: 1785369600000,
+        source: 'web',
+        confidence: 'partial',
+        stars: [121, 52],
+        forks: [9, 3],
+        approx: [1],
+        truncated: true,
+      },
+    ],
+  });
+
+  const sourceViews = profile.records.portfolioViews.data;
+  const views = migrated.portfolioViews.envelope.data;
+  assert.equal(views.formatVersion, sourceViews.formatVersion);
+  assert.equal(views.activeViewId, sourceViews.activeViewId);
+  assert.deepEqual(views.active, sourceViews.active);
+  assert.deepEqual(views.views, sourceViews.views);
 });
 
 await test('baseline resolution covers lifetime, age threshold, and explicit rebase', async () => {
