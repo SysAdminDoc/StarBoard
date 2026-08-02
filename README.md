@@ -452,20 +452,30 @@ once every six hours:
 
 ```json
 { "formatVersion": 1,
+  "issuedAt": 1785686400000,
+  "expiresAt": 1785772800000,
   "capabilities": [
     { "name": "web-source", "fixedInVersion": "1.6.0", "reason": "markup changed" }
-  ] }
+  ],
+  "signature": {
+    "algorithm": "Ed25519",
+    "keyId": "2026-08",
+    "value": "base64url-signature"
+  } }
 ```
 
 A rule applies only to installs older than `fixedInVersion`, so it lifts itself
 as soon as the fixing release is installed — no second publish. The document can
 only switch one of a fixed, locally-defined list of capabilities *off*; it never
-enables anything, and names outside that list are discarded. It carries no code,
-no selectors and no URLs, nothing is ever evaluated, and the request is
-credential-free and sends nothing about you or your repositories. GitHub Pages
-answers `Access-Control-Allow-Origin: *`, so this needs no host permission. If
-the file is unreachable, malformed, oversized, or served from anywhere else, the
-extension is left exactly as it was.
+enables anything, and names outside that list are discarded. Before any rule is
+used, the extension verifies the Ed25519 signature against its baked key
+allow-list and rejects unsigned, invalid, future-dated or expired documents.
+It carries no code, no selectors and no URLs, nothing is ever evaluated, and the
+request is credential-free and sends nothing about you or your repositories.
+GitHub Pages answers `Access-Control-Allow-Origin: *`, so this needs no host
+permission. If the file is unreachable, malformed, oversized, unsigned,
+invalidly signed or expired, the extension is left exactly as it was; local
+diagnostics reports only the bounded attempt outcome and timestamps.
 
 CI uses the immutable npm lock, audits high-severity advisories, validates the
 release twice for byte identity, and boots the packaged ZIP without network

@@ -32,6 +32,34 @@ export const CAPABILITY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const CAPABILITY_FORMAT_VERSION = 1;
 /** A hostile or accidental 40 MB response must not be read into memory. */
 export const CAPABILITY_MAX_BYTES = 16 * 1024;
+export const CAPABILITY_CLOCK_SKEW_MS = 5 * 60 * 1000;
+export const CAPABILITY_MAX_SIGNED_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+export const CAPABILITY_MANIFEST_ALGORITHM = 'Ed25519';
+export const CAPABILITY_MANIFEST_KEY_ID = '2026-08';
+
+// The matching private key is never part of the extension or repository. A
+// key id makes a future rotation explicit without accepting an arbitrary key
+// from the network. A payload signed by any other key is fail-open rejected.
+export const CAPABILITY_PUBLIC_KEYS = Object.freeze({
+  [CAPABILITY_MANIFEST_KEY_ID]: 'jKn4PC_XUTBMuU9ZavWARuPhBRP4MdT4zSIGRX1BjQw',
+});
+export const CAPABILITY_OUTCOMES = Object.freeze([
+  'never',
+  'accepted',
+  'unsigned',
+  'invalid-signature',
+  'expired',
+  'invalid',
+  'unavailable',
+]);
+
+export class CapabilityManifestError extends Error {
+  constructor(message, code = 'CAPABILITY_MANIFEST_INVALID') {
+    super(message);
+    this.name = 'CapabilityManifestError';
+    this.code = code;
+  }
+}
 
 /**
  * Every capability the document is allowed to name. A name outside this list is
@@ -95,10 +123,111 @@ export function parseCapabilityManifest(raw) {
   return { rules };
 }
 
+function decodeBase64Url(value) {
+  if (typeof value !== 'string' || !value) return null;
+  try {
+    const normalized = value.replaceAll('-', '+').replaceAll('_', '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const binary = atob(padded);
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** The signed portion of a manifest, in deterministic JSON form. */
+export function canonicalCapabilityPayload(raw) {
+  return canonicalize({
+    capabilities: raw?.capabilities,
+    expiresAt: raw?.expiresAt,
+    formatVersion: raw?.formatVersion,
+    issuedAt: raw?.issuedAt,
+  });
+}
+
+/**
+ * Verify the author and lifetime of a fetched document before parsing rules.
+ * `publicKeys` is injectable only for deterministic tests; production uses the
+ * baked allow-list above and never accepts a key from the manifest itself.
+ */
+export async function verifyCapabilityManifest(
+  raw,
+  {
+    now = Date.now(),
+    publicKeys = CAPABILITY_PUBLIC_KEYS,
+    subtle = globalThis.crypto?.subtle,
+  } = {},
+) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new CapabilityManifestError('capability manifest is not an object');
+  }
+  const signature = raw.signature;
+  if (!signature || typeof signature !== 'object' || Array.isArray(signature)) {
+    throw new CapabilityManifestError('capability manifest is unsigned', 'CAPABILITY_UNSIGNED');
+  }
+  const issuedAt = Number(raw.issuedAt);
+  const expiresAt = Number(raw.expiresAt);
+  if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt)) {
+    throw new CapabilityManifestError('capability manifest has no signed lifetime', 'CAPABILITY_INVALID');
+  }
+  if (expiresAt <= now) {
+    throw new CapabilityManifestError('capability manifest has expired', 'CAPABILITY_EXPIRED');
+  }
+  if (issuedAt > now + CAPABILITY_CLOCK_SKEW_MS) {
+    throw new CapabilityManifestError('capability manifest starts in the future', 'CAPABILITY_INVALID');
+  }
+  if (expiresAt <= issuedAt || expiresAt - issuedAt > CAPABILITY_MAX_SIGNED_LIFETIME_MS) {
+    throw new CapabilityManifestError('capability manifest lifetime is invalid', 'CAPABILITY_INVALID');
+  }
+
+  if (signature.algorithm !== CAPABILITY_MANIFEST_ALGORITHM) {
+    throw new CapabilityManifestError('capability manifest algorithm is not allowed', 'CAPABILITY_INVALID');
+  }
+  const keyId = typeof signature.keyId === 'string' ? signature.keyId : '';
+  const keyText = publicKeys?.[keyId];
+  const keyBytes = decodeBase64Url(keyText);
+  const signatureBytes = decodeBase64Url(signature.value);
+  if (!keyBytes || keyBytes.length !== 32 || !signatureBytes || signatureBytes.length !== 64) {
+    throw new CapabilityManifestError('capability manifest signature is malformed', 'CAPABILITY_INVALID_SIGNATURE');
+  }
+  if (!subtle) {
+    throw new CapabilityManifestError('capability signature verification is unavailable', 'CAPABILITY_CRYPTO_UNAVAILABLE');
+  }
+  let valid = false;
+  try {
+    const key = await subtle.importKey('raw', keyBytes, CAPABILITY_MANIFEST_ALGORITHM, false, ['verify']);
+    valid = await subtle.verify(
+      CAPABILITY_MANIFEST_ALGORITHM,
+      key,
+      signatureBytes,
+      new TextEncoder().encode(canonicalCapabilityPayload(raw)),
+    );
+  } catch {
+    valid = false;
+  }
+  if (!valid) {
+    throw new CapabilityManifestError('capability manifest signature is invalid', 'CAPABILITY_INVALID_SIGNATURE');
+  }
+  return { keyId, issuedAt, expiresAt };
+}
+
 /** The capability names disabled for `installedVersion`. */
 export function capabilityStateIsStale(state, { now = Date.now() } = {}) {
   const fetchedAt = Number(state?.fetchedAt);
   if (!Number.isFinite(fetchedAt) || fetchedAt <= 0 || fetchedAt > now) return true;
+  const expiresAt = Number(state?.expiresAt);
+  if (Number.isFinite(expiresAt) && expiresAt <= now) return true;
   return now - fetchedAt >= CAPABILITY_MAX_AGE_MS;
 }
 
@@ -115,7 +244,14 @@ export function isCapabilityDisabled(state, name, installedVersion, options = {}
 }
 
 export function emptyCapabilityState() {
-  return { formatVersion: CAPABILITY_FORMAT_VERSION, fetchedAt: 0, rules: [] };
+  return {
+    formatVersion: CAPABILITY_FORMAT_VERSION,
+    fetchedAt: 0,
+    rules: [],
+    lastAttemptAt: 0,
+    lastOutcome: 'never',
+    lastErrorCode: null,
+  };
 }
 
 export function validateCapabilityState(value) {
@@ -137,6 +273,27 @@ export function validateCapabilityState(value) {
         (rule.reason === undefined || typeof rule.reason === 'string'),
     );
   if (!ok) throw new Error('invalid capability state');
+  if (
+    value.lastAttemptAt !== undefined &&
+    (!Number.isFinite(value.lastAttemptAt) || value.lastAttemptAt < 0)
+  ) {
+    throw new Error('invalid capability attempt timestamp');
+  }
+  if (value.lastOutcome !== undefined && !CAPABILITY_OUTCOMES.includes(value.lastOutcome)) {
+    throw new Error('invalid capability outcome');
+  }
+  if (
+    value.lastErrorCode !== undefined &&
+    value.lastErrorCode !== null &&
+    (typeof value.lastErrorCode !== 'string' || value.lastErrorCode.length > 80)
+  ) {
+    throw new Error('invalid capability error code');
+  }
+  for (const field of ['expiresAt', 'issuedAt']) {
+    if (value[field] !== undefined && (!Number.isFinite(value[field]) || value[field] < 0)) {
+      throw new Error(`invalid capability ${field}`);
+    }
+  }
   return value;
 }
 
@@ -159,6 +316,8 @@ export async function fetchCapabilityManifest({
   now = Date.now,
   signal = null,
   url = CAPABILITY_MANIFEST_URL,
+  publicKeys = CAPABILITY_PUBLIC_KEYS,
+  subtle = globalThis.crypto?.subtle,
 } = {}) {
   if (new URL(url).origin !== CAPABILITY_MANIFEST_ORIGIN) {
     throw new Error('capability manifest origin is not allowed');
@@ -184,5 +343,14 @@ export async function fetchCapabilityManifest({
   } catch {
     throw new Error('capability manifest is not valid JSON');
   }
-  return { ...parseCapabilityManifest(raw), formatVersion: CAPABILITY_FORMAT_VERSION, fetchedAt: now() };
+  const fetchedAt = now();
+  const verified = await verifyCapabilityManifest(raw, { now: fetchedAt, publicKeys, subtle });
+  return {
+    ...parseCapabilityManifest(raw),
+    formatVersion: CAPABILITY_FORMAT_VERSION,
+    fetchedAt,
+    issuedAt: verified.issuedAt,
+    expiresAt: verified.expiresAt,
+    keyId: verified.keyId,
+  };
 }

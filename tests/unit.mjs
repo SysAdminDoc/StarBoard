@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { webcrypto } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1910,6 +1911,7 @@ await test('the kill-switch disables named capabilities and ignores everything e
     KNOWN_CAPABILITIES,
     capabilityStateIsStale,
     capabilityFetchIsDue,
+    canonicalCapabilityPayload,
     compareVersions,
     disabledCapabilities,
     emptyCapabilityState,
@@ -1928,6 +1930,25 @@ await test('the kill-switch disables named capabilities and ignores everything e
       { name: 'web-source', fixedInVersion: '1.6.0', reason: 'github.com markup changed' },
       { name: 'api-graphql', fixedInVersion: '1.5.0' },
     ],
+  };
+  const signingKeys = await webcrypto.subtle.generateKey('Ed25519', true, ['sign', 'verify']);
+  const publicKey = Buffer.from(
+    await webcrypto.subtle.exportKey('raw', signingKeys.publicKey),
+  ).toString('base64url');
+  const sign = async (value) => {
+    const signature = await webcrypto.subtle.sign(
+      'Ed25519',
+      signingKeys.privateKey,
+      new TextEncoder().encode(canonicalCapabilityPayload(value)),
+    );
+    return {
+      ...value,
+      signature: {
+        algorithm: 'Ed25519',
+        keyId: 'unit-test',
+        value: Buffer.from(signature).toString('base64url'),
+      },
+    };
   };
   const parsed = parseCapabilityManifest(document);
   assert.deepEqual(
@@ -2011,10 +2032,23 @@ await test('the kill-switch disables named capabilities and ignores everything e
   const requests = [];
   const fetchImpl = async (url, init) => {
     requests.push({ url: String(url), init });
-    return respond(JSON.stringify(document));
+    return respond(JSON.stringify(signedDocument));
   };
-  const fetched = await fetchCapabilityManifest({ fetchImpl, now: () => 5000 });
+  const signedDocument = await sign({
+    ...document,
+    issuedAt: 1000,
+    expiresAt: 10_000,
+  });
+  const fetched = await fetchCapabilityManifest({
+    fetchImpl,
+    now: () => 5000,
+    publicKeys: { 'unit-test': publicKey },
+    subtle: webcrypto.subtle,
+  });
   assert.equal(fetched.fetchedAt, 5000);
+  assert.equal(fetched.issuedAt, 1000);
+  assert.equal(fetched.expiresAt, 10_000);
+  assert.equal(fetched.keyId, 'unit-test');
   assert.deepEqual(
     fetched.rules.map((rule) => rule.name),
     ['web-source', 'api-graphql'],
@@ -2024,6 +2058,42 @@ await test('the kill-switch disables named capabilities and ignores everything e
   // redirect is refused rather than followed.
   assert.equal(requests[0].init.redirect, 'error');
   assert.equal(requests[0].init.credentials, 'omit');
+
+  await assert.rejects(
+    fetchCapabilityManifest({
+      fetchImpl: async () => respond(JSON.stringify(document)),
+      now: () => 5000,
+      publicKeys: { 'unit-test': publicKey },
+      subtle: webcrypto.subtle,
+    }),
+    /unsigned/,
+  );
+  const tampered = {
+    ...signedDocument,
+    capabilities: [
+      ...signedDocument.capabilities,
+      { name: 'notifications', fixedInVersion: '9.9.9' },
+    ],
+  };
+  await assert.rejects(
+    fetchCapabilityManifest({
+      fetchImpl: async () => respond(JSON.stringify(tampered)),
+      now: () => 5000,
+      publicKeys: { 'unit-test': publicKey },
+      subtle: webcrypto.subtle,
+    }),
+    /invalid/,
+  );
+  const expired = await sign({ ...document, issuedAt: 1000, expiresAt: 4000 });
+  await assert.rejects(
+    fetchCapabilityManifest({
+      fetchImpl: async () => respond(JSON.stringify(expired)),
+      now: () => 5000,
+      publicKeys: { 'unit-test': publicKey },
+      subtle: webcrypto.subtle,
+    }),
+    /expired/,
+  );
 
   // An off-origin URL is refused before any request is made.
   let attempted = false;
@@ -4089,6 +4159,13 @@ await test('diagnostics expose allow-listed health metadata without sensitive va
         },
       ],
     },
+    capabilityState: {
+      fetchedAt: Date.UTC(2026, 6, 29, 3),
+      lastAttemptAt: Date.UTC(2026, 6, 29, 3),
+      lastOutcome: 'accepted',
+      expiresAt: Date.UTC(2026, 6, 30, 3),
+      lastErrorCode: null,
+    },
     alarms: [
       {
         name: 'starboard-refresh',
@@ -4106,6 +4183,9 @@ await test('diagnostics expose allow-listed health metadata without sensitive va
   assert.equal(diagnostics.refresh.error.code, 'RATE_LIMITED');
   assert.equal(diagnostics.authentication.status, 'expired');
   assert.equal(diagnostics.authentication.code, 'TOKEN_EXPIRED');
+  assert.equal(diagnostics.capability.outcome, 'accepted');
+  assert.equal(diagnostics.capability.stale, false);
+  assert.equal(diagnostics.capability.lastErrorCode, null);
   assert.equal(diagnostics.authentication.lastAuthenticatedAt, '2026-07-28T23:00:00.000Z');
   assert.deepEqual(diagnostics.refresh.recentFailures, [
     {

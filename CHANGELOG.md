@@ -74,6 +74,11 @@
   immediately due for polling, and enforce the notifications capability as
   well as the web and GraphQL lanes. An unreachable manifest therefore fails
   open instead of pinning a feature off indefinitely.
+- Capability manifests now require a baked Ed25519 signature, bounded signed
+  lifetime and a known key id before any rule is accepted. Unsigned, invalid,
+  expired and unavailable documents preserve the prior rules, while local
+  diagnostics exposes only bounded poll outcome, error-code and freshness
+  metadata.
 - Storage migration coverage now includes complete v1.2 and v1.4 profiles,
   asserting cache, baseline, history, saved views, and envelope metadata survive
   the upgrade to schema 6.

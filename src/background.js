@@ -319,12 +319,39 @@ async function syncCapabilityAlarm() {
 async function syncCapabilities({ force = false } = {}) {
   const current = await getCapabilityState();
   if (!force && !capabilityFetchIsDue(current)) return current;
+  const attemptAt = Date.now();
   try {
     const next = await fetchCapabilityManifest();
-    await setCapabilityState(next);
-    return next;
-  } catch {
-    return current;
+    const accepted = {
+      ...next,
+      lastAttemptAt: next.fetchedAt,
+      lastOutcome: 'accepted',
+      lastErrorCode: null,
+    };
+    await setCapabilityState(accepted);
+    return accepted;
+  } catch (error) {
+    const code = String(error?.code || 'NETWORK').slice(0, 80);
+    const lastOutcome =
+      code === 'CAPABILITY_UNSIGNED'
+        ? 'unsigned'
+        : code === 'CAPABILITY_INVALID_SIGNATURE'
+          ? 'invalid-signature'
+          : code === 'CAPABILITY_EXPIRED'
+            ? 'expired'
+            : code === 'CAPABILITY_INVALID' || code === 'CAPABILITY_CRYPTO_UNAVAILABLE'
+              ? 'invalid'
+              : 'unavailable';
+    const failed = {
+      ...current,
+      lastAttemptAt: attemptAt,
+      lastOutcome,
+      lastErrorCode: code,
+    };
+    // Health metadata must never turn a failed optional poll into a product
+    // failure. Returning the preserved rules keeps the kill-switch fail-open.
+    await setCapabilityState(failed).catch(() => {});
+    return failed;
   }
 }
 
@@ -615,6 +642,7 @@ async function diagnosticsBundle() {
     refreshFailures,
     alarms,
     storageBytes,
+    capabilityState,
   ] =
     await Promise.all([
       getSettings(),
@@ -627,6 +655,7 @@ async function diagnosticsBundle() {
       getRefreshFailures(),
       chrome.alarms.getAll(),
       chrome.storage.local.getBytesInUse(null),
+      getCapabilityState(),
     ]);
   return buildDiagnostics({
     manifest: chrome.runtime.getManifest(),
@@ -640,6 +669,7 @@ async function diagnosticsBundle() {
     refreshFailures,
     alarms,
     storageBytes,
+    capabilityState,
     userAgent: navigator.userAgent,
     disabledCapabilities: await offCapabilities(),
   });

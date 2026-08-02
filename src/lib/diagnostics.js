@@ -7,6 +7,7 @@
  */
 
 import { NETWORK_DESTINATIONS } from './network-contract.js';
+import { capabilityStateIsStale } from './capabilities.js';
 
 export const DIAGNOSTICS_FORMAT_VERSION = 1;
 
@@ -45,6 +46,7 @@ export function buildDiagnostics({
   userAgent = '',
   disabledCapabilities = [],
   refreshFailures = null,
+  capabilityState = null,
   now = Date.now(),
 } = {}) {
   const alarmByName = new Map(alarms.map((alarm) => [alarm.name, alarm]));
@@ -80,6 +82,27 @@ export function buildDiagnostics({
     },
     network: {
       capabilityStatusHost: NETWORK_DESTINATIONS.capability.host,
+    },
+    capability: {
+      lastAttemptAt: timestamp(capabilityState?.lastAttemptAt),
+      lastAcceptedAt: timestamp(capabilityState?.fetchedAt),
+      expiresAt: timestamp(capabilityState?.expiresAt),
+      outcome: [
+        'never',
+        'accepted',
+        'unsigned',
+        'invalid-signature',
+        'expired',
+        'invalid',
+        'unavailable',
+      ].includes(capabilityState?.lastOutcome)
+        ? capabilityState.lastOutcome
+        : 'never',
+      lastErrorCode:
+        typeof capabilityState?.lastErrorCode === 'string'
+          ? capabilityState.lastErrorCode.slice(0, 80)
+          : null,
+      stale: capabilityState ? capabilityStateIsStale(capabilityState, { now }) : true,
     },
     authentication: {
       status: ['unknown', 'active', 'expired', 'revoked', 'denied', 'rate-limited'].includes(
