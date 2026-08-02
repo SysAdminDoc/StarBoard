@@ -1,5 +1,77 @@
 # Changelog
 
+## v1.5.0 — 2026-08-02
+
+### Added
+
+- Every row now draws an inline SVG sparkline of the selected trend range, with
+  no charting library. A gap wider than the carry-forward window splits the line
+  into separate segments rather than being drawn through it, and a series with
+  fewer than five retained points shows the point count instead — a two-point
+  line only encodes "up or down". Each carries a label naming the range, the
+  days actually measured, the change and how many days are missing, and adds no
+  focus stops inside the list.
+- The **Trend table** control opens the same series as a real table and doubles
+  as the comparison view: biggest movers first, with start and end star counts,
+  absolute change, percentage growth and fork change. Growth from a start of
+  zero reads `from 0` rather than an invented percentage, `~` marks a count
+  GitHub abbreviated, and the days-measured column is muted wherever the series
+  has holes. The set is bounded to 50 rows and the caption says what it excluded.
+- **Trend** accepts a custom range in days, bounded by what the history actually
+  retains. Asking for more clamps to the retained window and announces it.
+- With a personal access token the ranked listing is fetched over GraphQL — one
+  point per 100 repositories, ranked server-side, where REST needed one request
+  per 100 and silently ignored `sort=stars`. Tokenless reads are unchanged, and
+  every GraphQL failure REST can survive falls back to REST.
+- A static kill-switch: StarBoard reads one small JSON from its own GitHub Pages
+  branch at most every six hours and can disable a named capability until the
+  install reaches a stated version, so a field break no longer waits out a store
+  review. The document can only switch a known capability off — it carries no
+  code, selectors or URLs, nothing is evaluated, redirects are refused, and
+  every failure path leaves the extension untouched. No host permission is
+  added; the request is credential-free.
+- The CSV export carries a versioned, positionally stable column contract in
+  every row and in its filename, with the compatibility promise stated in the
+  README.
+
+### Fixed
+
+- Settings had no representation for its own async load: until it resolved,
+  every field still read its markup defaults, so an activation saved `web` and
+  `dark` over the user's real settings. The form is now disabled and marked busy
+  until it loads. It also gained the offline, rate-limit and storage-quota
+  states it had none of — an offline save persists locally and says the refresh
+  is deferred, a rate-limited response states when it can be retried, a quota
+  failure points at the Prune control, and revoking the github.com origin is
+  reflected on the source control immediately.
+- The popup's keyboard dead ends: reaching the footer's Undo meant tabbing every
+  repository row, closing the view editor dropped focus to `<body>`, and the
+  "Nothing matches" state was the only one with no way out while its escape sat
+  inside the collapsed filter panel. A trend range that stops being retained now
+  falls back to the longest the history can serve and announces it, instead of
+  leaving a disabled option selected and every delta a dash.
+- Number, date and delta formatting followed `navigator.language` while
+  `chrome.i18n` follows `getUILanguage()` — two sources that disagree often
+  enough to ship English digit grouping beside translated text. Every formatter
+  is now bound to the extension UI language, deltas use `signDisplay` rather
+  than a concatenated `+`, and the document direction comes from `@@bidi_dir`.
+  A message with no catalog entry is reported instead of silently blanking.
+
+### Changed
+
+- Reading a settled record no longer serializes it three times. A 488 KB history
+  read now costs one pass instead of about 1.4 MB of serialization, and the
+  migration write-back no longer re-validates what was just validated.
+- `npm run typecheck` type-checks `src/` and `scripts/` with `tsc --checkJs` and
+  no emit, wired into CI. Nothing is bundled and no runtime dependency is added.
+- `_locales/en_XA` is generated from the English catalog by
+  `npm run locales`, and `npm run check` fails when it drifts.
+- The SPDX SBOM labels Playwright, TypeScript and Pillow as build-only
+  components so a scanner stops attributing their advisories to the shipped
+  artifact. Playwright moved to 1.62.1.
+- The screenshot freshness gate compares each capture against the surface it
+  shows, instead of failing an options screenshot whenever popup markup moved.
+
 ## v1.4.0 — 2026-07-31
 
 ### Fixed
