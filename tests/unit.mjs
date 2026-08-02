@@ -143,7 +143,10 @@ const {
   validateBackupText,
 } = await import('../src/lib/transfer.js');
 const { buildDiagnostics } = await import('../src/lib/diagnostics.js');
-const { installationPlan } = await import('../src/lib/install.js');
+const {
+  installationPlan,
+  privacyNoticeForUpdate,
+} = await import('../src/lib/install.js');
 const {
   acknowledgeNotifications,
   DEFAULT_NOTIFICATION_CONFIG,
@@ -210,6 +213,13 @@ await test('extension installs and updates refresh while Chrome updates do not',
     previousVersion: null,
   });
   assert.equal(installationPlan({ reason: 'shared_module_update' }).shouldRefresh, false);
+  assert.equal(privacyNoticeForUpdate({ reason: 'install' }, '1.5.0'), null);
+  const notice = privacyNoticeForUpdate(
+    { reason: 'update', previousVersion: '1.4.0' },
+    '1.5.0',
+  );
+  assert.match(notice.message, /sysadmindoc\.github\.io\/StarBoard\/capabilities\.json/);
+  assert.equal(privacyNoticeForUpdate({ reason: 'update', previousVersion: '1.5.0' }, '1.6.0'), null);
 });
 
 await test('v1.0 settings migrate sequentially and preserve API behavior', async () => {

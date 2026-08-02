@@ -23,6 +23,10 @@ import {
   STORAGE_KEYS,
   applyTheme,
 } from './lib/storage.js';
+import {
+  dismissPrivacyNotice,
+  getPrivacyNotice,
+} from './lib/install.js';
 import { formatters, localizeDocument, message } from './lib/i18n.js';
 import {
   SPARKLINE_MIN_POINTS,
@@ -155,6 +159,7 @@ let state = {
   notificationState: null,
   portfolioViews: null,
   storageRecoveryNotice: null,
+  privacyNotice: null,
   trendRange: 'baseline',
   // Only meaningful while `trendRange` is 'custom'.
   trendCustomDays: 14,
@@ -1248,6 +1253,22 @@ function renderBannerContent() {
     });
     return;
   }
+  if (state.privacyNotice) {
+    const notice = state.privacyNotice;
+    showBanner(notice.message, {
+      label: 'Dismiss',
+      onClick: async () => {
+        try {
+          await dismissPrivacyNotice(notice.id);
+          state.privacyNotice = await getPrivacyNotice();
+          renderBanner();
+        } catch (error) {
+          announce(`Could not dismiss the privacy notice. ${sentence(error.message)}`);
+        }
+      },
+    });
+    return;
+  }
   if (state.cache?.complete === false) {
     if (state.cache.partialReason === 'access-reduced') {
       showBanner(
@@ -1992,6 +2013,7 @@ window.addEventListener('online', () => {
     // Read this after the records: one of those reads may have just restored
     // or reset an invalid envelope and written the notice we need to show.
     state.storageRecoveryNotice = await getStorageRecoveryNotice();
+    state.privacyNotice = await getPrivacyNotice();
   } catch (error) {
     // Without settings there is nothing to render. Say so rather than leaving
     // the static "Loading…" markup on screen with every control disabled.

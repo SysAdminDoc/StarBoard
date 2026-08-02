@@ -42,6 +42,8 @@
 - Remote capability downgrades now explain when the requested source is
   unavailable, identify the effective fallback in the popup and Settings, and
   preserve that explanation when the refresh fails.
+- Privacy disclosures now name the credential-free capability endpoint and
+  explain its update-time data-handling change once per installation.
 - API snapshots now record whether the fetch was authenticated. Losing a session
   token produces a clearly explained partial snapshot without false repository
   removals, and GraphQL validates coverage against its paginated total.

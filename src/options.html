@@ -33,6 +33,10 @@
         No network connection. Saved settings still apply; refreshes and connection tests
         resume once you are back online.
       </p>
+      <div id="privacyChangeNotice" class="page-banner privacy-change" role="alert" hidden>
+        <span id="privacyChangeText"></span>
+        <button id="privacyChangeDismiss" type="button">Dismiss</button>
+      </div>
 
       <main class="settings-grid" id="settingsGrid" aria-busy="true">
         <section class="card account-card">
@@ -371,7 +375,14 @@
                 Notification access is optional, requested only when alerts are enabled, and used
                 only for local milestone/growth messages.
               </li>
-              <li>No analytics, developer telemetry, advertising or third-party data sharing.</li>
+              <li>
+                StarBoard contacts <code>github.com</code> for website mode,
+                <code>api.github.com</code> for API mode, and
+                <code>https://sysadmindoc.github.io/StarBoard/capabilities.json</code> for
+                capability status. The last request is credential-free and sends no username,
+                repository names, tokens, cookies or other user-identifying data.
+              </li>
+              <li>No analytics, developer telemetry, advertising, or user-identifying data collection.</li>
             </ul>
             <a href="https://github.com/SysAdminDoc/StarBoard#privacy-and-permissions" target="_blank" rel="noreferrer">
               Full privacy and permission details →

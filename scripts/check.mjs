@@ -127,6 +127,7 @@ const packageLock = JSON.parse(readFileSync(resolve(ROOT, 'package-lock.json'), 
 const storeListing = JSON.parse(readFileSync(resolve(ROOT, 'store-listing.json'), 'utf8'));
 const readme = readFileSync(resolve(ROOT, 'README.md'), 'utf8');
 const changelog = readFileSync(resolve(ROOT, 'CHANGELOG.md'), 'utf8');
+const optionsPrivacyText = readFileSync(resolve(ROOT, 'src/options.html'), 'utf8').toLowerCase();
 const version = manifest.version;
 
 const englishMessages = JSON.parse(
@@ -208,6 +209,18 @@ if (missingFromListing.length) {
 }
 if (extraInListing.length) {
   failures.push(`store listing declares permissions the manifest does not: ${extraInListing.join(', ')}`);
+}
+const disclosedDestinations = [
+  ...JSON.stringify(storeListing.privacyDisclosure || {}).matchAll(
+    /(?:https?:\/\/)?(?:[a-z\d-]+\.)+[a-z]{2,}(?:\/[a-z\d._-]+)*\/?/gi,
+  ),
+].map((match) => match[0].replace(/^https?:\/\//i, '').toLowerCase());
+for (const destination of new Set(disclosedDestinations)) {
+  if (!optionsPrivacyText.includes(destination)) {
+    failures.push(
+      `store listing privacy destination ${destination} is missing from the in-UI disclosure`,
+    );
+  }
 }
 const optionalNames = new Set([
   ...(manifest.optional_permissions || []),

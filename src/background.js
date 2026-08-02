@@ -44,7 +44,11 @@ import { createRetryWait } from './lib/request.js';
 import { deriveLifecycleEvents, mergeLifecycleEvents } from './lib/lifecycle.js';
 import { historyStats } from './lib/history.js';
 import { buildDiagnostics } from './lib/diagnostics.js';
-import { installationPlan } from './lib/install.js';
+import {
+  installationPlan,
+  privacyNoticeForUpdate,
+  stagePrivacyNotice,
+} from './lib/install.js';
 import {
   acknowledgeNotifications,
   evaluateNotificationEvents,
@@ -581,6 +585,11 @@ async function diagnosticsBundle() {
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   const install = installationPlan(details);
+  const privacyNotice = privacyNoticeForUpdate(
+    details,
+    chrome.runtime.getManifest().version,
+  );
+  if (privacyNotice) await stagePrivacyNotice(privacyNotice).catch(() => {});
   await syncAlarm();
   await syncCapabilityAlarm();
   await updateBadge();

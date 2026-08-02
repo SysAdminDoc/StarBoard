@@ -453,6 +453,32 @@ a:hover {
   background: color-mix(in srgb, var(--gold) 9%, var(--surface-soft));
 }
 
+.page-banner.privacy-change {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface-soft));
+}
+
+.privacy-change span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.privacy-change button {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 3px 10px;
+  border: 1px solid var(--border-control);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
 .callout {
   position: relative;
   margin-top: auto;

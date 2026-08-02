@@ -653,6 +653,50 @@ async function main() {
         missingKey.warnings.some((entry) => /no message for text_[0-9a-f]{8}/.test(entry)),
       JSON.stringify(missingKey),
     );
+    const privacyNotice = await popup.evaluate(async (version) => {
+      const { privacyNoticeForUpdate, stagePrivacyNotice } = await import('./lib/install.js');
+      const notice = privacyNoticeForUpdate(
+        { reason: 'update', previousVersion: '1.4.0' },
+        version,
+      );
+      await stagePrivacyNotice(notice);
+      return notice;
+    }, sourceManifest.version);
+    await popup.reload();
+    await popup.waitForSelector('#banner:not([hidden])');
+    const popupPrivacyNotice = await popup.evaluate(() => ({
+      text: document.querySelector('#banner .banner-text')?.textContent || '',
+      action: document.querySelector('#banner .banner-action')?.textContent || '',
+    }));
+    check(
+      'an update discloses the new capability request and can be dismissed once',
+      privacyNotice?.id === `capability-endpoint:${sourceManifest.version}` &&
+        /sysadmindoc\.github\.io\/StarBoard\/capabilities\.json/.test(popupPrivacyNotice.text) &&
+        /credential-free/.test(popupPrivacyNotice.text) &&
+        popupPrivacyNotice.action === 'Dismiss',
+      JSON.stringify(popupPrivacyNotice),
+    );
+    await popup.click('#banner .banner-action');
+    await popup.waitForFunction(() => document.querySelector('#banner')?.hidden === true);
+    const privacyOptions = await ctx.newPage();
+    captureErrors(privacyOptions, 'privacy disclosure settings');
+    await privacyOptions.goto(`chrome-extension://${extId}/src/options.html`);
+    await privacyOptions.waitForFunction(
+      () => document.querySelector('#settingsGrid')?.getAttribute('aria-busy') === 'false',
+    );
+    const privacyUi = await privacyOptions.$eval('.privacy-disclosure', (node) => ({
+      text: node.textContent,
+      noticeHidden: document.querySelector('#privacyChangeNotice')?.hidden,
+    }));
+    await privacyOptions.close();
+    check(
+      'Settings names every disclosed destination and the update notice is shared',
+      /github\.com/.test(privacyUi.text) &&
+        /api\.github\.com/.test(privacyUi.text) &&
+        /sysadmindoc\.github\.io\/StarBoard\/capabilities\.json/.test(privacyUi.text) &&
+        privacyUi.noticeHidden === true,
+      JSON.stringify(privacyUi),
+    );
     check(
       'setup-only popup controls start disabled',
       await popup.evaluate(() =>

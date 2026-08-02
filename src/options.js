@@ -22,6 +22,7 @@ import {
 import { testApiConnection } from './lib/github.js';
 import { testWebsiteConnection } from './lib/scrape.js';
 import { formatters, localizeDocument, message as i18nMessage } from './lib/i18n.js';
+import { dismissPrivacyNotice, getPrivacyNotice } from './lib/install.js';
 
 const GITHUB_ORIGIN = 'https://github.com/*';
 const WEB_MIN_REFRESH_MINUTES = 360;
@@ -309,9 +310,10 @@ async function showStorageInfo() {
 }
 
 async function load() {
-  const [s, cache] = await Promise.all([
+  const [s, cache, privacyNotice] = await Promise.all([
     getSettings(),
     getCache().catch(() => null),
+    getPrivacyNotice().catch(() => null),
     chrome.permissions
       .contains({ origins: [GITHUB_ORIGIN] })
       .then((granted) => {
@@ -333,6 +335,7 @@ async function load() {
     fields.dataSource.value = cache.sourceDowngrade.effective;
     sourceCapabilityNotice = sourceDowngradeMessage(cache.sourceDowngrade);
   }
+  renderPrivacyNotice(privacyNotice);
   fields.showFollowers.checked = s.showFollowers;
   fields.showDescriptions.checked = s.showDescriptions;
   fields.showMetadata.checked = s.showMetadata;
@@ -343,6 +346,23 @@ async function load() {
   $('version').textContent = `v${chrome.runtime.getManifest().version}`;
   await Promise.all([showStorageInfo(), loadNotificationConfig()]);
 }
+
+function renderPrivacyNotice(notice) {
+  const banner = $('privacyChangeNotice');
+  const text = $('privacyChangeText');
+  if (!banner || !text) return;
+  text.textContent = notice?.message || '';
+  banner.hidden = !notice;
+  banner.dataset.noticeId = notice?.id || '';
+}
+
+$('privacyChangeDismiss')?.addEventListener('click', async () => {
+  const banner = $('privacyChangeNotice');
+  const id = banner?.dataset.noticeId;
+  if (!id) return;
+  await dismissPrivacyNotice(id).catch(() => {});
+  renderPrivacyNotice(await getPrivacyNotice().catch(() => null));
+});
 
 function collect() {
   return {
