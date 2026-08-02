@@ -165,6 +165,10 @@ is the recommended zero-setup choice.
 StarBoard has no developer telemetry, analytics, advertising, remote backend
 or third-party data sharing. Its only network destinations are the two GitHub
 hosts described above, and API mode does not request host access for either.
+The manifest intentionally declares no `web_accessible_resources`, so web pages
+cannot probe the extension for exposed files. If a future feature needs one,
+the release check requires every declared entry to opt into Chrome's
+`use_dynamic_url` protection.
 
 - **Data kept locally:** your username, display preferences, repository/profile
   snapshot, comparison baseline, daily trend points, refresh metadata and

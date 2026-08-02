@@ -48,6 +48,8 @@
   is excluded from portable backups.
 - Settings now places repository issue-tracker and security-policy links beside
   the local diagnostics controls, with the manifest owning the canonical URL.
+- The release check now protects the extension’s absence of web-accessible
+  resources and requires dynamic URLs for any future exposed entry.
 - Aggregate trend deltas now show an explicit partial marker and accessible
   coverage count when some visible repositories have no retained comparison.
 - Stranded sparkline measurements now render as physical-pixel ticks even when

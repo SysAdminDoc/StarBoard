@@ -147,6 +147,20 @@ if (!repositoryMatch) {
   }
 }
 
+if (manifest.web_accessible_resources !== undefined) {
+  if (!Array.isArray(manifest.web_accessible_resources)) {
+    failures.push('manifest web_accessible_resources must be an array');
+  } else {
+    for (const [index, entry] of manifest.web_accessible_resources.entries()) {
+      if (!entry || typeof entry !== 'object' || entry.use_dynamic_url !== true) {
+        failures.push(
+          `manifest web_accessible_resources entry ${index} must set use_dynamic_url: true`,
+        );
+      }
+    }
+  }
+}
+
 const englishMessages = JSON.parse(
   readFileSync(resolve(ROOT, '_locales/en/messages.json'), 'utf8'),
 );
