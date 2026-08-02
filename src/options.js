@@ -25,6 +25,7 @@ import {
 import { testApiConnection } from './lib/github.js';
 import { testWebsiteConnection } from './lib/scrape.js';
 import { formatters, localizeDocument, message as i18nMessage } from './lib/i18n.js';
+import { runtimeMessage as t } from './lib/i18n-messages.js';
 import { dismissPrivacyNotice, getPrivacyNotice } from './lib/install.js';
 
 const GITHUB_ORIGIN = 'https://github.com/*';
@@ -65,12 +66,10 @@ const notificationFields = {
 };
 
 const SOURCE_HINTS = {
-  web: 'The default. Reads your github.com repositories page using the session you are already signed in with — no token. Uses one page load per 30 repositories, so larger portfolios use more bandwidth and take longer to refresh.',
-  api: 'The secondary option. Reads api.github.com with exact counts and 3-4 requests per refresh. Without a token GitHub allows 60 requests/hour and shows public repos only.',
+  web: t('optionsSourceHintWeb'),
+  api: t('optionsSourceHintApi'),
 };
-const WEB_PERMISSION_MISSING =
-  ' Access to github.com is not currently granted, so website mode cannot read anything —' +
-  ' choose the website source again to re-grant it.';
+const WEB_PERMISSION_MISSING = t('optionsWebPermissionMissing');
 
 /**
  * Whether `https://github.com/*` is granted. Cached because the hint has to be
@@ -86,16 +85,20 @@ let configured = false;
 let sourceCapabilityNotice = '';
 
 function sourceLabel(source) {
-  return source === 'web' ? 'GitHub website' : 'GitHub API';
+  return source === 'web' ? t('optionsGitHubWebsite') : t('optionsGitHubApi');
 }
 
 function sourceDowngradeMessage(downgrade) {
   if (!downgrade?.requested || !downgrade?.effective) return '';
   const why =
     downgrade.reason === 'web-source-disabled'
-      ? 'A remote capability rule disabled website mode.'
-      : 'The requested source is unavailable.';
-  return `The requested ${sourceLabel(downgrade.requested)} source is unavailable. ${why} Using the ${sourceLabel(downgrade.effective)} source instead.`;
+      ? t('popupRemoteSourceDisabled')
+      : t('popupSourceUnavailable');
+  return t('popupSourceDowngrade', [
+    sourceLabel(downgrade.requested),
+    why,
+    sourceLabel(downgrade.effective),
+  ]);
 }
 
 function syncSourceUI() {
@@ -109,8 +112,8 @@ function syncSourceUI() {
   $('tokenField').style.display = web ? 'none' : '';
   const persistent = fields.tokenMode.value === 'persistent';
   $('tokenStorageHint').textContent = persistent
-    ? 'Persistent mode keeps the PAT in chrome.storage.local after the browser closes. Choose this only on a trusted profile.'
-    : 'Session mode keeps the PAT in chrome.storage.session and clears it when the browser session ends.';
+    ? t('optionsTokenPersistentHint')
+    : t('optionsTokenSessionHint');
   $('tokenStorageHint').classList.toggle('token-warning', persistent);
   $('forgetToken').disabled = pageBusy || !fields.token.value;
   for (const option of fields.refreshMinutes.options) {
@@ -127,12 +130,12 @@ function syncSourceUI() {
 }
 
 const AUTH_STATUS_LABELS = {
-  unknown: 'No authenticated request recorded',
-  active: 'Active',
-  expired: 'Expired',
-  revoked: 'Revoked',
-  denied: 'Denied',
-  'rate-limited': 'Rate-limited',
+  unknown: t('optionsAuthUnknown'),
+  active: t('optionsAuthActive'),
+  expired: t('optionsAuthExpired'),
+  revoked: t('optionsAuthRevoked'),
+  denied: t('optionsAuthDenied'),
+  'rate-limited': t('optionsAuthRateLimited'),
 };
 
 function renderAuthStatus(status) {
@@ -144,10 +147,10 @@ function renderAuthStatus(status) {
     return;
   }
   const last = Number.isFinite(status?.lastAuthenticatedAt)
-    ? ` Last authenticated ${formatters.dateTime({ dateStyle: 'medium', timeStyle: 'short' }).format(new Date(status.lastAuthenticatedAt))}.`
-    : ' No authenticated success has been recorded yet.';
+    ? t('optionsAuthLast', [formatters.dateTime({ dateStyle: 'medium', timeStyle: 'short' }).format(new Date(status.lastAuthenticatedAt))])
+    : t('optionsAuthNever');
   const action = ['expired', 'revoked', 'denied'].includes(value)
-    ? ' Replace the token or use Forget token below.'
+    ? t('optionsAuthAction', [t('optionsReplaceToken')])
     : '';
   $('authStatusText').textContent = `${AUTH_STATUS_LABELS[value]}.${last}${action}`;
   box.dataset.state = value;
@@ -165,21 +168,23 @@ function renderRefreshFailures(history) {
   if (!list) return;
   list.replaceChildren();
   $('refreshFailuresSummary').textContent = records.length
-    ? `${records.length} recent failed refresh${records.length === 1 ? '' : 'es'} are kept on this device.`
-    : 'No failed refreshes are recorded.';
+    ? records.length === 1
+      ? t('optionsRefreshFailuresOne', [records.length])
+      : t('optionsRefreshFailuresMany', [records.length])
+    : t('optionsRefreshFailuresNone');
   for (const record of records) {
     const source =
       record.source === 'web'
-        ? 'GitHub website'
+        ? t('optionsGitHubWebsite')
         : record.source === 'api'
-          ? 'GitHub API'
-          : 'Unknown source';
+          ? t('optionsGitHubApi')
+          : t('optionsUnknownSource');
     const at = Number.isFinite(record.at)
       ? formatters.dateTime({ dateStyle: 'medium', timeStyle: 'short' }).format(new Date(record.at))
-      : 'Unknown time';
+      : t('optionsUnknownTime');
     const item = document.createElement('li');
-    item.textContent = `${at} · ${source} · ${record.code || 'REFRESH_FAILED'} · ${
-      record.authenticated ? 'authenticated' : 'not authenticated'
+    item.textContent = `${at} · ${source} · ${record.code || t('optionsRefreshFailedCode')} · ${
+      record.authenticated ? t('optionsAuthenticated') : t('optionsNotAuthenticated')
     }`;
     list.append(item);
   }
@@ -215,12 +220,11 @@ function messageError(error, fallback) {
 
 async function patchSettings(changes) {
   const response = await chrome.runtime.sendMessage({ type: 'patch-settings', changes });
-  if (!response?.ok) throw messageError(response?.error, 'Could not save settings.');
+  if (!response?.ok) throw messageError(response?.error, t('optionsSaveSettingsError'));
   return response.settings;
 }
 
-function say(message, kind = '', target = 'account') {
-  message = message ? i18nMessage(message) : message;
+function renderFeedback(message, kind = '', target = 'account') {
   const regions = feedback[target] || feedback.account;
   clearTimeout(feedbackTimers.get(target));
   regions.ok.textContent = '';
@@ -234,7 +238,15 @@ function say(message, kind = '', target = 'account') {
     return;
   }
   regions.ok.textContent = message;
-  feedbackTimers.set(target, setTimeout(() => say('', '', target), 6000));
+  feedbackTimers.set(target, setTimeout(() => renderFeedback('', '', target), 6000));
+}
+
+function say(message, kind = '', target = 'account') {
+  renderFeedback(message ? i18nMessage(message) : message, kind, target);
+}
+
+function sayT(key, substitutions, kind = '', target = 'account') {
+  renderFeedback(t(key, substitutions), kind, target);
 }
 
 /**
@@ -306,11 +318,11 @@ window.addEventListener('offline', syncOfflineState);
 function formatRetryAt(timestamp) {
   if (!Number.isFinite(timestamp)) return '';
   const seconds = Math.max(0, Math.round((timestamp - Date.now()) / 1000));
-  if (seconds <= 90) return ` Try again in about ${Math.max(1, seconds)} seconds.`;
+  if (seconds <= 90) return t('optionsRetrySeconds', [Math.max(1, seconds)]);
   const time = formatters
     .dateTime({ hour: 'numeric', minute: '2-digit' })
     .format(new Date(timestamp));
-  return ` The quota resets at ${time}.`;
+  return t('optionsQuotaReset', [time]);
 }
 
 /**
@@ -325,9 +337,9 @@ function reportError(error, target = 'account', fallback = 'That action failed.'
   if (code === 'RATE_LIMITED') {
     message += formatRetryAt(error.resetAt ?? error.retryAt);
   } else if (code === 'STORAGE_QUOTA_EXCEEDED') {
-    message += ' Prune trend history below to free space, then try again.';
+    message += ` ${t('optionsPruneQuotaAdvice')}`;
   } else if (offline() && (code === 'NETWORK' || code === 'TIMEOUT')) {
-    message = `No network connection — ${message}`;
+    message = t('optionsNoNetwork', [message]);
   }
   say(message, 'err', target);
   if (code === 'STORAGE_QUOTA_EXCEEDED' && !pageBusy) {
@@ -367,11 +379,16 @@ async function showStorageInfo() {
   const stars = badgeRepos?.reduce((total, repo) => total + repo.stargazers_count, 0);
   const trends = historyStats(history);
   $('storageSummary').textContent =
-    `${repos} repos cached, ${trends.points} daily trend points across ` +
-    `${trends.days} day${trends.days === 1 ? '' : 's'}, ${(bytes / 1024).toFixed(1)} KB total.` +
-    (diagnostics.quarantined
-      ? ` ${diagnostics.quarantined} storage record${diagnostics.quarantined === 1 ? '' : 's'} quarantined.`
-      : '');
+    t('optionsStorageSummary', [
+      repos,
+      trends.points,
+      trends.days,
+      trends.days === 1 ? '' : 's',
+      (bytes / 1024).toFixed(1),
+      diagnostics.quarantined
+        ? t('optionsStorageQuarantine', [diagnostics.quarantined, diagnostics.quarantined === 1 ? '' : 's'])
+        : '',
+    ]);
   $('storageDiagnosticsLink').hidden = diagnostics.quarantined === 0;
   $('badgePreview').textContent = stars == null ? '—' : formatters.number().format(stars);
 }
@@ -497,14 +514,18 @@ function syncNotificationUI(config, permitted, pending = 0, dropped = 0) {
   $('notificationControls').setAttribute('aria-disabled', String(!config.enabled));
   $('notificationPermissionState').textContent =
     config.enabled && permitted
-      ? `On · ${pending} unread alert${pending === 1 ? '' : 's'} saved in the popup${
-          dropped ? `; ${dropped} older alert${dropped === 1 ? '' : 's'} could not be retained` : ''
-        }. Quiet hours and cooldown apply locally.`
+      ? t('optionsNotificationsOn', [
+          pending,
+          pending === 1 ? '' : 's',
+          dropped
+            ? t('optionsNotificationsDropped', [dropped, dropped === 1 ? '' : 's'])
+            : '',
+        ])
       : config.enabled
-        ? 'Notification access was removed. Turn alerts off and on to grant it again.'
+        ? t('optionsNotifPermissionRemoved')
         : permitted
-          ? 'Off · notification access remains granted in Chrome but no alerts are generated.'
-          : 'Off · notification access has not been requested.';
+          ? t('optionsNotificationsOffGranted')
+          : t('optionsNotifOffNotRequested');
 }
 
 async function loadNotificationConfig() {
@@ -535,12 +556,9 @@ fields.dataSource.addEventListener('change', async () => {
       fields.dataSource.value = prior.dataSource;
       fields.refreshMinutes.value = String(prior.refreshMinutes);
       syncSourceUI();
-      say(
-        `Permission for github.com denied — staying on ${
-          prior.dataSource === 'web' ? 'website' : 'API'
-        } mode.`,
-        'err',
-      );
+      sayT('optionsPermissionStaying', [
+        prior.dataSource === 'web' ? t('optionsGitHubWebsite') : t('optionsGitHubApi'),
+      ], 'err');
       return;
     }
     syncSourceUI();
@@ -550,14 +568,12 @@ fields.dataSource.addEventListener('change', async () => {
     fields.token.value = settings.token;
     syncSourceUI();
     if (offline()) {
-      say(
-        `Source set to ${source === 'web' ? 'github.com' : 'the GitHub API'}. StarBoard is ` +
-          'offline — it will read from there once you reconnect.',
-        'ok',
-      );
+      sayT('optionsSourceSetOffline', [
+        source === 'web' ? 'github.com' : t('optionsGitHubApi'),
+      ], 'ok');
       return;
     }
-    say(`Switching to ${source === 'web' ? 'github.com' : 'the GitHub API'}…`);
+    sayT('optionsSwitchingSource', [source === 'web' ? 'github.com' : t('optionsGitHubApi')]);
     const result = await chrome.runtime.sendMessage({
       type: 'settings-changed',
       refresh: true,
@@ -571,13 +587,13 @@ fields.dataSource.addEventListener('change', async () => {
         syncSourceUI();
         say(sourceCapabilityNotice, 'err');
       } else {
-        say(`Now reading from ${source === 'web' ? 'github.com' : 'the GitHub API'}.`, 'ok');
+        sayT('optionsNowReadingSource', [source === 'web' ? 'github.com' : t('optionsGitHubApi')], 'ok');
       }
     } else {
       reportError(
         {
           ...(result?.error || {}),
-          message: `${result?.error?.message || 'Source refresh failed.'} The prior snapshot is still shown.`,
+          message: `${result?.error?.message || t('optionsSourceRefreshFailed')} ${t('optionsPriorSnapshotShown')}`,
         },
         'account',
       );
@@ -591,16 +607,16 @@ $('save').addEventListener('click', async () => {
   await withBusy($('save'), 'Saving…', async () => {
     const next = collect();
     if (!next.username && !next.token) {
-      say('Enter a username (or a token) first.', 'err');
+      sayT('optionsUsernameRequired', null, 'err');
       return;
     }
     if (next.dataSource === 'web') {
       if (!next.username) {
-        say('Web mode needs a username — it reads github.com/<username>.', 'err');
+        sayT('optionsWebUsernameRequired', null, 'err');
         return;
       }
       if (!(await ensureWebPermission())) {
-        say('Permission for github.com denied.', 'err');
+        sayT('optionsPermissionDenied', null, 'err');
         return;
       }
     }
@@ -611,11 +627,11 @@ $('save').addEventListener('click', async () => {
     // Saving is local and works offline; only the refresh that follows needs
     // the network, so say which half happened instead of failing both.
     if (offline()) {
-      say('Settings saved. StarBoard is offline — the refresh will run once you reconnect.', 'ok');
+      sayT('optionsSavedOffline', null, 'ok');
       await showStorageInfo();
       return;
     }
-    say('Saved — refreshing…');
+    sayT('optionsSavedRefreshing');
     const res = await chrome.runtime.sendMessage({
       type: 'refresh',
       force: true,
@@ -629,7 +645,7 @@ $('save').addEventListener('click', async () => {
         syncSourceUI();
         say(sourceCapabilityNotice, 'err');
       } else {
-        say(`Synced ${res.cache.repos.length} repos for @${res.cache.profile.login}.`, 'ok');
+        sayT('optionsSyncedRepos', [res.cache.repos.length, res.cache.profile.login], 'ok');
       }
       await showStorageInfo();
     } else {
@@ -642,7 +658,7 @@ $('save').addEventListener('click', async () => {
       await loadRefreshFailures();
       reportError(res?.error, 'account', 'Refresh failed.');
     }
-  }).catch((err) => reportError(err, 'account', 'Could not save settings.'));
+  }).catch((err) => reportError(err, 'account', t('optionsSaveSettingsError')));
 });
 
 let connectionController = null;
@@ -651,7 +667,7 @@ window.addEventListener('pagehide', () => connectionController?.abort('pagehide'
 $('test').addEventListener('click', async () => {
   if (offline()) {
     say(
-      'No network connection — a connection test cannot reach GitHub. Reconnect and try again.',
+      t('optionsOfflineConnectionTest'),
       'err',
     );
     return;
@@ -661,9 +677,9 @@ $('test').addEventListener('click', async () => {
   connectionController = controller;
   const button = $('test');
   button.setAttribute('aria-busy', 'true');
-  button.textContent = 'Cancel & retest';
+  button.textContent = t('optionsCancelRetest');
   const { username, token, dataSource } = collect();
-  say('Testing…');
+  sayT('optionsTesting');
   try {
     if (dataSource === 'web') {
       if (!(await ensureWebPermission())) {
@@ -676,8 +692,12 @@ $('test').addEventListener('click', async () => {
       if (connectionController !== controller) return;
       const stars = res.repos.reduce((sum, repo) => sum + repo.stargazers_count, 0);
       say(
-        `OK — @${res.profile.login}: first page has ${res.repos.length} repositories and ` +
-          `${stars} stars${res.approximate ? ' (some counts abbreviated by GitHub)' : ''}.`,
+        t('optionsTestWebsiteOk', [
+          res.profile.login,
+          res.repos.length,
+          stars,
+          res.approximate ? t('optionsApproximateCounts') : '',
+        ]),
         'ok',
       );
       return;
@@ -692,13 +712,16 @@ $('test').addEventListener('click', async () => {
       await loadAuthStatus();
     }
     say(
-      `OK — @${res.profile.login}: API reachable with one request. ` +
-        `${res.rate?.remaining ?? '?'}/${res.rate?.limit ?? '?'} API calls left.`,
+      t('optionsTestApiOk', [
+        res.profile.login,
+        res.rate?.remaining ?? '?',
+        res.rate?.limit ?? '?',
+      ]),
       'ok',
     );
   } catch (err) {
     if (connectionController !== controller) return;
-    if (err.code === 'CANCELLED') say('Connection test cancelled.', 'err');
+    if (err.code === 'CANCELLED') sayT('optionsTestCancelled', null, 'err');
     else {
       if (token && err.authStatus) {
         const response = await chrome.runtime.sendMessage({
@@ -713,13 +736,13 @@ $('test').addEventListener('click', async () => {
         }
         await loadAuthStatus();
       }
-      reportError(err, 'account', 'The connection test failed.');
+      reportError(err, 'account', t('optionsConnectionFailed'));
     }
   } finally {
     if (connectionController === controller) {
       connectionController = null;
       button.removeAttribute('aria-busy');
-      button.textContent = 'Test connection';
+      button.textContent = t('optionsTestConnection');
     }
   }
 });
@@ -729,7 +752,7 @@ let clearResetTimer;
 
 function resetClearConfirmation() {
   clearArmedUntil = 0;
-  $('clear').textContent = 'Clear snapshot, baseline & history';
+  $('clear').textContent = t('optionsClear');
   $('clearScope').hidden = true;
 }
 
@@ -741,9 +764,9 @@ async function syncUndoControl() {
 $('clear').addEventListener('click', async () => {
   if (Date.now() > clearArmedUntil) {
     clearArmedUntil = Date.now() + 8000;
-    $('clear').textContent = 'Confirm clear all portfolio data';
+    $('clear').textContent = t('optionsConfirmClear');
     $('clearScope').hidden = false;
-    say('Confirm the exact data scope below.', 'err', 'clear');
+    sayT('optionsConfirmClearScope', null, 'err', 'clear');
     clearTimeout(clearResetTimer);
     clearResetTimer = setTimeout(resetClearConfirmation, 8000);
     return;
@@ -755,8 +778,8 @@ $('clear').addEventListener('click', async () => {
     if (!response?.ok) throw messageError(response?.error, 'Could not clear local data.');
     await showStorageInfo();
     $('undoClear').hidden = !response.undo?.available;
-    say('Snapshot, baseline and history cleared. Undo is available for 10 minutes.', 'ok', 'clear');
-  }).catch((error) => reportError(error, 'clear', 'Could not clear local data.'));
+    sayT('optionsCleared', null, 'ok', 'clear');
+  }).catch((error) => reportError(error, 'clear', t('optionsClearError')));
 });
 
 let pruneArmedUntil = 0;
@@ -764,7 +787,7 @@ let pruneResetTimer;
 
 function resetPruneConfirmation() {
   pruneArmedUntil = 0;
-  $('pruneHistory').textContent = 'Prune history';
+  $('pruneHistory').textContent = t('optionsPrune');
   $('pruneScope').hidden = true;
 }
 
@@ -772,12 +795,10 @@ $('pruneHistory').addEventListener('click', async () => {
   const keepDays = Number($('historyKeep').value);
   if (Date.now() > pruneArmedUntil) {
     pruneArmedUntil = Date.now() + 8000;
-    $('pruneHistory').textContent = `Confirm keep ${keepDays} days`;
-    $('pruneScope').textContent =
-      `This permanently removes trend points older than ${keepDays} days. ` +
-      'The current snapshot, baseline, settings and credentials stay unchanged.';
+    $('pruneHistory').textContent = t('optionsConfirmKeep', [keepDays]);
+    $('pruneScope').textContent = t('optionsPruneScope', [keepDays]);
     $('pruneScope').hidden = false;
-    say('Confirm the history range to prune.', 'err', 'history');
+    sayT('optionsConfirmPrune', null, 'err', 'history');
     clearTimeout(pruneResetTimer);
     pruneResetTimer = setTimeout(resetPruneConfirmation, 8000);
     return;
@@ -789,8 +810,8 @@ $('pruneHistory').addEventListener('click', async () => {
     if (!response?.ok) throw messageError(response?.error, 'Could not prune history.');
     await showStorageInfo();
     $('undoClear').hidden = !response.undo?.available;
-    say(`History now keeps at most ${keepDays} days. Undo is available for 10 minutes.`, 'ok', 'history');
-  }).catch((error) => reportError(error, 'history', 'Could not prune history.'));
+    sayT('optionsPruned', [keepDays], 'ok', 'history');
+  }).catch((error) => reportError(error, 'history', t('optionsPruneError')));
 });
 
 async function readPortableState() {
@@ -806,7 +827,7 @@ async function readPortableState() {
 }
 
 $('backupJson').addEventListener('click', async () => {
-  await withBusy($('backupJson'), 'Preparing…', async () => {
+  await withBusy($('backupJson'), t('optionsPreparing'), async () => {
     const document = await createBackup({
       ...(await readPortableState()),
       ...exportSelection(),
@@ -818,10 +839,8 @@ $('backupJson').addEventListener('click', async () => {
       if (error?.code === 'BACKUP_TOO_LARGE' && error.historyIncluded) {
         $('includeHistoryExport').checked = false;
         $('includeHistoryExport').focus();
-        throw new Error(
-          `${error.message} Trend history was deselected; choose Download JSON ` +
-            'again to create a restorable backup without it.',
-        );
+        sayT('optionsBackupTooLarge', [error.message], 'err', 'transfer');
+        return;
       }
       throw error;
     }
@@ -830,12 +849,12 @@ $('backupJson').addEventListener('click', async () => {
       `StarBoard-backup-${exportDate()}.json`,
       'application/json',
     );
-    say('Checksummed JSON backup downloaded. No personal access token was included.', 'ok', 'transfer');
-  }).catch((error) => reportError(error, 'transfer', 'Could not create the backup.'));
+    sayT('optionsBackupDownloaded', null, 'ok', 'transfer');
+  }).catch((error) => reportError(error, 'transfer', t('optionsBackupError')));
 });
 
 $('exportCsv').addEventListener('click', async () => {
-  await withBusy($('exportCsv'), 'Preparing…', async () => {
+  await withBusy($('exportCsv'), t('optionsPreparing'), async () => {
     const csv = createCsv({
       ...(await readPortableState()),
       ...exportSelection(),
@@ -848,8 +867,8 @@ $('exportCsv').addEventListener('click', async () => {
       `StarBoard-repositories-v${CSV_FORMAT_VERSION}-${exportDate()}.csv`,
       'text/csv;charset=utf-8',
     );
-    say('Timestamped repository CSV downloaded.', 'ok', 'transfer');
-  }).catch((error) => reportError(error, 'transfer', 'Could not create the CSV.'));
+    sayT('optionsCsvDownloaded', null, 'ok', 'transfer');
+  }).catch((error) => reportError(error, 'transfer', t('optionsCsvError')));
 });
 
 let pendingImportRecords = null;
@@ -859,7 +878,7 @@ let applyImportResetTimer;
 function resetApplyImportConfirmation() {
   applyImportArmedUntil = 0;
   clearTimeout(applyImportResetTimer);
-  $('applyImport').textContent = 'Apply restore';
+  $('applyImport').textContent = t('optionsApplyRestore');
 }
 
 function resetImportPreview() {
@@ -884,18 +903,22 @@ $('importFile').addEventListener('change', async () => {
     const preview = await validateBackupText(await file.text());
     pendingImportRecords = preview.records;
     const summary = preview.summary;
-    $('importSummary').textContent =
-      `${summary.repositories} repositories, ${summary.baselineRepositories} baseline entries, ` +
-      `${summary.historyPoints} history points across ${summary.historyDays} days, ` +
-      `${summary.privateRepositories} private repositories. ` +
-      `${summary.migratedRecords} record${summary.migratedRecords === 1 ? '' : 's'} will migrate. ` +
-      `${summary.notificationConfig ? 'Notification settings are included.' : 'No notification settings.'} ` +
-      `${summary.savedViews} saved view${summary.savedViews === 1 ? '' : 's'}.`;
+    $('importSummary').textContent = t('optionsBackupSummary', [
+      summary.repositories,
+      summary.baselineRepositories,
+      summary.historyPoints,
+      summary.historyDays,
+      summary.privateRepositories,
+      summary.migratedRecords,
+      summary.migratedRecords === 1 ? '' : 's',
+      summary.notificationConfig ? t('optionsBackupIncluded') : t('optionsBackupNotIncluded'),
+      t('optionsSavedViews', [summary.savedViews, summary.savedViews === 1 ? '' : 's']),
+    ]);
     $('importPreview').hidden = false;
-    say('Backup validated. Review the dry-run summary before applying it.', 'ok', 'transfer');
+    sayT('optionsBackupValidated', null, 'ok', 'transfer');
   } catch (error) {
     resetImportPreview();
-    say(error.message || 'Could not validate that backup.', 'err', 'transfer');
+    say(error.message || t('optionsBackupValidationError'), 'err', 'transfer');
   }
 });
 
@@ -903,12 +926,8 @@ $('applyImport').addEventListener('click', async () => {
   if (!pendingImportRecords) return;
   if (Date.now() > applyImportArmedUntil) {
     applyImportArmedUntil = Date.now() + 8000;
-    $('applyImport').textContent = 'Confirm apply restore';
-    say(
-      'Applying this backup replaces the selected local records. Activate again within 8 seconds to confirm.',
-      'err',
-      'transfer',
-    );
+    $('applyImport').textContent = t('optionsConfirmRestore');
+    sayT('optionsApplyRestoreWarning', null, 'err', 'transfer');
     applyImportResetTimer = setTimeout(resetApplyImportConfirmation, 8000);
     return;
   }
@@ -922,14 +941,14 @@ $('applyImport').addEventListener('click', async () => {
     resetImportPreview();
     await load();
     $('undoClear').hidden = !response.undo?.available;
-    say('Backup restored. The prior local state is undoable for 10 minutes.', 'ok', 'transfer');
-  }).catch((error) => reportError(error, 'transfer', 'Could not restore backup.'));
+    sayT('optionsBackupRestored', null, 'ok', 'transfer');
+  }).catch((error) => reportError(error, 'transfer', t('optionsRestoreError')));
 });
 
 let diagnosticsText = '';
 
 $('buildDiagnostics').addEventListener('click', async () => {
-  await withBusy($('buildDiagnostics'), 'Building…', async () => {
+  await withBusy($('buildDiagnostics'), t('optionsBuilding'), async () => {
     const response = await chrome.runtime.sendMessage({ type: 'get-diagnostics' });
     if (!response?.ok) {
       throw messageError(response?.error, 'Could not build diagnostics.');
@@ -938,8 +957,8 @@ $('buildDiagnostics').addEventListener('click', async () => {
     $('diagnosticsOutput').textContent = diagnosticsText;
     $('diagnosticsOutput').hidden = false;
     $('copyDiagnostics').disabled = false;
-    say('Redacted diagnostics built locally.', 'ok', 'diagnostics');
-  }).catch((error) => reportError(error, 'diagnostics', 'Could not build diagnostics.'));
+    sayT('optionsDiagnosticsBuilt', null, 'ok', 'diagnostics');
+  }).catch((error) => reportError(error, 'diagnostics', t('optionsDiagnosticsError')));
 });
 
 async function copyDiagnosticsText() {
@@ -963,11 +982,7 @@ async function copyDiagnosticsText() {
 $('copyDiagnostics').addEventListener('click', async () => {
   if (!diagnosticsText) return;
   const copied = await copyDiagnosticsText();
-  say(
-    copied ? 'Diagnostics copied.' : 'Copy was blocked; select the diagnostics text manually.',
-    copied ? 'ok' : 'err',
-    'diagnostics',
-  );
+  sayT(copied ? 'optionsDiagnosticsCopied' : 'optionsCopyBlocked', null, copied ? 'ok' : 'err', 'diagnostics');
 });
 
 $('notificationsEnabled').addEventListener('change', async () => {
@@ -981,7 +996,7 @@ $('notificationsEnabled').addEventListener('change', async () => {
     }
     if (enabling && !permitted) {
       checkbox.checked = false;
-      say('Notification access was denied; alerts remain off.', 'err');
+      sayT('optionsNotificationsDenied', null, 'err');
       await loadNotificationConfig();
       return;
     }
@@ -991,10 +1006,11 @@ $('notificationsEnabled').addEventListener('change', async () => {
     });
     if (!response?.ok) throw messageError(response?.error, 'Could not save notifications.');
     syncNotificationUI(response.config, response.permitted, response.pending, response.dropped);
-    say(enabling ? 'Local alerts enabled.' : 'Local alerts disabled.', 'ok');
+    sayT(enabling ? 'optionsAlertsEnabled' : 'optionsAlertsDisabled', null, 'ok');
   } catch (error) {
     await loadNotificationConfig().catch(() => {});
-    say(error.message || 'Could not change notification access.', 'err');
+      if (error.message) say(error.message, 'err');
+      else sayT('optionsNotificationAccessError', null, 'err');
   } finally {
     checkbox.disabled = false;
   }
@@ -1012,10 +1028,11 @@ for (const field of Object.values(notificationFields)) {
         throw messageError(response?.error, 'Could not save notification settings.');
       }
       syncNotificationUI(response.config, response.permitted, response.pending, response.dropped);
-      say('Notification settings saved.', 'ok');
+      sayT('optionsNotificationSaved', null, 'ok');
     } catch (error) {
       await loadNotificationConfig().catch(() => {});
-      say(error.message || 'Could not save notification settings.', 'err');
+      if (error.message) say(error.message, 'err');
+      else sayT('optionsNotificationSaveError', null, 'err');
     } finally {
       field.disabled = !$('notificationsEnabled').checked;
     }
@@ -1059,10 +1076,10 @@ $('undoClear').addEventListener('click', async () => {
     if (!response?.ok) throw messageError(response?.error, 'Undo is no longer available.');
     await load();
     $('undoClear').hidden = true;
-    say('Last data action undone.', 'ok', 'clear');
+    sayT('optionsLastActionUndone', null, 'ok', 'clear');
   }).catch((error) => {
     $('undoClear').hidden = true;
-    say(error.message || 'Undo is no longer available.', 'err', 'clear');
+    say(error.message || t('optionsUndoUnavailable'), 'err', 'clear');
   });
 });
 
@@ -1077,12 +1094,12 @@ fields.tokenMode.addEventListener('change', async () => {
     fields.token.value = settings.token;
     say(
       settings.tokenMode === 'session'
-        ? 'Token will clear with this browser session.'
-        : 'Token will remain on this device until you forget it.',
+        ? t('optionsTokenSession')
+        : t('optionsTokenPersistent'),
       settings.tokenMode === 'session' ? 'ok' : '',
     );
   } catch (error) {
-    say(error.message || 'Could not change token storage.', 'err');
+    say(error.message || t('optionsTokenStorageError'), 'err');
     const settings = await getSettings();
     fields.tokenMode.value = settings.tokenMode;
   } finally {
@@ -1099,15 +1116,15 @@ $('forgetToken').addEventListener('click', async () => {
     fields.tokenMode.value = 'session';
     syncSourceUI();
     await loadAuthStatus();
-    say('Token removed from session and persistent storage.', 'ok');
-  }).catch((error) => reportError(error, 'account', 'Could not forget the token.'));
+    sayT('optionsTokenRemoved', null, 'ok');
+  }).catch((error) => reportError(error, 'account', t('optionsForgetTokenError')));
   syncSourceUI();
 });
 
 $('replaceToken').addEventListener('click', () => {
   fields.token.focus();
   fields.token.select();
-  say('Enter a replacement token, then save or test the connection.', 'ok');
+  sayT('optionsReplacementToken', null, 'ok');
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -1130,18 +1147,6 @@ const INSTANT_SETTING_KEYS = [
   'showForkStats',
   'showSourceStatus',
 ];
-const INSTANT_SETTING_LABELS = {
-  refreshMinutes: 'Refresh interval',
-  baselineHours: 'Baseline window',
-  badgeMode: 'Badge display',
-  theme: 'Theme',
-  showFollowers: 'Follower count',
-  showDescriptions: 'Repository descriptions',
-  showMetadata: 'Language and activity',
-  showForkStats: 'Fork statistics',
-  showSourceStatus: 'Source and quota status',
-};
-
 for (const key of INSTANT_SETTING_KEYS) {
   fields[key].addEventListener('change', () => {
     pendingSettingsSaves += 1;
@@ -1155,9 +1160,9 @@ for (const key of INSTANT_SETTING_KEYS) {
         await patchSettings(patch);
         if (key === 'theme') applyTheme(values.theme);
         await chrome.runtime.sendMessage({ type: 'settings-changed' });
-        say(`${INSTANT_SETTING_LABELS[key]} saved.`, 'ok');
+        sayT('optionsSettingSaved', [t(`optionsSetting_${key}`)], 'ok');
       })
-      .catch((err) => reportError(err, 'account', 'Could not save that setting.'))
+      .catch((err) => reportError(err, 'account', t('optionsSettingSaveError')))
       .finally(() => {
         pendingSettingsSaves -= 1;
         if (pendingSettingsSaves === 0) document.body.dataset.settingsState = 'saved';
@@ -1181,9 +1186,7 @@ load()
     $('loadingBanner').hidden = true;
     $('settingsGrid').setAttribute('aria-busy', 'false');
     say(
-      `Settings could not be loaded, so the controls stay locked to avoid overwriting them. ${
-        error?.message || 'Reload the page to try again.'
-      }`,
+      t('optionsSettingsLoadFailed', [error?.message || t('optionsReloadTryAgain')]),
       'err',
     );
   });

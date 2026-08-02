@@ -36,6 +36,9 @@
 - The CSV export carries a versioned, positionally stable column contract in
   every row and in its filename, with the compatibility promise stated in the
   README.
+- Popup, options, status, error, and notification prose now resolves through
+  stable Chrome i18n keys, with generated English and pseudo-locale catalogs
+  checked for missing keys and expansion.
 
 ### Fixed
 

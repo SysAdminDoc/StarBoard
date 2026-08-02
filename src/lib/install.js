@@ -1,4 +1,5 @@
 import { compareVersions } from './capabilities.js';
+import { runtimeMessage as t } from './i18n-messages.js';
 
 /** Normalize Chrome's install event into the work this extension owns. */
 export function installationPlan(details = {}) {
@@ -16,8 +17,7 @@ export function installationPlan(details = {}) {
 
 export const PRIVACY_NOTICE_KEY = 'starboardPrivacyChangeNotice';
 export const PRIVACY_DATA_CHANGE_VERSION = '1.5.0';
-export const PRIVACY_NOTICE_MESSAGE =
-  'Since your previous version, StarBoard now checks https://sysadmindoc.github.io/StarBoard/capabilities.json at most every six hours. The credential-free request sends nothing about you or your repositories; it only reads static capability rules so a broken feature can be disabled before a store update.';
+export const PRIVACY_NOTICE_MESSAGE = t('privacyNoticeMessage');
 
 /** Return the one-time notice required when the capability request first ships. */
 export function privacyNoticeForUpdate(details = {}, currentVersion = '') {

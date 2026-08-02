@@ -20,6 +20,7 @@
  */
 
 import { RequestPolicyError, requestText } from './request.js';
+import { runtimeMessage as t } from './i18n-messages.js';
 
 const PAGE_SIZE = 30; // rows per repositories-tab page
 const MAX_PAGES = 50; // 1,500 repos — a stop so a broken "next" link can't spin
@@ -191,7 +192,7 @@ export async function scrapeAccount(username, parseHTML, options = {}) {
   } = options;
 
   if (!username) {
-    throw new WebSourceError('Web mode needs a GitHub username.', { code: 'USERNAME_REQUIRED' });
+    throw new WebSourceError(t('scrapeUsernameRequired'), { code: 'USERNAME_REQUIRED' });
   }
 
   let requestAttempts = 0;
@@ -214,10 +215,10 @@ export async function scrapeAccount(username, parseHTML, options = {}) {
       if (error instanceof RequestPolicyError) {
         throw new WebSourceError(
           error.code === 'RATE_LIMITED'
-            ? 'GitHub is rate limiting website requests.'
+            ? t('scrapeRateLimited')
             : error.code === 'TIMEOUT'
-              ? 'github.com took too long to respond.'
-              : 'Could not finish reading github.com.',
+              ? t('scrapeTimeout')
+              : t('scrapeReadFailed'),
           {
             code: error.code,
             status: error.status,
@@ -229,13 +230,13 @@ export async function scrapeAccount(username, parseHTML, options = {}) {
     }
     requestAttempts += requested.attempts;
     if (requested.response.status === 404) {
-      throw new WebSourceError(`GitHub has no user named "${username}" (404).`, {
+      throw new WebSourceError(t('scrapeUserNotFoundStatus', [username]), {
         code: 'USER_NOT_FOUND',
         status: 404,
       });
     }
     if (!requested.response.ok) {
-      throw new WebSourceError(`github.com returned ${requested.response.status}.`, {
+      throw new WebSourceError(t('scrapeHttpError', [requested.response.status]), {
         code: 'HTTP_ERROR',
         status: requested.response.status,
       });
@@ -245,7 +246,7 @@ export async function scrapeAccount(username, parseHTML, options = {}) {
 
   const first = await load(1);
   if (isMissingUser(first)) {
-    throw new WebSourceError(`GitHub has no user named "${username}".`, {
+    throw new WebSourceError(t('scrapeUserNotFound', [username]), {
       code: 'USER_NOT_FOUND',
       status: 404,
     });
@@ -255,7 +256,7 @@ export async function scrapeAccount(username, parseHTML, options = {}) {
   const page1 = parseRepoPage(first, profile.login);
   if (!page1.rowCount && !first.querySelector('#user-repositories-list')) {
     throw new WebSourceError(
-      'Could not read repositories from github.com — its page layout may have changed.',
+      t('scrapeParserDrift'),
       { code: 'PARSER_DRIFT', partialReason: 'parser-drift' },
     );
   }

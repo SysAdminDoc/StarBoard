@@ -61,17 +61,28 @@ function reportMissing(key, text) {
   console.warn(`StarBoard i18n: no message for ${key} — falling back to "${text}"`);
 }
 
-export function message(fallback, substitutions) {
-  const text = String(fallback ?? '');
+function substituteFallback(template, substitutions) {
+  let text = String(template ?? '');
+  if (Array.isArray(substitutions)) {
+    substitutions.forEach((value, index) => {
+      text = text.replaceAll(`$${index + 1}`, String(value ?? ''));
+    });
+  } else if (substitutions != null && typeof substitutions === 'object') {
+    for (const [key, value] of Object.entries(substitutions)) {
+      text = text.replaceAll(`$${key}$`, String(value ?? ''));
+    }
+  } else if (substitutions != null) {
+    text = text.replaceAll('$1', String(substitutions));
+  }
+  return text;
+}
+
+function resolveMessage(key, fallback, substitutions) {
+  const text = substituteFallback(fallback, substitutions);
   if (!text) return '';
   const getMessage = globalThis.chrome?.i18n?.getMessage;
   if (typeof getMessage !== 'function') return text;
-  // Key derivation stays inside the guard with the lookup. It hashes through
-  // TextEncoder, and a caller that has replaced that global — the oversized
-  // backup path does exactly this — must still get its English text back
-  // rather than an exception from a labelling helper.
   try {
-    const key = messageKey(text);
     const translated = getMessage(key, substitutions);
     if (translated) return translated;
     reportMissing(key, text);
@@ -79,6 +90,22 @@ export function message(fallback, substitutions) {
   } catch {
     return text;
   }
+}
+
+/** Translate a stable, named runtime message with optional `$1` values. */
+export function translate(key, fallback, substitutions) {
+  return resolveMessage(String(key || ''), fallback, substitutions);
+}
+
+/** Translate prose whose stable key is derived from its complete English text. */
+export function message(fallback, substitutions) {
+  const text = String(fallback ?? '');
+  if (!text) return '';
+  // Key derivation stays inside the guard with the lookup. It hashes through
+  // TextEncoder, and a caller that has replaced that global — the oversized
+  // backup path does exactly this — must still get its English text back
+  // rather than an exception from a labelling helper.
+  return resolveMessage(messageKey(text), text, substitutions);
 }
 
 /**

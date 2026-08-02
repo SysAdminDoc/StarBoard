@@ -1,79 +1,1703 @@
 {
-  "text_028a1dcd": { "message": "Privacy at a glance" },
-  "text_07e804c6": { "message": "Stars" },
-  "text_08048a1e": { "message": "Private only" },
-  "text_0a902ccb": { "message": "View name" },
-  "text_0b3aa6ec": { "message": "Filters" },
-  "text_0d804230": { "message": "Archive state" },
-  "text_17a385ee": { "message": "Public + private" },
-  "text_1b742870": { "message": "Active + archived" },
-  "text_1d787eb6": { "message": "Forks" },
-  "text_21263b77": { "message": "Repository type" },
-  "text_2800ff28": { "message": "Trend history" },
-  "text_2d37496c": { "message": "Exact and rounded" },
-  "text_2d8a9817": { "message": "90 days" },
-  "text_2fc6e1bf": { "message": "All languages" },
-  "text_30e84ec7": { "message": "Connecting" },
-  "text_31018b9f": { "message": "Appearance" },
-  "text_32676748": { "message": "Repository changes" },
-  "text_35afca3b": { "message": "Cancel" },
-  "text_381d190f": { "message": "Notifications" },
-  "text_3f656c12": { "message": "Exact counts only" },
-  "text_42239a10": { "message": "Dismiss all" },
-  "text_46d725b2": { "message": "Recently pushed" },
-  "text_47e5f1ec": { "message": "Momentum — stars" },
-  "text_4a5b467f": { "message": "Within one year" },
-  "text_4b058728": { "message": "Settings" },
-  "text_4d2d5d68": { "message": "Save" },
-  "text_4ecc3aec": { "message": "Dismiss these" },
-  "text_515c8e41": { "message": "Recent alerts" },
-  "text_530742df": { "message": "Last push" },
-  "text_588389dc": { "message": "Local diagnostics" },
-  "text_59f8a2fc": { "message": "Account" },
-  "text_5e4baa18": { "message": "View" },
-  "text_60e30d59": { "message": "Control room" },
-  "text_6d6739f4": { "message": "Momentum — forks" },
-  "text_73a6f919": { "message": "Save view" },
-  "text_764d1069": { "message": "Count accuracy" },
-  "text_76e6d3ef": { "message": "Popup details" },
-  "text_7a572af9": { "message": "30 days" },
-  "text_7abda9a8": { "message": "Total stars" },
-  "text_8bb79ba5": { "message": "Portfolio signal" },
-  "text_8c511505": { "message": "Saved portfolio view" },
-  "text_8d5b68c3": { "message": "Originals only" },
-  "text_93128a79": { "message": "Changed or not" },
-  "text_95173e17": { "message": "Originals + forks" },
-  "text_9a4719de": { "message": "Name A–Z" },
-  "text_a353f292": { "message": "Public only" },
-  "text_a40bdf44": { "message": "Refresh now" },
-  "text_aefb5799": { "message": "Filter repositories" },
-  "text_af0bd4bf": { "message": "StarBoard" },
-  "text_b3849781": { "message": "Undo last action" },
-  "text_b81b8b70": { "message": "More than one year" },
-  "text_ba4b8279": { "message": "7 days" },
-  "text_c0a5b02e": { "message": "Repository filters" },
-  "text_c3f77563": { "message": "Custom view" },
-  "text_c51174cf": { "message": "Filter repositories…" },
-  "text_c6ec2d10": { "message": "Trend" },
-  "text_c7b42b44": { "message": "Forks only" },
-  "text_c80631f3": { "message": "Rename" },
-  "text_cd5661a5": { "message": "Sort order" },
-  "text_cb336bf3": { "message": "Reset filters" },
-  "text_cc200e59": { "message": "Unknown" },
-  "text_d6ebe159": { "message": "Backup & export" },
-  "text_dbd14f4a": { "message": "Repos" },
-  "text_df30949d": { "message": "New only" },
-  "text_e4cfe27c": { "message": "Unchanged only" },
-  "text_ea050b12": { "message": "Within 90 days" },
-  "text_eb80558e": { "message": "Recent change" },
-  "text_f54379a3": { "message": "Archived only" },
-  "text_fa33ac31": { "message": "Renamed only" },
-  "text_fbf5a258": { "message": "Within 30 days" },
-  "text_cf9f3171": { "message": "Comparison range" },
-  "text_fda19a62": { "message": "Baseline" },
-  "text_fec295a6": { "message": "Any time" },
-  "text_c4e2f181": { "message": "Loading…" },
-  "actionTitle": { "message": "StarBoard — GitHub repo standings" },
-  "extensionName": { "message": "StarBoard" },
-  "extensionDescription": { "message": "Your entire GitHub repo list, sorted most stars to least, with star/fork deltas since your last check." }
+  "actionTitle": {
+    "message": "StarBoard — GitHub repo standings"
+  },
+  "extensionDescription": {
+    "message": "Your entire GitHub repo list, sorted most stars to least, with star/fork deltas since your last check."
+  },
+  "extensionName": {
+    "message": "StarBoard"
+  },
+  "githubApiTimeout": {
+    "message": "GitHub API request timed out."
+  },
+  "githubApiUnavailable": {
+    "message": "GitHub API is temporarily unavailable."
+  },
+  "githubForbidden": {
+    "message": "GitHub refused the request (403)."
+  },
+  "githubGraphqlError": {
+    "message": "GitHub GraphQL returned an error."
+  },
+  "githubGraphqlHttpError": {
+    "message": "GitHub GraphQL returned $1."
+  },
+  "githubGraphqlNoUser": {
+    "message": "GraphQL returned no user for that login."
+  },
+  "githubHttpError": {
+    "message": "GitHub returned $1."
+  },
+  "githubInvalidProfile": {
+    "message": "GitHub returned an invalid profile."
+  },
+  "githubNetworkError": {
+    "message": "Network error — check your connection."
+  },
+  "githubNotModifiedNoCache": {
+    "message": "GitHub returned 304 without a reusable local snapshot."
+  },
+  "githubRateLimited": {
+    "message": "GitHub rate limit reached."
+  },
+  "githubSetupRequired": {
+    "message": "Set a GitHub username or token first."
+  },
+  "githubTokenExpired": {
+    "message": "GitHub token expired. Replace it in Settings."
+  },
+  "githubTokenRejected": {
+    "message": "GitHub rejected the configured token. Check or replace the token in Settings."
+  },
+  "githubTokenRevoked": {
+    "message": "GitHub token was revoked. Replace it in Settings."
+  },
+  "githubUserNotFound": {
+    "message": "User not found (404). Check the username in Settings."
+  },
+  "notificationGainedStars": {
+    "message": "Your repositories gained $1 stars."
+  },
+  "notificationMoreAlerts": {
+    "message": "$1 more alert$2 are saved in StarBoard."
+  },
+  "notificationPortfolioGrowth": {
+    "message": "Portfolio growth"
+  },
+  "notificationPortfolioMilestone": {
+    "message": "Portfolio milestone"
+  },
+  "notificationPortfolioUpdate": {
+    "message": "StarBoard portfolio update"
+  },
+  "notificationReachedStars": {
+    "message": "Your repositories reached $1 stars."
+  },
+  "notificationRepoGainedStars": {
+    "message": "$1 gained $2 stars."
+  },
+  "notificationRepoReachedStars": {
+    "message": "$1 reached $2 stars."
+  },
+  "notificationRepositoryMilestone": {
+    "message": "$1 milestone"
+  },
+  "notificationRepositoryMoving": {
+    "message": "$1 is moving"
+  },
+  "optionsAccessRemoved": {
+    "message": "Access to github.com was removed. Website mode cannot read your repositories until you select the website source again, or switch to the GitHub API."
+  },
+  "optionsAlertsDisabled": {
+    "message": "Local alerts disabled."
+  },
+  "optionsAlertsEnabled": {
+    "message": "Local alerts enabled."
+  },
+  "optionsApplyRestore": {
+    "message": "Apply restore"
+  },
+  "optionsApplyRestoreWarning": {
+    "message": "Applying this backup replaces the selected local records. Activate again within 8 seconds to confirm."
+  },
+  "optionsApproximateCounts": {
+    "message": " (some counts abbreviated by GitHub)"
+  },
+  "optionsAuthAction": {
+    "message": " Action: $1"
+  },
+  "optionsAuthActive": {
+    "message": "Active"
+  },
+  "optionsAuthDenied": {
+    "message": "Authentication denied"
+  },
+  "optionsAuthenticated": {
+    "message": "authenticated"
+  },
+  "optionsAuthExpired": {
+    "message": "Expired"
+  },
+  "optionsAuthLast": {
+    "message": " Last authenticated $1"
+  },
+  "optionsAuthNever": {
+    "message": " No authenticated success has been recorded yet."
+  },
+  "optionsAuthRateLimited": {
+    "message": "Rate-limited"
+  },
+  "optionsAuthRevoked": {
+    "message": "Token revoked or invalid"
+  },
+  "optionsAuthUnknown": {
+    "message": "No authenticated request recorded"
+  },
+  "optionsBackupDownloaded": {
+    "message": "Checksummed JSON backup downloaded. No personal access token was included."
+  },
+  "optionsBackupError": {
+    "message": "Could not create the backup."
+  },
+  "optionsBackupIncluded": {
+    "message": "Notification settings are included."
+  },
+  "optionsBackupNotIncluded": {
+    "message": "No notification settings."
+  },
+  "optionsBackupRestored": {
+    "message": "Backup restored. The prior local state is undoable for 10 minutes."
+  },
+  "optionsBackupSummary": {
+    "message": "$1 repositories, $2 baseline entries, $3 history points across $4 days, $5 private repositories. $6 record$7 will migrate. $8 $9."
+  },
+  "optionsBackupTooLarge": {
+    "message": "$1 Trend history was deselected; choose Download JSON again to create a restorable backup without it."
+  },
+  "optionsBackupValidated": {
+    "message": "Backup validated. Review the dry-run summary before applying it."
+  },
+  "optionsBackupValidationError": {
+    "message": "Could not validate that backup."
+  },
+  "optionsBuilding": {
+    "message": "Building…"
+  },
+  "optionsCancelRetest": {
+    "message": "Cancel & retest"
+  },
+  "optionsClear": {
+    "message": "Clear snapshot, baseline & history"
+  },
+  "optionsCleared": {
+    "message": "Snapshot, baseline and history cleared. Undo is available for 10 minutes."
+  },
+  "optionsClearError": {
+    "message": "Could not clear local data."
+  },
+  "optionsConfirmClear": {
+    "message": "Confirm clear all portfolio data"
+  },
+  "optionsConfirmClearScope": {
+    "message": "Confirm the exact data scope below."
+  },
+  "optionsConfirmKeep": {
+    "message": "Confirm keep $1 days"
+  },
+  "optionsConfirmPrune": {
+    "message": "Confirm the history range to prune."
+  },
+  "optionsConfirmRestore": {
+    "message": "Confirm apply restore"
+  },
+  "optionsConnectionFailed": {
+    "message": "The connection test failed."
+  },
+  "optionsCopyBlocked": {
+    "message": "Copy was blocked; select the diagnostics text manually."
+  },
+  "optionsCsvDownloaded": {
+    "message": "Timestamped repository CSV downloaded."
+  },
+  "optionsCsvError": {
+    "message": "Could not create the CSV."
+  },
+  "optionsDiagnosticsBuilt": {
+    "message": "Redacted diagnostics built locally."
+  },
+  "optionsDiagnosticsCopied": {
+    "message": "Diagnostics copied."
+  },
+  "optionsDiagnosticsError": {
+    "message": "Could not build diagnostics."
+  },
+  "optionsForgetToken": {
+    "message": "Forgetting…"
+  },
+  "optionsForgetTokenError": {
+    "message": "Could not forget the token."
+  },
+  "optionsGitHubApi": {
+    "message": "GitHub API"
+  },
+  "optionsGitHubWebsite": {
+    "message": "GitHub website"
+  },
+  "optionsLastActionUndone": {
+    "message": "Last data action undone."
+  },
+  "optionsNoNetwork": {
+    "message": "No network connection — $1"
+  },
+  "optionsNotAuthenticated": {
+    "message": "not authenticated"
+  },
+  "optionsNotificationAccessError": {
+    "message": "Could not change notification access."
+  },
+  "optionsNotificationSaved": {
+    "message": "Notification settings saved."
+  },
+  "optionsNotificationSaveError": {
+    "message": "Could not save notification settings."
+  },
+  "optionsNotificationsDenied": {
+    "message": "Notification access was denied; alerts remain off."
+  },
+  "optionsNotificationsDropped": {
+    "message": "; $1 older alert$2 could not be retained"
+  },
+  "optionsNotificationsOffGranted": {
+    "message": "Off · notification access remains granted in Chrome but no alerts are generated."
+  },
+  "optionsNotificationsOn": {
+    "message": "On · $1 unread alert$2 saved in the popup$3. Quiet hours and cooldown apply locally."
+  },
+  "optionsNotifOffNotRequested": {
+    "message": "Off · notification access has not been requested."
+  },
+  "optionsNotifPermissionRemoved": {
+    "message": "Notification access was removed. Turn alerts off and on to grant it again."
+  },
+  "optionsNowReadingSource": {
+    "message": "Now reading from $1."
+  },
+  "optionsOfflineConnectionTest": {
+    "message": "No network connection — a connection test cannot reach GitHub. Reconnect and try again."
+  },
+  "optionsPermissionDenied": {
+    "message": "Permission for github.com denied."
+  },
+  "optionsPermissionStaying": {
+    "message": "Permission for github.com denied — staying on $1 mode."
+  },
+  "optionsPreparing": {
+    "message": "Preparing…"
+  },
+  "optionsPriorSnapshotShown": {
+    "message": "The prior snapshot is still shown."
+  },
+  "optionsPrune": {
+    "message": "Prune history"
+  },
+  "optionsPruned": {
+    "message": "History now keeps at most $1 days. Undo is available for 10 minutes."
+  },
+  "optionsPruneError": {
+    "message": "Could not prune history."
+  },
+  "optionsPruneQuotaAdvice": {
+    "message": "Prune trend history below to free space, then try again."
+  },
+  "optionsPruneScope": {
+    "message": "This permanently removes trend points older than $1 days. The current snapshot, baseline, settings and credentials stay unchanged."
+  },
+  "optionsQuotaReset": {
+    "message": " The quota resets at $1."
+  },
+  "optionsRefreshFailedCode": {
+    "message": "REFRESH_FAILED"
+  },
+  "optionsRefreshFailuresMany": {
+    "message": "$1 failed refreshes recorded."
+  },
+  "optionsRefreshFailuresNone": {
+    "message": "No failed refreshes are recorded."
+  },
+  "optionsRefreshFailuresOne": {
+    "message": "$1 failed refresh recorded."
+  },
+  "optionsReloadTryAgain": {
+    "message": "Reload the page to try again."
+  },
+  "optionsReplacementToken": {
+    "message": "Enter a replacement token, then save or test the connection."
+  },
+  "optionsReplaceToken": {
+    "message": "replace the token"
+  },
+  "optionsRestoreError": {
+    "message": "Could not restore backup."
+  },
+  "optionsRestoring": {
+    "message": "Restoring…"
+  },
+  "optionsRetrySeconds": {
+    "message": " Try again in about $1 seconds."
+  },
+  "optionsSavedOffline": {
+    "message": "Settings saved. StarBoard is offline — the refresh will run once you reconnect."
+  },
+  "optionsSavedRefreshing": {
+    "message": "Saved — refreshing…"
+  },
+  "optionsSavedViews": {
+    "message": "$1 saved view$2"
+  },
+  "optionsSaveSettingsError": {
+    "message": "Could not save settings."
+  },
+  "optionsSetting_badgeMode": {
+    "message": "Badge display"
+  },
+  "optionsSetting_baselineHours": {
+    "message": "Baseline window"
+  },
+  "optionsSetting_refreshMinutes": {
+    "message": "Refresh interval"
+  },
+  "optionsSetting_showDescriptions": {
+    "message": "Repository descriptions"
+  },
+  "optionsSetting_showFollowers": {
+    "message": "Follower count"
+  },
+  "optionsSetting_showForkStats": {
+    "message": "Fork statistics"
+  },
+  "optionsSetting_showMetadata": {
+    "message": "Language and activity"
+  },
+  "optionsSetting_showSourceStatus": {
+    "message": "Source and quota status"
+  },
+  "optionsSetting_theme": {
+    "message": "Theme"
+  },
+  "optionsSettingSaved": {
+    "message": "$1 saved."
+  },
+  "optionsSettingSaveError": {
+    "message": "Could not save that setting."
+  },
+  "optionsSettingsLoadFailed": {
+    "message": "Settings could not be loaded, so the controls stay locked to avoid overwriting them. $1"
+  },
+  "optionsSourceHintApi": {
+    "message": "The secondary option. Reads api.github.com with exact counts and 3-4 requests per refresh. Without a token GitHub allows 60 requests/hour and shows public repos only."
+  },
+  "optionsSourceHintWeb": {
+    "message": "The default. Reads your github.com repositories page using the session you are already signed in with — no token. Uses one page load per 30 repositories, so larger portfolios use more bandwidth and take longer to refresh."
+  },
+  "optionsSourceRefreshFailed": {
+    "message": "Source refresh failed."
+  },
+  "optionsSourceSetOffline": {
+    "message": "Source set to $1. StarBoard is offline — it will read from there once you reconnect."
+  },
+  "optionsStorageQuarantine": {
+    "message": " $1 storage record$2 quarantined."
+  },
+  "optionsStorageSummary": {
+    "message": "$1 repos cached, $2 daily trend points across $3 day$4, $5 KB total.$6"
+  },
+  "optionsSwitchingSource": {
+    "message": "Switching to $1…"
+  },
+  "optionsSyncedRepos": {
+    "message": "Synced $1 repos for @$2."
+  },
+  "optionsTestApiOk": {
+    "message": "OK — @$1: API reachable with one request. $2/$3 API calls left."
+  },
+  "optionsTestCancelled": {
+    "message": "Connection test cancelled."
+  },
+  "optionsTestConnection": {
+    "message": "Test connection"
+  },
+  "optionsTesting": {
+    "message": "Testing…"
+  },
+  "optionsTestWebsiteOk": {
+    "message": "OK — @$1: first page has $2 repositories and $3 stars$4."
+  },
+  "optionsTokenPersistent": {
+    "message": "Token will remain on this device until you forget it."
+  },
+  "optionsTokenPersistentHint": {
+    "message": "Persistent mode keeps the PAT in chrome.storage.local after the browser closes. Choose this only on a trusted profile."
+  },
+  "optionsTokenRemoved": {
+    "message": "Token removed from session and persistent storage."
+  },
+  "optionsTokenSession": {
+    "message": "Token will clear with this browser session."
+  },
+  "optionsTokenSessionHint": {
+    "message": "Session mode keeps the PAT in chrome.storage.session and clears it when the browser session ends."
+  },
+  "optionsTokenStorageError": {
+    "message": "Could not change token storage."
+  },
+  "optionsUndoUnavailable": {
+    "message": "Undo is no longer available."
+  },
+  "optionsUnknownSource": {
+    "message": "Unknown source"
+  },
+  "optionsUnknownTime": {
+    "message": "Unknown time"
+  },
+  "optionsUsernameRequired": {
+    "message": "Enter a username (or a token) first."
+  },
+  "optionsWebPermissionMissing": {
+    "message": " Access to github.com is not currently granted, so website mode cannot read anything — choose the website source again to re-grant it."
+  },
+  "optionsWebUsernameRequired": {
+    "message": "Web mode needs a username — it reads github.com/<username>."
+  },
+  "popupAccessReduced": {
+    "message": "Access reduced: this refresh was unauthenticated after the previous snapshot used a token. Private repositories may be missing. Add the token again in Settings."
+  },
+  "popupAcknowledgeError": {
+    "message": "Could not acknowledge those changes. $1"
+  },
+  "popupAlertCount": {
+    "message": "($1)"
+  },
+  "popupAlertsDismissed": {
+    "message": "Recent alerts dismissed."
+  },
+  "popupAlertsDismissError": {
+    "message": "Could not dismiss recent alerts. $1"
+  },
+  "popupApiRateTitle": {
+    "message": "GitHub API requests remaining this hour"
+  },
+  "popupApproximateCount": {
+    "message": "approximate count"
+  },
+  "popupApproximateSnapshot": {
+    "message": "Approximate counts"
+  },
+  "popupApproximateSource": {
+    "message": " · some counts approximate"
+  },
+  "popupApproximateTitle": {
+    "message": "Approximate — github.com abbreviates counts above 1,000"
+  },
+  "popupApproximateTotal": {
+    "message": "Approximate total — one or more website counts are abbreviated"
+  },
+  "popupAsOf": {
+    "message": "As of $1"
+  },
+  "popupBaselineReset": {
+    "message": "Comparison baseline reset for $1 repositories."
+  },
+  "popupCachedSnapshot": {
+    "message": "The cached snapshot is still shown."
+  },
+  "popupChangedTag": {
+    "message": "moved"
+  },
+  "popupChangedTagTitle": {
+    "message": "Star or fork count changed in the newest snapshot"
+  },
+  "popupChangesDismissed": {
+    "message": "Repository changes dismissed."
+  },
+  "popupChangesMeasured": {
+    "message": "Changes are measured from $1. Activate to measure from now instead."
+  },
+  "popupConfirmDelete": {
+    "message": "Confirm delete"
+  },
+  "popupConfirmResetBaseline": {
+    "message": "Confirm reset baseline"
+  },
+  "popupCustomView": {
+    "message": "Using a custom portfolio view."
+  },
+  "popupDays": {
+    "message": "$1 days"
+  },
+  "popupDaysNotRetained": {
+    "message": "$1 days — not retained yet"
+  },
+  "popupDeleteView": {
+    "message": "Delete"
+  },
+  "popupDismiss": {
+    "message": "Dismiss"
+  },
+  "popupDismissAll": {
+    "message": "Dismiss all"
+  },
+  "popupDismissNotice": {
+    "message": "Dismiss notice"
+  },
+  "popupDown": {
+    "message": "down"
+  },
+  "popupDroppedAlerts": {
+    "message": "$1 older alert$2 could not be retained after the local 50-alert inbox filled."
+  },
+  "popupExactSnapshot": {
+    "message": "Exact snapshot"
+  },
+  "popupFilterBy": {
+    "message": "Filtering repositories by \"$1\"."
+  },
+  "popupFilterCount": {
+    "message": "$1 non-default repository filter$2"
+  },
+  "popupFiltering": {
+    "message": "Filtering repositories by \"$1\"."
+  },
+  "popupFilterSaveError": {
+    "message": "Could not save that filter."
+  },
+  "popupFilterSet": {
+    "message": "$1 filter set to $2."
+  },
+  "popupFiltersUpdated": {
+    "message": "Filters updated."
+  },
+  "popupFollowersSynced": {
+    "message": "$1 followers · $2"
+  },
+  "popupForbidden": {
+    "message": "GitHub refused access for the configured token. Check its permissions in Settings."
+  },
+  "popupGrantAccess": {
+    "message": "Grant access"
+  },
+  "popupJustNow": {
+    "message": "just now"
+  },
+  "popupLastActionUndone": {
+    "message": "Last data action undone."
+  },
+  "popupLastApiSnapshot": {
+    "message": " Showing the last successful API snapshot."
+  },
+  "popupLastSnapshot": {
+    "message": " Showing the last successful snapshot."
+  },
+  "popupLastSuccessfulUpdate": {
+    "message": "Last successful update"
+  },
+  "popupLastWebsiteSnapshot": {
+    "message": " Showing the last successful website snapshot."
+  },
+  "popupLifecycleAdded": {
+    "message": "$1 added"
+  },
+  "popupLifecycleNewTag": {
+    "message": "new"
+  },
+  "popupLifecycleRemoved": {
+    "message": "$1 removed"
+  },
+  "popupLifecycleRenamed": {
+    "message": "$1 renamed to $2"
+  },
+  "popupLifecycleRenamedTag": {
+    "message": "renamed"
+  },
+  "popupLoadedView": {
+    "message": "Loaded $1."
+  },
+  "popupMatchAll": {
+    "message": "All $1 repositories match."
+  },
+  "popupMatchSome": {
+    "message": "$1 of $2 repositories match."
+  },
+  "popupMoreChanges": {
+    "message": "+$1 more changes"
+  },
+  "popupMoreExcluded": {
+    "message": "$1 more are excluded — narrow the filters to see them."
+  },
+  "popupNoAccessBanner": {
+    "message": "StarBoard still has no access to github.com."
+  },
+  "popupNoAccount": {
+    "message": "No account"
+  },
+  "popupNoChange": {
+    "message": "No change"
+  },
+  "popupNoChangeRange": {
+    "message": "since —"
+  },
+  "popupNoComparison": {
+    "message": "No comparison point was retained for this range."
+  },
+  "popupNoComparisonPoint": {
+    "message": "no comparison point was retained for this range"
+  },
+  "popupNoComparisonPointTitle": {
+    "message": "No comparison point was retained for this range"
+  },
+  "popupNoGithubAccess": {
+    "message": "StarBoard still has no access to github.com."
+  },
+  "popupNoPoints": {
+    "message": "—"
+  },
+  "popupNoRepositories": {
+    "message": "No repositories yet"
+  },
+  "popupNoRepositoriesMessage": {
+    "message": "$1 does not own any repositories that StarBoard can see. Create one on GitHub, or check the username in settings."
+  },
+  "popupNothingMatches": {
+    "message": "Nothing matches"
+  },
+  "popupNothingMatchesMessage": {
+    "message": "The current search and filters exclude every repository in this snapshot."
+  },
+  "popupOffline": {
+    "message": "You are offline. StarBoard is showing its stored snapshot."
+  },
+  "popupOfflineWaiting": {
+    "message": "You are offline. StarBoard will load your repositories once the connection returns."
+  },
+  "popupOfflineWithSnapshot": {
+    "message": "You are offline. Showing the last snapshot StarBoard stored locally."
+  },
+  "popupOnline": {
+    "message": "Back online. Refreshing."
+  },
+  "popupOnlyPoints": {
+    "message": "$1 pts"
+  },
+  "popupOpenFilters": {
+    "message": "Open repository filters"
+  },
+  "popupOpenSettings": {
+    "message": "Open settings to connect"
+  },
+  "popupOpenSettingsAction": {
+    "message": "Open settings"
+  },
+  "popupPartialBanner": {
+    "message": "Partial snapshot: $1. What loaded is still usable."
+  },
+  "popupPartialComparison": {
+    "message": "Partial comparison: $1 of $2 visible repositories have a retained comparison point."
+  },
+  "popupPartialReasonCap": {
+    "message": "the $1-repository safety cap was reached"
+  },
+  "popupPartialReasonNetwork": {
+    "message": "a later GitHub page could not be loaded"
+  },
+  "popupPartialReasonOther": {
+    "message": "the refresh could not finish"
+  },
+  "popupPartialReasonParser": {
+    "message": "a later GitHub page could not be parsed"
+  },
+  "popupPartialReasonRate": {
+    "message": "GitHub asked StarBoard to slow down"
+  },
+  "popupPartialReasonShortfall": {
+    "message": "GitHub listed fewer repositories than the account reports owning"
+  },
+  "popupPartialReasonTimeout": {
+    "message": "a later GitHub page timed out"
+  },
+  "popupPartialSnapshot": {
+    "message": "Partial snapshot"
+  },
+  "popupPartialSource": {
+    "message": " · partial ($1)"
+  },
+  "popupPortfolioViewSaved": {
+    "message": "Portfolio view saved."
+  },
+  "popupPrivacyNoticeDismissError": {
+    "message": "Could not dismiss the privacy notice. $1"
+  },
+  "popupQualityApproximate": {
+    "message": "Some counts are approximate — github.com abbreviates counts above 1,000."
+  },
+  "popupQualityComparison": {
+    "message": "$1 of $2 visible repositories have a retained $3-day comparison point; the rest show a dash."
+  },
+  "popupQualityNoComparison": {
+    "message": "No visible repository has a retained $1-day comparison point yet, so every change column shows a dash."
+  },
+  "popupQualityStale": {
+    "message": "These counts are from the last snapshot that loaded, not a live read."
+  },
+  "popupRefreshComplete": {
+    "message": "Refresh complete. $1 repositories loaded."
+  },
+  "popupRefreshError": {
+    "message": "Refresh failed. $1"
+  },
+  "popupRefreshFailed": {
+    "message": "Refresh failed. $1"
+  },
+  "popupRefreshFallback": {
+    "message": "The background refresh did not respond."
+  },
+  "popupRefreshing": {
+    "message": "Refreshing repositories"
+  },
+  "popupRefreshNow": {
+    "message": "Refresh now"
+  },
+  "popupRemoteSourceDisabled": {
+    "message": "A remote capability rule disabled website mode."
+  },
+  "popupRenameView": {
+    "message": "Rename view"
+  },
+  "popupRepos": {
+    "message": "Repos"
+  },
+  "popupRepositoryPlural": {
+    "message": "repositories"
+  },
+  "popupRepositorySearchCleared": {
+    "message": "Repository search cleared."
+  },
+  "popupRepositorySingular": {
+    "message": "repository"
+  },
+  "popupReposSynced": {
+    "message": "$1 repos synced"
+  },
+  "popupRequestAccessError": {
+    "message": "Could not request access. $1"
+  },
+  "popupResetBaseline": {
+    "message": "Resetting the baseline changes every displayed delta. Activate again to confirm."
+  },
+  "popupResetFilters": {
+    "message": "Repository filters reset."
+  },
+  "popupResetFiltersAction": {
+    "message": "Reset filters"
+  },
+  "popupResetFiltersError": {
+    "message": "Could not reset the filters."
+  },
+  "popupRetainedDaysHint": {
+    "message": "Between 2 and $1 retained days."
+  },
+  "popupRetrying": {
+    "message": "$1 Retrying automatically $2.$3"
+  },
+  "popupSavedView": {
+    "message": "saved view"
+  },
+  "popupSavedViewChangeError": {
+    "message": "Could not save that view change. $1"
+  },
+  "popupSavedViewDeleteConfirm": {
+    "message": "$1 will be deleted. Activate again within 8 seconds to confirm."
+  },
+  "popupSavedViewDeleted": {
+    "message": "$1 deleted. Undo is available for 10 minutes."
+  },
+  "popupSavedViewDeleteError": {
+    "message": "Could not delete that saved view."
+  },
+  "popupSavedViewLoadedError": {
+    "message": "Could not load that saved view."
+  },
+  "popupSavedViewRenamed": {
+    "message": "Saved view renamed. Undo is available for 10 minutes."
+  },
+  "popupSaveView": {
+    "message": "Save view"
+  },
+  "popupSearchCleared": {
+    "message": "Repository search cleared."
+  },
+  "popupSearchSaveError": {
+    "message": "Could not save the repository search."
+  },
+  "popupSettingsSaveError": {
+    "message": "Could not save settings."
+  },
+  "popupSetupMessage": {
+    "message": "Add your GitHub username to see your repo standings."
+  },
+  "popupSetupRequired": {
+    "message": "No GitHub username is configured. Add a username in Settings."
+  },
+  "popupSetupTitle": {
+    "message": "Set up StarBoard"
+  },
+  "popupShown": {
+    "message": "$1 shown"
+  },
+  "popupShownOf": {
+    "message": "$1 of $2 shown"
+  },
+  "popupSince": {
+    "message": "since $1"
+  },
+  "popupSnapshot": {
+    "message": "Snapshot"
+  },
+  "popupSnapshotCaptured": {
+    "message": "Snapshot captured $1"
+  },
+  "popupSortedBy": {
+    "message": "Sorted by $1."
+  },
+  "popupSortSaveError": {
+    "message": "Could not save the repository sort."
+  },
+  "popupSourceApi": {
+    "message": "GitHub API"
+  },
+  "popupSourceDowngrade": {
+    "message": "The requested $1 source is unavailable. $2 Using the $3 source instead."
+  },
+  "popupSourceUnavailable": {
+    "message": "The requested source is unavailable."
+  },
+  "popupSourceWebsite": {
+    "message": "GitHub website"
+  },
+  "popupStaleSnapshot": {
+    "message": "Not a live read"
+  },
+  "popupStaleSource": {
+    "message": " · stale"
+  },
+  "popupStartMeasuring": {
+    "message": "Activate to start measuring changes from now."
+  },
+  "popupStorageNoticeDismissError": {
+    "message": "Could not dismiss the storage notice. $1"
+  },
+  "popupStorageReset": {
+    "message": "was reset because neither its stored record nor its recovery copy could be read."
+  },
+  "popupStorageRestored": {
+    "message": "was restored from the last-known-good copy after its stored record became invalid."
+  },
+  "popupTokenRejected": {
+    "message": "GitHub rejected the configured token. Check or replace the token in Settings."
+  },
+  "popupTotalStars": {
+    "message": "Total stars"
+  },
+  "popupTrendCompareBaseline": {
+    "message": "Compare against the point you last reset"
+  },
+  "popupTrendComparePoint": {
+    "message": "$1 of $2 visible repositories have a retained $3-day comparison point"
+  },
+  "popupTrendCustomAdjusted": {
+    "message": "Only $1 days are retained. Comparing against $2 days."
+  },
+  "popupTrendCustomChanged": {
+    "message": "Repository changes now compare against $1 days."
+  },
+  "popupTrendDirection": {
+    "message": "$1 $2"
+  },
+  "popupTrendEvents": {
+    "message": " Events: $1."
+  },
+  "popupTrendFallback": {
+    "message": "$1-day trend is no longer retained. Showing $2 instead."
+  },
+  "popupTrendGap": {
+    "message": " No data for $1 of $2 days."
+  },
+  "popupTrendLabel": {
+    "message": "Stars over $1 days ($2 to $3): $4 on $5, $6 on $7, $8.$9"
+  },
+  "popupTrendNoChange": {
+    "message": "no measurable change"
+  },
+  "popupTrendNoHistory": {
+    "message": "No star history retained in the last $1 days."
+  },
+  "popupTrendRangeChanged": {
+    "message": "Repository changes now compare against $1. $2"
+  },
+  "popupTrendTableCaption": {
+    "message": "Star growth over the last $1 days, biggest movers first, for $2 of $3 visible $4. A dash means no measurement was retained for that range; ~ marks a count GitHub abbreviated.$5"
+  },
+  "popupTrendTableHidden": {
+    "message": "Trend table hidden."
+  },
+  "popupTrendTableShown": {
+    "message": "Trend table shown. It carries the same series as the row sparklines."
+  },
+  "popupTrendTooFew": {
+    "message": "Only $1 retained points in $2 days — too few to plot. $3"
+  },
+  "popupTrendUnchanged": {
+    "message": "unchanged"
+  },
+  "popupTryAgain": {
+    "message": "Try again"
+  },
+  "popupUndoError": {
+    "message": "Could not undo the last data action. $1"
+  },
+  "popupUndoUnavailable": {
+    "message": "Undo is no longer available."
+  },
+  "popupUp": {
+    "message": "up"
+  },
+  "popupUpdated": {
+    "message": "Updated"
+  },
+  "popupUserNotFound": {
+    "message": "GitHub could not find the configured username. Check the username in Settings."
+  },
+  "popupViaApi": {
+    "message": "$1/$2 API calls left"
+  },
+  "popupViaWebsite": {
+    "message": "via github.com · $1 page$2"
+  },
+  "popupVisibleRepos": {
+    "message": "Visible repos"
+  },
+  "popupVisibleStars": {
+    "message": "Visible stars"
+  },
+  "popupWaitingToSync": {
+    "message": "Waiting to sync"
+  },
+  "popupWebsiteRateTitle": {
+    "message": "Read from your github.com repositories tab — no API token in use"
+  },
+  "privacyNoticeMessage": {
+    "message": "Since your previous version, StarBoard now checks https://sysadmindoc.github.io/StarBoard/capabilities.json at most every six hours. The credential-free request sends nothing about you or your repositories; it only reads static capability rules so a broken feature can be disabled before a store update."
+  },
+  "scrapeHttpError": {
+    "message": "github.com returned $1."
+  },
+  "scrapeParserDrift": {
+    "message": "Could not read repositories from github.com — its page layout may have changed."
+  },
+  "scrapeRateLimited": {
+    "message": "GitHub is rate limiting website requests."
+  },
+  "scrapeReadFailed": {
+    "message": "Could not finish reading github.com."
+  },
+  "scrapeTimeout": {
+    "message": "github.com took too long to respond."
+  },
+  "scrapeUsernameRequired": {
+    "message": "Web mode needs a GitHub username."
+  },
+  "scrapeUserNotFound": {
+    "message": "GitHub has no user named \"$1\"."
+  },
+  "scrapeUserNotFoundStatus": {
+    "message": "GitHub has no user named \"$1\" (404)."
+  },
+  "text_003420a4": {
+    "message": "Events"
+  },
+  "text_0128eb74": {
+    "message": "Follower count"
+  },
+  "text_01da9a0c": {
+    "message": "Refresh rhythm"
+  },
+  "text_028a1dcd": {
+    "message": "Privacy at a glance"
+  },
+  "text_0291b715": {
+    "message": "Where to read from"
+  },
+  "text_039a7130": {
+    "message": "Repository descriptions"
+  },
+  "text_06cc87f5": {
+    "message": "Apply restore"
+  },
+  "text_07e804c6": {
+    "message": "Stars"
+  },
+  "text_08048a1e": {
+    "message": "Private only"
+  },
+  "text_0a902ccb": {
+    "message": "View name"
+  },
+  "text_0b3aa6ec": {
+    "message": "Filters"
+  },
+  "text_0c0d5eb0": {
+    "message": "A preview using the latest cached portfolio total."
+  },
+  "text_0c43fb4a": {
+    "message": "1 hour"
+  },
+  "text_0d5bcbff": {
+    "message": "Alert after portfolio gains"
+  },
+  "text_0d804230": {
+    "message": "Archive state"
+  },
+  "text_0dc6b4aa": {
+    "message": "Off"
+  },
+  "text_0e5ed2c2": {
+    "message": "Cooldown between alert groups"
+  },
+  "text_1481aa56": {
+    "message": "octocat"
+  },
+  "text_1638668a": {
+    "message": "scope (or a fine-grained token with read-only"
+  },
+  "text_16d2806c": {
+    "message": "History retention after pruning"
+  },
+  "text_17a385ee": {
+    "message": "Public + private"
+  },
+  "text_18bfb3a8": {
+    "message": "Include trend history"
+  },
+  "text_1b742870": {
+    "message": "Active + archived"
+  },
+  "text_1d787eb6": {
+    "message": "Forks"
+  },
+  "text_1dd669b7": {
+    "message": "Everything StarBoard stores stays local:"
+  },
+  "text_1e51dab4": {
+    "message": "Personal access token"
+  },
+  "text_1f58f993": {
+    "message": "Export CSV"
+  },
+  "text_21263b77": {
+    "message": "Repository type"
+  },
+  "text_215ce261": {
+    "message": "Keep your repository signal current, comparable, and close at hand."
+  },
+  "text_2240e9f3": {
+    "message": "Undo last data action"
+  },
+  "text_238dd5d3": {
+    "message": "Create one →"
+  },
+  "text_24f94e07": {
+    "message": "Choose exactly how much context appears around the rankings."
+  },
+  "text_265915f3": {
+    "message": "Dismiss"
+  },
+  "text_27b1b222": {
+    "message": "6 hours"
+  },
+  "text_2800ff28": {
+    "message": "Trend history"
+  },
+  "text_2af08416": {
+    "message": "Portfolio milestone every"
+  },
+  "text_2b5be7c1": {
+    "message": "Quiet hours end"
+  },
+  "text_2cea492a": {
+    "message": "Nothing"
+  },
+  "text_2d37496c": {
+    "message": "Exact and rounded"
+  },
+  "text_2d8a9817": {
+    "message": "90 days"
+  },
+  "text_2e504528": {
+    "message": "Custom comparison range in days"
+  },
+  "text_2fc6e1bf": {
+    "message": "All languages"
+  },
+  "text_30e84ec7": {
+    "message": "Connecting"
+  },
+  "text_31018b9f": {
+    "message": "Appearance"
+  },
+  "text_32676748": {
+    "message": "Repository changes"
+  },
+  "text_32cdd83b": {
+    "message": "Build diagnostics"
+  },
+  "text_35afca3b": {
+    "message": "Cancel"
+  },
+  "text_3779e77d": {
+    "message": "· MIT licensed"
+  },
+  "text_381d190f": {
+    "message": "Notifications"
+  },
+  "text_3bb56058": {
+    "message": "StarBoard contacts"
+  },
+  "text_3be37196": {
+    "message": "GitHub website — default, no token"
+  },
+  "text_3bee4130": {
+    "message": "to include private repos. It is sent only to api.github.com."
+  },
+  "text_3e124675": {
+    "message": "public_repo"
+  },
+  "text_3f3460bb": {
+    "message": "Show language, last push time and repository tags."
+  },
+  "text_3f656c12": {
+    "message": "Exact counts only"
+  },
+  "text_41cb8e69": {
+    "message": "50 stars"
+  },
+  "text_41fa1c79": {
+    "message": "Download JSON"
+  },
+  "text_42239a10": {
+    "message": "Dismiss all"
+  },
+  "text_42929680": {
+    "message": "24 hours"
+  },
+  "text_43d8ccd9": {
+    "message": "for capability status. The last request is credential-free and sends no username, repository names, tokens, cookies or other user-identifying data."
+  },
+  "text_4412c5dd": {
+    "message": "Source and quota status"
+  },
+  "text_4413b4bf": {
+    "message": "Access to github.com was removed. Website mode cannot read your repositories until"
+  },
+  "text_444ebd5c": {
+    "message": "StarBoard keeps one local point per repository per UTC day, for at most 365 days and up to 20% of the browser-reported local storage quota."
+  },
+  "text_45570065": {
+    "message": "Dark"
+  },
+  "text_45de48cd": {
+    "message": "Applying replaces only records present in the file. Your local PAT stays on this device. The prior state remains undoable for 10 minutes."
+  },
+  "text_46d725b2": {
+    "message": "Recently pushed"
+  },
+  "text_4853d697": {
+    "message": "Restore JSON…"
+  },
+  "text_48a7aab8": {
+    "message": "Review local diagnostics →"
+  },
+  "text_49361819": {
+    "message": "github.com"
+  },
+  "text_4959f7b3": {
+    "message": "Momentum · stars"
+  },
+  "text_49694818": {
+    "message": "Include private repository names"
+  },
+  "text_49c5d8f9": {
+    "message": "optional"
+  },
+  "text_4a1b0b6e": {
+    "message": "365 days"
+  },
+  "text_4a5b467f": {
+    "message": "Within one year"
+  },
+  "text_4a621b88": {
+    "message": "ghp_… or github_pat_…"
+  },
+  "text_4b058728": {
+    "message": "Settings"
+  },
+  "text_4cb08905": {
+    "message": "Visibility"
+  },
+  "text_4d2d5d68": {
+    "message": "Save"
+  },
+  "text_4df37f20": {
+    "message": "Recent refresh failures"
+  },
+  "text_4e8771e0": {
+    "message": "Inspect, prune or recover the data stored in this browser profile."
+  },
+  "text_4eaf7c92": {
+    "message": "Theme"
+  },
+  "text_4ecc3aec": {
+    "message": "Dismiss these"
+  },
+  "text_5051c9c3": {
+    "message": "The baseline is the snapshot that"
+  },
+  "text_51325705": {
+    "message": "Report an issue"
+  },
+  "text_515c8e41": {
+    "message": "Recent alerts"
+  },
+  "text_5238c274": {
+    "message": "Trend table"
+  },
+  "text_5272a265": {
+    "message": "10 stars"
+  },
+  "text_530742df": {
+    "message": "Last push"
+  },
+  "text_531e611b": {
+    "message": "Username, repository snapshot, baseline and settings stay in this profile."
+  },
+  "text_555cbe68": {
+    "message": "Keep"
+  },
+  "text_5797ea6a": {
+    "message": "Delete"
+  },
+  "text_588389dc": {
+    "message": "Local diagnostics"
+  },
+  "text_598734c0": {
+    "message": "for API mode, and"
+  },
+  "text_59f8a2fc": {
+    "message": "Account"
+  },
+  "text_5d72fcaa": {
+    "message": "Days"
+  },
+  "text_5dcfc4ca": {
+    "message": "Never (manual only)"
+  },
+  "text_5e4baa18": {
+    "message": "View"
+  },
+  "text_60e30d59": {
+    "message": "Control room"
+  },
+  "text_61129d8c": {
+    "message": "On this device until forgotten"
+  },
+  "text_61dc8dec": {
+    "message": "+N"
+  },
+  "text_63e62a39": {
+    "message": "500 stars"
+  },
+  "text_658f3664": {
+    "message": "Copy"
+  },
+  "text_65c0bb76": {
+    "message": "StarBoard — Settings"
+  },
+  "text_66dd4fed": {
+    "message": "Keep token"
+  },
+  "text_6d1a1f5f": {
+    "message": "Momentum · forks"
+  },
+  "text_6e8e381f": {
+    "message": "Sort repositories"
+  },
+  "text_719d4e36": {
+    "message": "Choose how often the signal and its comparison point move."
+  },
+  "text_71a7c4d8": {
+    "message": "Allow local alerts"
+  },
+  "text_73a6f919": {
+    "message": "Save view"
+  },
+  "text_73bec8fd": {
+    "message": "Alert after one repo gains"
+  },
+  "text_7403133e": {
+    "message": "Opt into local milestone and growth alerts—no backend required."
+  },
+  "text_764d1069": {
+    "message": "Count accuracy"
+  },
+  "text_76e6d3ef": {
+    "message": "Popup details"
+  },
+  "text_773b01f8": {
+    "message": "Show on the extension icon"
+  },
+  "text_785e43ec": {
+    "message": "for website mode,"
+  },
+  "text_79fc9539": {
+    "message": "250 stars"
+  },
+  "text_7a572af9": {
+    "message": "30 days"
+  },
+  "text_7abda9a8": {
+    "message": "Total stars"
+  },
+  "text_7c00bd8f": {
+    "message": "Reset the change baseline every"
+  },
+  "text_7c28e3a6": {
+    "message": "Chrome asks for notification access only when you turn this on."
+  },
+  "text_7c412ffc": {
+    "message": "Repository milestone every"
+  },
+  "text_7ccd9dd9": {
+    "message": "5 stars"
+  },
+  "text_7d7344c3": {
+    "message": "Toolbar badge preview"
+  },
+  "text_80e4b47f": {
+    "message": "30 minutes"
+  },
+  "text_8238ecd0": {
+    "message": "Inspect a redacted snapshot of version, source, permission, storage, refresh and alarm health. Repository names, tokens, cookies, raw HTML and error messages are excluded."
+  },
+  "text_83fa3f18": {
+    "message": "Full privacy and permission details →"
+  },
+  "text_87330fcc": {
+    "message": "New or renamed"
+  },
+  "text_8ad2f8cf": {
+    "message": "Light"
+  },
+  "text_8b96e20a": {
+    "message": "Stars start"
+  },
+  "text_8bb79ba5": {
+    "message": "Portfolio signal"
+  },
+  "text_8c511505": {
+    "message": "Saved portfolio view"
+  },
+  "text_8d1740c1": {
+    "message": "Forget token"
+  },
+  "text_8d5b68c3": {
+    "message": "Originals only"
+  },
+  "text_8d709c08": {
+    "message": "Approximate/partial snapshots do not trigger portfolio alerts, and approximate repository rows are skipped. Failed refreshes never create alerts."
+  },
+  "text_8f3354b3": {
+    "message": "API tokens are session-only by default, go only to api.github.com, and are never included in diagnostics or exports."
+  },
+  "text_902a699b": {
+    "message": "Security policy"
+  },
+  "text_928fa5d1": {
+    "message": "Start measuring changes from right now"
+  },
+  "text_93128a79": {
+    "message": "Changed or not"
+  },
+  "text_93296a46": {
+    "message": "Stars change"
+  },
+  "text_944a0f5e": {
+    "message": "Dry run complete"
+  },
+  "text_94de5d96": {
+    "message": "Forks change"
+  },
+  "text_95173e17": {
+    "message": "Originals + forks"
+  },
+  "text_961b8dd5": {
+    "message": "3 hours"
+  },
+  "text_966222eb": {
+    "message": ") raises that to 5,000/hour; add"
+  },
+  "text_9741a27a": {
+    "message": "Loading your saved settings…"
+  },
+  "text_97ecd300": {
+    "message": "Quiet hours start"
+  },
+  "text_9a4719de": {
+    "message": "Name A–Z"
+  },
+  "text_9a73db9b": {
+    "message": "Language"
+  },
+  "text_9a81f24c": {
+    "message": "No failed refreshes are recorded."
+  },
+  "text_9c03f160": {
+    "message": "Metadata"
+  },
+  "text_9c1ffb03": {
+    "message": "Language and activity"
+  },
+  "text_a1d0c7a1": {
+    "message": "Need help?"
+  },
+  "text_a21851eb": {
+    "message": "Show API quota or website page count in the footer."
+  },
+  "text_a353f292": {
+    "message": "Public only"
+  },
+  "text_a391dade": {
+    "message": "Custom…"
+  },
+  "text_a40bdf44": {
+    "message": "Refresh now"
+  },
+  "text_a8ef9ecd": {
+    "message": "Match the interface and toolbar signal to your workspace."
+  },
+  "text_adab1a19": {
+    "message": "star and fork changes are measured against. Reset it any time from the popup by clicking the “Δ since …” button."
+  },
+  "text_aefb5799": {
+    "message": "Filter repositories"
+  },
+  "text_af0bd4bf": {
+    "message": "StarBoard"
+  },
+  "text_af930657": {
+    "message": "Reset the comparison point to now"
+  },
+  "text_b0754a13": {
+    "message": "Auto-refresh every"
+  },
+  "text_b2cd2738": {
+    "message": "Notification access is optional, requested only when alerts are enabled, and used only for local milestone/growth messages."
+  },
+  "text_b3849781": {
+    "message": "Undo last action"
+  },
+  "text_b62edd87": {
+    "message": "GitHub API — token optional"
+  },
+  "text_b6c87f75": {
+    "message": "Connect the portfolio you want StarBoard to watch."
+  },
+  "text_b81b8b70": {
+    "message": "More than one year"
+  },
+  "text_ba4b8279": {
+    "message": "7 days"
+  },
+  "text_c0a5b02e": {
+    "message": "Repository filters"
+  },
+  "text_c19ab69d": {
+    "message": "12 hours"
+  },
+  "text_c203e039": {
+    "message": "Stars growth"
+  },
+  "text_c27d99b8": {
+    "message": "Rounded counts only"
+  },
+  "text_c39b94ff": {
+    "message": "Without a token GitHub allows 60 requests per hour and only shows public repos. A token with the"
+  },
+  "text_c3f77563": {
+    "message": "Custom view"
+  },
+  "text_c466df10": {
+    "message": "Permission for github.com denied."
+  },
+  "text_c4e2f181": {
+    "message": "Loading…"
+  },
+  "text_c51174cf": {
+    "message": "Filter repositories…"
+  },
+  "text_c5db6683": {
+    "message": "For this browser session — default"
+  },
+  "text_c6ec2d10": {
+    "message": "Trend"
+  },
+  "text_c7b42b44": {
+    "message": "Forks only"
+  },
+  "text_c80631f3": {
+    "message": "Rename"
+  },
+  "text_c89da12d": {
+    "message": "Stars gained since baseline"
+  },
+  "text_c930706f": {
+    "message": "Active only"
+  },
+  "text_c9ca5769": {
+    "message": "25 stars"
+  },
+  "text_cadcc6d0": {
+    "message": "StarBoard support"
+  },
+  "text_cb336bf3": {
+    "message": "Reset filters"
+  },
+  "text_cc200e59": {
+    "message": "Unknown"
+  },
+  "text_cd5661a5": {
+    "message": "Sort order"
+  },
+  "text_cf9f3171": {
+    "message": "Comparison range"
+  },
+  "text_d186334b": {
+    "message": "Website mode lets the browser attach your github.com session cookies; StarBoard never reads or stores the cookie values."
+  },
+  "text_d3b4ca9d": {
+    "message": "repo"
+  },
+  "text_d44cf960": {
+    "message": "Download a checksummed JSON backup or a timestamped CSV. Personal access tokens are never included."
+  },
+  "text_d5b5b6bc": {
+    "message": "1 star"
+  },
+  "text_d6ebe159": {
+    "message": "Backup & export"
+  },
+  "text_d86568ca": {
+    "message": "Match the system setting"
+  },
+  "text_d8cff1b3": {
+    "message": "api.github.com"
+  },
+  "text_d9175f00": {
+    "message": "Local data"
+  },
+  "text_dad2b82e": {
+    "message": "Replace token"
+  },
+  "text_dbd14f4a": {
+    "message": "Repos"
+  },
+  "text_dc99c111": {
+    "message": "Include the one-line description under each name."
+  },
+  "text_dd186a31": {
+    "message": "Clearing removes repository counts, the comparison baseline, trend history and queued alerts. Your account, appearance and alert settings, and credentials are preserved."
+  },
+  "text_df30949d": {
+    "message": "New only"
+  },
+  "text_e0f3b6b7": {
+    "message": "Test connection"
+  },
+  "text_e33548d3": {
+    "message": "No network connection. Saved settings still apply; refreshes and connection tests resume once you are back online."
+  },
+  "text_e4615129": {
+    "message": "The account whose repos you want to track."
+  },
+  "text_e4cfe27c": {
+    "message": "Unchanged only"
+  },
+  "text_e590895d": {
+    "message": "100 stars"
+  },
+  "text_e655ff0d": {
+    "message": "Skip the repository list"
+  },
+  "text_e763c8b5": {
+    "message": "Repository"
+  },
+  "text_e8b8bf7f": {
+    "message": "3 stars"
+  },
+  "text_e9010d7b": {
+    "message": "since —"
+  },
+  "text_e98b276a": {
+    "message": "15 minutes"
+  },
+  "text_ea050b12": {
+    "message": "Within 90 days"
+  },
+  "text_eacbcb1a": {
+    "message": "Profile and device protection is the at-rest boundary for locally stored settings and persistent tokens."
+  },
+  "text_eb6cfda9": {
+    "message": "Show followers beside the synced repository count."
+  },
+  "text_eb80558e": {
+    "message": "Recent change"
+  },
+  "text_ebeff328": {
+    "message": "Fork statistics"
+  },
+  "text_ed14aa02": {
+    "message": "Days measured"
+  },
+  "text_ef2b2409": {
+    "message": "1,000 stars"
+  },
+  "text_ef96c82a": {
+    "message": "No analytics, developer telemetry, advertising, or user-identifying data collection."
+  },
+  "text_efd59b87": {
+    "message": "Clear snapshot, baseline & history"
+  },
+  "text_efe8aa5f": {
+    "message": "Stars end"
+  },
+  "text_f1b54cf5": {
+    "message": "Save & refresh"
+  },
+  "text_f41a3f02": {
+    "message": "GitHub username"
+  },
+  "text_f54379a3": {
+    "message": "Archived only"
+  },
+  "text_f621d021": {
+    "message": "This removes the cached repository snapshot, comparison baseline and all trend history, plus any queued alert delivery state. Settings, alert preferences and credentials stay unchanged. Click the confirm button within 8 seconds to continue."
+  },
+  "text_f75a0666": {
+    "message": "Show fork totals and per-repository fork counts."
+  },
+  "text_f942eb67": {
+    "message": "StarBoard on GitHub"
+  },
+  "text_fa33ac31": {
+    "message": "Renamed only"
+  },
+  "text_fbf5a258": {
+    "message": "Within 30 days"
+  },
+  "text_fda19a62": {
+    "message": "Baseline"
+  },
+  "text_fdc50b4f": {
+    "message": "Prune history"
+  },
+  "text_fec295a6": {
+    "message": "Any time"
+  }
 }

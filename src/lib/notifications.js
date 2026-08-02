@@ -1,5 +1,6 @@
 import { repositoryHistoryKey } from './history.js';
 import { formatters } from './i18n.js';
+import { runtimeMessage as t } from './i18n-messages.js';
 
 export const NOTIFICATION_FORMAT_VERSION = 1;
 export const DEFAULT_NOTIFICATION_CONFIG = Object.freeze({
@@ -192,8 +193,8 @@ export function evaluateNotificationEvents(
         before,
         after,
         normalized.portfolioMilestone,
-        'Portfolio milestone',
-        (crossed) => `Your repositories reached ${localeCount(crossed)} stars.`,
+        t('notificationPortfolioMilestone'),
+        (crossed) => t('notificationReachedStars', [localeCount(crossed)]),
         now,
       ),
       deltaEvent(
@@ -201,8 +202,8 @@ export function evaluateNotificationEvents(
         gain,
         normalized.portfolioDelta,
         generation,
-        'Portfolio growth',
-        (delta) => `Your repositories gained ${localeCount(delta)} stars.`,
+        t('notificationPortfolioGrowth'),
+        (delta) => t('notificationGainedStars', [localeCount(delta)]),
         now,
       ),
     );
@@ -220,8 +221,8 @@ export function evaluateNotificationEvents(
         before.stargazers_count,
         repo.stargazers_count,
         normalized.repositoryMilestone,
-        `${repo.name} milestone`,
-        (crossed) => `${repo.full_name} reached ${localeCount(crossed)} stars.`,
+        t('notificationRepositoryMilestone', [repo.name]),
+        (crossed) => t('notificationRepoReachedStars', [repo.full_name, localeCount(crossed)]),
         now,
       ),
       deltaEvent(
@@ -229,8 +230,8 @@ export function evaluateNotificationEvents(
         gain,
         normalized.repositoryDelta,
         generation,
-        `${repo.name} is moving`,
-        (delta) => `${repo.full_name} gained ${localeCount(delta)} stars.`,
+        t('notificationRepositoryMoving', [repo.name]),
+        (delta) => t('notificationRepoGainedStars', [repo.full_name, localeCount(delta)]),
         now,
       ),
     );

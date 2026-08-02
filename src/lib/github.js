@@ -7,6 +7,7 @@
  */
 
 import { RequestPolicyError, parseRetryAfter, requestWithRetry } from './request.js';
+import { runtimeMessage as t } from './i18n-messages.js';
 
 const API = 'https://api.github.com';
 const API_VERSION = '2026-03-10';
@@ -103,7 +104,7 @@ async function parseJson(response) {
 function mapPolicyError(error) {
   if (!(error instanceof RequestPolicyError)) throw error;
   if (error.code === 'RATE_LIMITED') {
-    throw new GitHubError('GitHub rate limit reached.', {
+    throw new GitHubError(t('githubRateLimited'), {
       code: 'RATE_LIMITED',
       status: error.status,
       rateLimited: true,
@@ -111,19 +112,19 @@ function mapPolicyError(error) {
     });
   }
   if (error.code === 'TIMEOUT') {
-    throw new GitHubError('GitHub API request timed out.', {
+    throw new GitHubError(t('githubApiTimeout'), {
       code: 'TIMEOUT',
       retryAt: error.retryAt,
     });
   }
   if (error.code === 'UPSTREAM_UNAVAILABLE') {
-    throw new GitHubError('GitHub API is temporarily unavailable.', {
+    throw new GitHubError(t('githubApiUnavailable'), {
       code: 'UPSTREAM_UNAVAILABLE',
       status: error.status,
       retryAt: error.retryAt,
     });
   }
-  throw new GitHubError('Network error — check your connection.', {
+  throw new GitHubError(t('githubNetworkError'), {
     code: error.code || 'NETWORK',
     retryAt: error.retryAt,
   });
@@ -176,10 +177,10 @@ async function request(
     const failure = authFailure(requested.value);
     throw new GitHubError(
       failure.status === 'expired'
-        ? 'GitHub token expired. Replace it in Settings.'
+        ? t('githubTokenExpired')
         : failure.status === 'revoked'
-          ? 'GitHub token was revoked. Replace it in Settings.'
-          : 'GitHub rejected the configured token. Check or replace it in Settings.',
+          ? t('githubTokenRevoked')
+          : t('githubTokenRejected'),
       {
       code: failure.code,
       status: 401,
@@ -188,34 +189,34 @@ async function request(
     );
   }
   if (response.status === 404) {
-    throw new GitHubError('User not found (404). Check the username in Settings.', {
+    throw new GitHubError(t('githubUserNotFound'), {
       code: 'USER_NOT_FOUND',
       status: 404,
     });
   }
   if (response.status === 403) {
     if (rate.remaining === 0 || retryAt) {
-      throw new GitHubError('GitHub rate limit reached.', {
+      throw new GitHubError(t('githubRateLimited'), {
         code: 'RATE_LIMITED',
         status: 403,
         rateLimited: true,
         resetAt: retryAt,
       });
     }
-    throw new GitHubError('GitHub refused the request (403).', {
+    throw new GitHubError(t('githubForbidden'), {
       code: 'FORBIDDEN',
       status: 403,
       authStatus: token ? 'denied' : null,
     });
   }
   if (response.status === 304 && fallback == null) {
-    throw new GitHubError('GitHub returned 304 without a reusable local snapshot.', {
+    throw new GitHubError(t('githubNotModifiedNoCache'), {
       code: 'INVALID_NOT_MODIFIED',
       status: 304,
     });
   }
   if (!response.ok && response.status !== 304) {
-    throw new GitHubError(`GitHub returned ${response.status}.`, {
+    throw new GitHubError(t('githubHttpError', [response.status]), {
       code: 'HTTP_ERROR',
       status: response.status,
       retryAt,
@@ -377,10 +378,10 @@ async function graphRequest(token, variables, options) {
     const failure = authFailure(value);
     throw new GitHubError(
       failure.status === 'expired'
-        ? 'GitHub token expired. Replace it in Settings.'
+        ? t('githubTokenExpired')
         : failure.status === 'revoked'
-          ? 'GitHub token was revoked. Replace it in Settings.'
-          : 'GitHub rejected the configured token. Check or replace it in Settings.',
+          ? t('githubTokenRevoked')
+          : t('githubTokenRejected'),
       {
       code: failure.code,
       status: 401,
@@ -395,7 +396,7 @@ async function graphRequest(token, variables, options) {
     parseRetryAfter(response.headers.get('retry-after')) ||
     (rate.remaining === 0 ? rate.resetAt : null);
   if (response.status === 403 && (rate.remaining === 0 || retryAt)) {
-    throw new GitHubError('GitHub rate limit reached.', {
+    throw new GitHubError(t('githubRateLimited'), {
       code: 'RATE_LIMITED',
       status: 403,
       rateLimited: true,
@@ -403,7 +404,7 @@ async function graphRequest(token, variables, options) {
     });
   }
   if (!response.ok) {
-    throw new GitHubError(`GitHub GraphQL returned ${response.status}.`, {
+    throw new GitHubError(t('githubGraphqlHttpError', [response.status]), {
       code: 'GRAPHQL_UNAVAILABLE',
       status: response.status,
       authStatus: token ? 'denied' : null,
@@ -412,7 +413,7 @@ async function graphRequest(token, variables, options) {
   // A GraphQL error arrives with HTTP 200. Treating it as success shipped an
   // empty repository list that downstream read as "every repository removed".
   if (Array.isArray(value?.errors) && value.errors.length) {
-    throw new GitHubError(value.errors[0]?.message || 'GitHub GraphQL returned an error.', {
+    throw new GitHubError(value.errors[0]?.message || t('githubGraphqlError'), {
       code: 'GRAPHQL_ERROR',
       status: 200,
     });
@@ -454,7 +455,7 @@ async function fetchAccountGraphQL({ username, token }, options = {}) {
     user = data?.user || null;
     if (!user?.login) {
       // `user(login:)` is null for an organization; REST lists those fine.
-      throw new GitHubError('GraphQL returned no user for that login.', {
+      throw new GitHubError(t('githubGraphqlNoUser'), {
         code: 'GRAPHQL_NO_USER',
       });
     }
@@ -508,7 +509,7 @@ async function fetchAccountGraphQL({ username, token }, options = {}) {
 /** Validate API access with exactly one profile request. */
 export async function testApiConnection({ username, token }, options = {}) {
   if (!username && !token) {
-    throw new GitHubError('Set a GitHub username or token first.', {
+    throw new GitHubError(t('githubSetupRequired'), {
       code: 'SETUP_REQUIRED',
     });
   }
@@ -518,7 +519,7 @@ export async function testApiConnection({ username, token }, options = {}) {
     retries: options.retries ?? 0,
   });
   if (!result.body?.login) {
-    throw new GitHubError('GitHub returned an invalid profile.', {
+    throw new GitHubError(t('githubInvalidProfile'), {
       code: 'INVALID_RESPONSE',
     });
   }

@@ -42,6 +42,7 @@ ALLOWED_FILES = (
     "src/lib/github.js",
     "src/lib/history.js",
     "src/lib/i18n.js",
+    "src/lib/i18n-messages.js",
     "src/lib/install.js",
     "src/lib/lifecycle.js",
     "src/lib/notifications.js",

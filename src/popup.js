@@ -28,6 +28,7 @@ import {
   getPrivacyNotice,
 } from './lib/install.js';
 import { formatters, localizeDocument, message } from './lib/i18n.js';
+import { runtimeMessage as t } from './lib/i18n-messages.js';
 import {
   SPARKLINE_MIN_POINTS,
   compareHistoryDeltas,
@@ -246,7 +247,9 @@ function syncControls() {
     const days = Number(option.value);
     const unavailable = hasRows && retained < days;
     option.disabled = unavailable;
-    option.textContent = unavailable ? `${days} days — not retained yet` : `${days} days`;
+    option.textContent = unavailable
+      ? t('popupDaysNotRetained', [days])
+      : t('popupDays', [days]);
     if (!unavailable) longestAvailable = option.value;
   }
   // A custom range is offered only once the history can serve the two days a
@@ -261,7 +264,7 @@ function syncControls() {
     trendRangeFellBack = true;
     queueMicrotask(() =>
       announce(
-        `${previousCustom}-day trend is no longer retained. Showing ${retained} days instead.`,
+        t('popupTrendFallback', [previousCustom, t('popupDays', [retained])]),
       ),
     );
   }
@@ -271,7 +274,7 @@ function syncControls() {
     el.trendCustomDays.value = String(state.trendCustomDays);
   }
   el.trendCustomDays.disabled = !hasRows || customOption.disabled;
-  el.trendCustomHint.textContent = `Between 2 and ${nf.format(retained)} retained days.`;
+  el.trendCustomHint.textContent = t('popupRetainedDaysHint', [nf.format(retained)]);
   // A pruned or newly-capped window can disable the range that is currently
   // selected. Leaving it selected left every delta as a dash with no
   // explanation, so fall back to the longest range the history can serve.
@@ -287,9 +290,10 @@ function syncControls() {
     // `announce` keeps only the newest message. Queue past them.
     queueMicrotask(() =>
       announce(
-        `${previous}-day trend is no longer retained. Showing ${
-          longestAvailable === 'baseline' ? 'the baseline comparison' : `${longestAvailable} days`
-        } instead.`,
+        t('popupTrendFallback', [
+          previous,
+          longestAvailable === 'baseline' ? 'the baseline comparison' : t('popupDays', [longestAvailable]),
+        ]),
       ),
     );
   } else {
@@ -374,9 +378,9 @@ function matchSummary() {
   const total = state.cache.repos.length;
   const shown = visibleRepos().length;
   if (shown === total) {
-    return `All ${nf.format(total)} repositories match.`;
+    return t('popupMatchAll', [nf.format(total)]);
   }
-  return `${nf.format(shown)} of ${nf.format(total)} repositories match.`;
+  return t('popupMatchSome', [nf.format(shown), nf.format(total)]);
 }
 
 async function updateUndoAvailability() {
@@ -417,7 +421,7 @@ function relative(ts) {
   for (const [unit, ms] of UNITS) {
     if (Math.abs(diff) >= ms) return rtf.format(-Math.round(diff / ms), unit);
   }
-  return 'just now';
+  return t('popupJustNow');
 }
 
 /** Terminate a message with exactly one sentence-ending mark. */
@@ -450,20 +454,21 @@ function srOnly(text) {
   return node;
 }
 
-const MISSING_POINT_NOTE = 'no comparison point was retained for this range';
-const APPROXIMATE_NOTE = 'approximate count';
-
 function sourceLabel(source) {
-  return source === 'web' ? 'GitHub website' : 'GitHub API';
+  return source === 'web' ? t('popupSourceWebsite') : t('popupSourceApi');
 }
 
 function sourceDowngradeMessage(downgrade) {
   if (!downgrade?.requested || !downgrade?.effective) return '';
   const why =
     downgrade.reason === 'web-source-disabled'
-      ? 'A remote capability rule disabled website mode.'
-      : 'The requested source is unavailable.';
-  return `The requested ${sourceLabel(downgrade.requested)} source is unavailable. ${why} Using the ${sourceLabel(downgrade.effective)} source instead.`;
+      ? t('popupRemoteSourceDisabled')
+      : t('popupSourceUnavailable');
+  return t('popupSourceDowngrade', [
+    sourceLabel(downgrade.requested),
+    why,
+    sourceLabel(downgrade.effective),
+  ]);
 }
 
 function deltaNode(value, cls = 'delta', missing = false, partial = null) {
@@ -473,8 +478,8 @@ function deltaNode(value, cls = 'delta', missing = false, partial = null) {
     span.classList.add('missing');
     // The dash is the whole visible message, so the reason travels with it in
     // the accessible name rather than in a pointer-only tooltip.
-    span.append('—', srOnly(MISSING_POINT_NOTE));
-    span.title = 'No comparison point was retained for this range';
+    span.append('—', srOnly(t('popupNoComparisonPoint')));
+    span.title = t('popupNoComparisonPointTitle');
   } else if (value > 0) {
     span.classList.add('up');
     // signDisplay, not a concatenated "+": it produces the locale's real minus
@@ -485,10 +490,13 @@ function deltaNode(value, cls = 'delta', missing = false, partial = null) {
     span.textContent = signed.format(value);
   }
   if (partial && partial.comparable < partial.total) {
-    const note = `Partial comparison: ${nf.format(partial.comparable)} of ${nf.format(partial.total)} visible repositories have a retained comparison point.`;
+    const note = t('popupPartialComparison', [
+      nf.format(partial.comparable),
+      nf.format(partial.total),
+    ]);
     span.classList.add('partial');
     span.title = note;
-    span.setAttribute('aria-label', `${signed.format(value) || 'No change'}. ${note}`);
+    span.setAttribute('aria-label', `${signed.format(value) || t('popupNoChange')}. ${note}`);
   }
   return span;
 }
@@ -585,8 +593,8 @@ function statNode(kind, value, delta, approx = false, comparisonMissing = false)
   // The note is a sibling of `b`, never a child: the smoke suite parses that
   // element as a bare number.
   if (approx) {
-    b.title = 'Approximate — github.com abbreviates counts above 1,000';
-    wrap.appendChild(srOnly(APPROXIMATE_NOTE));
+    b.title = t('popupApproximateTitle');
+    wrap.appendChild(srOnly(t('popupApproximateCount')));
   }
   wrap.appendChild(deltaNode(delta, 'delta', comparisonMissing));
   return wrap;
@@ -640,26 +648,35 @@ function seriesFor(repo) {
 /** Sentence a screen reader gets in place of the line. */
 function seriesLabel(series) {
   if (!series || series.measured === 0) {
-    return `No star history retained in the last ${series?.days ?? 0} days.`;
+    return t('popupTrendNoHistory', [series?.days ?? 0]);
   }
   const change =
     series.delta === null
-      ? 'no measurable change'
+      ? t('popupTrendNoChange')
       : series.delta === 0
-        ? 'unchanged'
-        : `${series.delta > 0 ? 'up' : 'down'} ${nf.format(Math.abs(series.delta))}`;
+        ? t('popupTrendUnchanged')
+        : t('popupTrendDirection', [
+            series.delta > 0 ? t('popupUp') : t('popupDown'),
+            nf.format(Math.abs(series.delta)),
+          ]);
   const gaps = series.gaps
-    ? ` No data for ${nf.format(series.gaps)} of ${nf.format(series.days)} days.`
+    ? t('popupTrendGap', [nf.format(series.gaps), nf.format(series.days)])
     : '';
   const events = annotationSummary(series.annotations);
-  const eventNote = events === '—' ? '' : ` Events: ${events}.`;
+  const eventNote = events === '—' ? '' : t('popupTrendEvents', [events]);
   // The dates have to be the days actually measured. Naming the window's edges
   // instead claimed a reading on a day the series has no point for.
-  return (
-    `Stars over ${nf.format(series.days)} days (${series.from} to ${series.to}): ` +
-    `${nf.format(series.first)} on ${series.firstDay}, ` +
-    `${nf.format(series.last)} on ${series.lastDay}, ${change}.${gaps}${eventNote}`
-  );
+  return t('popupTrendLabel', [
+    nf.format(series.days),
+    series.from,
+    series.to,
+    nf.format(series.first),
+    series.firstDay,
+    nf.format(series.last),
+    series.lastDay,
+    change,
+    `${gaps}${eventNote}`,
+  ]);
 }
 
 /**
@@ -671,13 +688,12 @@ function sparklineNode(series) {
   if (!series || series.measured < SPARKLINE_MIN_POINTS) {
     const thin = document.createElement('span');
     thin.className = 'spark-thin';
-    thin.textContent = series?.measured ? `${series.measured} pts` : '—';
+    thin.textContent = series?.measured ? t('popupOnlyPoints', [series.measured]) : t('popupNoPoints');
     thin.setAttribute('role', 'img');
     thin.setAttribute(
       'aria-label',
       series?.measured
-        ? `Only ${series.measured} retained points in ${series.days} days — too few to plot. ` +
-          seriesLabel(series)
+        ? t('popupTrendTooFew', [series.measured, series.days, seriesLabel(series)])
         : seriesLabel(series),
     );
     return thin;
@@ -790,12 +806,13 @@ function renderTrendTable(rows) {
   }));
   const dropped = compared.length - shown.length;
 
-  el.trendTableCaption.textContent =
-    `Star growth over the last ${nf.format(days)} days, biggest movers first, for ` +
-    `${nf.format(shown.length)} of ${nf.format(rows.length)} visible ` +
-    `repositor${rows.length === 1 ? 'y' : 'ies'}. A dash means no measurement was retained ` +
-    'for that range; ~ marks a count GitHub abbreviated.' +
-    (dropped ? ` ${nf.format(dropped)} more are excluded — narrow the filters to see them.` : '');
+  el.trendTableCaption.textContent = t('popupTrendTableCaption', [
+    nf.format(days),
+    nf.format(shown.length),
+    nf.format(rows.length),
+    rows.length === 1 ? t('popupRepositorySingular') : t('popupRepositoryPlural'),
+    dropped ? ` ${t('popupMoreExcluded', [nf.format(dropped)])}` : '',
+  ]);
 
   const body = document.createDocumentFragment();
   for (const entry of shown) {
@@ -852,14 +869,16 @@ function rowNode(repo, rank, changes) {
   if (lifecycle) {
     const change = document.createElement('span');
     change.className = `lifecycle-tag ${lifecycle.type}`;
-    change.textContent = lifecycle.type === 'renamed' ? 'renamed' : 'new';
+    change.textContent = lifecycle.type === 'renamed'
+      ? t('popupLifecycleRenamedTag')
+      : t('popupLifecycleNewTag');
     name.appendChild(change);
   }
   if (state.movement.has(repo.full_name)) {
     const moved = document.createElement('span');
     moved.className = 'movement-tag';
-    moved.textContent = 'moved';
-    moved.title = 'Star or fork count changed in the newest snapshot';
+    moved.textContent = t('popupChangedTag');
+    moved.title = t('popupChangedTagTitle');
     name.appendChild(moved);
   }
   main.appendChild(name);
@@ -1004,8 +1023,8 @@ function resetAllFilters() {
       lifecycle: DEFAULT_PORTFOLIO_FILTERS.lifecycle,
       activity: DEFAULT_PORTFOLIO_FILTERS.activity,
     },
-    'Repository filters reset.',
-  ).catch((error) => announce(error.message || 'Could not reset the filters.'));
+    t('popupResetFilters'),
+  ).catch((error) => announce(error.message || t('popupResetFiltersError')));
 }
 
 function renderEmpty(title, message, action) {
@@ -1062,23 +1081,23 @@ function renderTotals(rows, allRows) {
   const unfilteredCount = allRows.length;
   const filtered =
     !!state.portfolioViews?.active.query.trim() || rows.length !== unfilteredCount;
-  el.totalStarsLabel.textContent = filtered ? 'Visible stars' : 'Total stars';
-  el.totalReposLabel.textContent = filtered ? 'Visible repos' : 'Repos';
+  el.totalStarsLabel.textContent = filtered ? t('popupVisibleStars') : t('popupTotalStars');
+  el.totalReposLabel.textContent = filtered ? t('popupVisibleRepos') : t('popupRepos');
   el.totalStars.title = approximate
-    ? 'Approximate total — one or more website counts are abbreviated'
+    ? t('popupApproximateTotal')
     : '';
   const trendDays = effectiveTrendDays();
   el.trendRange.title = trendSelected
-    ? `${comparable} of ${rows.length} visible repositories have a retained ${trendDays}-day comparison point`
-    : 'Compare against the point you last reset';
+    ? t('popupTrendComparePoint', [comparable, rows.length, trendDays])
+    : t('popupTrendCompareBaseline');
 
   const confidence = state.cache?.confidence || 'exact';
   const confidenceLabel = {
-    exact: 'Exact snapshot',
-    approximate: 'Approximate counts',
-    partial: 'Partial snapshot',
-    stale: 'Not a live read',
-  }[confidence] || 'Snapshot';
+    exact: t('popupExactSnapshot'),
+    approximate: t('popupApproximateSnapshot'),
+    partial: t('popupPartialSnapshot'),
+    stale: t('popupStaleSnapshot'),
+  }[confidence] || t('popupSnapshot');
   el.confidence.textContent = confidenceLabel;
   el.confidence.className = `confidence-badge ${confidence}`;
 
@@ -1092,10 +1111,10 @@ function renderTotals(rows, allRows) {
   lastQualitySignature = signature;
 
   const at = state.baseline?.at;
-  el.since.textContent = at ? `since ${relative(at)}` : 'since —';
+  el.since.textContent = at ? t('popupSince', [relative(at)]) : t('popupNoChangeRange');
   el.rebase.title = at
-    ? `Changes are measured from ${relative(at)}. Activate to measure from now instead.`
-    : 'Activate to start measuring changes from now.';
+    ? t('popupChangesMeasured', [relative(at)])
+    : t('popupStartMeasuring');
   el.totals.hidden = false;
 }
 
@@ -1110,16 +1129,16 @@ let lastQualitySignature = null;
 function renderQuality(rows, comparable, trendDays, confidence) {
   const notes = [];
   if (rows.some((repo) => repo.approx)) {
-    notes.push('Some counts are approximate — github.com abbreviates counts above 1,000.');
+    notes.push(t('popupQualityApproximate'));
   }
   if (confidence === 'stale' || state.cache?.stale) {
-    notes.push('These counts are from the last snapshot that loaded, not a live read.');
+    notes.push(t('popupQualityStale'));
   }
   if (trendDays) {
     notes.push(
       comparable === 0
-        ? `No visible repository has a retained ${trendDays}-day comparison point yet, so every change column shows a dash.`
-        : `${nf.format(comparable)} of ${nf.format(rows.length)} visible repositories have a retained ${trendDays}-day comparison point; the rest show a dash.`,
+        ? t('popupQualityNoComparison', [trendDays])
+        : t('popupQualityComparison', [nf.format(comparable), nf.format(rows.length), trendDays]),
     );
   }
   const fragment = document.createDocumentFragment();
@@ -1145,16 +1164,16 @@ function renderLifecycle() {
     const item = document.createElement('li');
     const label =
       event.type === 'renamed'
-        ? `${event.from} renamed to ${event.to}`
+        ? t('popupLifecycleRenamed', [event.from, event.to])
         : event.type === 'added'
-          ? `${event.to} added`
-          : `${event.to} removed`;
+          ? t('popupLifecycleAdded', [event.to])
+          : t('popupLifecycleRemoved', [event.to]);
     item.textContent = `${label} · ${relative(event.at)}`;
     fragment.appendChild(item);
   }
   if (events.length > 6) {
     const more = document.createElement('li');
-    more.textContent = `+${events.length - 6} more changes`;
+    more.textContent = t('popupMoreChanges', [events.length - 6]);
     fragment.appendChild(more);
   }
   el.lifecycleList.replaceChildren(fragment);
@@ -1175,14 +1194,16 @@ function renderAlerts() {
     item.textContent = `${event.title}: ${event.message} · ${relative(event.createdAt)}`;
     fragment.appendChild(item);
   }
-  el.alertCount.textContent = events.length ? `(${nf.format(events.length)})` : '';
+  el.alertCount.textContent = events.length ? t('popupAlertCount', [nf.format(events.length)]) : '';
   el.alertList.replaceChildren(fragment);
   el.alertList.hidden = events.length === 0;
   el.alertsDropped.textContent = dropped
-    ? `${nf.format(dropped)} older alert${dropped === 1 ? '' : 's'} could not be retained after the local 50-alert inbox filled.`
+    ? t('popupDroppedAlerts', [nf.format(dropped), dropped === 1 ? '' : 's'])
     : '';
   el.alertsDropped.hidden = dropped === 0;
-  el.acknowledgeAlerts.textContent = events.length ? 'Dismiss all' : 'Dismiss notice';
+  el.acknowledgeAlerts.textContent = events.length
+    ? t('popupDismissAll')
+    : t('popupDismissNotice');
   el.alerts.hidden = false;
 }
 
@@ -1197,10 +1218,10 @@ function withId(node, id) {
 let bannerMessage = null;
 let announcedBanner; // undefined until the first render completes
 const SETTINGS_RECOVERY_MESSAGES = Object.freeze({
-  TOKEN_REJECTED: 'GitHub rejected the configured token. Check or replace the token in Settings.',
-  USER_NOT_FOUND: 'GitHub could not find the configured username. Check the username in Settings.',
-  FORBIDDEN: 'GitHub refused access for the configured token. Check its permissions in Settings.',
-  SETUP_REQUIRED: 'No GitHub username is configured. Add a username in Settings.',
+  TOKEN_REJECTED: t('popupTokenRejected'),
+  USER_NOT_FOUND: t('popupUserNotFound'),
+  FORBIDDEN: t('popupForbidden'),
+  SETUP_REQUIRED: t('popupSetupRequired'),
 });
 
 /** Fill the banner with a message and, when recovery is possible, one action. */
@@ -1228,9 +1249,9 @@ async function requestWebPermission() {
       origins: ['https://github.com/*'],
     });
     if (granted) await doRefresh();
-    else announce('StarBoard still has no access to github.com.');
+    else announce(t('popupNoAccessBanner'));
   } catch (error) {
-    announce(`Could not request access. ${error.message}`);
+    announce(t('popupRequestAccessError', [error.message]));
   }
 }
 
@@ -1257,17 +1278,17 @@ function renderBannerContent() {
     const notice = state.storageRecoveryNotice;
     const outcome =
       notice.outcome === 'restored'
-        ? 'was restored from the last-known-good copy after its stored record became invalid.'
-        : 'was reset because neither its stored record nor its recovery copy could be read.';
+        ? t('popupStorageRestored')
+        : t('popupStorageReset');
     showBanner(`${notice.label} ${outcome} ${sentence(notice.reason)}`, {
-      label: 'Dismiss',
+      label: t('popupDismiss'),
       onClick: async () => {
         try {
           await dismissStorageRecoveryNotice(notice.id);
           state.storageRecoveryNotice = await getStorageRecoveryNotice();
           renderBanner();
         } catch (error) {
-          announce(`Could not dismiss the storage notice. ${sentence(error.message)}`);
+          announce(t('popupStorageNoticeDismissError', [sentence(error.message)]));
         }
       },
     });
@@ -1276,8 +1297,8 @@ function renderBannerContent() {
   if (!navigator.onLine) {
     showBanner(
       state.cache?.repos
-        ? 'You are offline. Showing the last snapshot StarBoard stored locally.'
-        : 'You are offline. StarBoard will load your repositories once the connection returns.',
+        ? t('popupOfflineWithSnapshot')
+        : t('popupOfflineWaiting'),
     );
     return;
   }
@@ -1285,13 +1306,13 @@ function renderBannerContent() {
   if (err) {
     const retained =
       state.cache?.pendingSource
-        ? ` Showing the last successful ${state.cache.source === 'web' ? 'website' : 'API'} snapshot.`
-        : ' Showing the last successful snapshot.';
+        ? (state.cache.source === 'web' ? t('popupLastWebsiteSnapshot') : t('popupLastApiSnapshot'))
+        : t('popupLastSnapshot');
     const hasSnapshot = !!state.cache?.repos?.length;
     const suffix = `${hasSnapshot ? retained : ''}${downgrade ? ` ${downgrade}` : ''}`;
     if (err.code === 'WEB_PERMISSION_REQUIRED') {
       showBanner(`${err.message}${suffix}`, {
-        label: 'Grant access',
+        label: t('popupGrantAccess'),
         onClick: requestWebPermission,
       });
       return;
@@ -1299,14 +1320,14 @@ function renderBannerContent() {
     if (err.code === 'STORAGE_QUOTA_EXCEEDED') {
       // Retrying cannot help; the user has to free space.
       showBanner(`${sentence(err.message)}${suffix}`, {
-        label: 'Open settings',
+        label: t('popupOpenSettingsAction'),
         onClick: () => chrome.runtime.openOptionsPage(),
       });
       return;
     }
     if (Object.hasOwn(SETTINGS_RECOVERY_MESSAGES, err.code)) {
       showBanner(`${SETTINGS_RECOVERY_MESSAGES[err.code]}${suffix}`, {
-        label: 'Open settings',
+        label: t('popupOpenSettingsAction'),
         onClick: () => chrome.runtime.openOptionsPage(),
       });
       return;
@@ -1314,11 +1335,11 @@ function renderBannerContent() {
     if (err.rateLimited && err.resetAt) {
       // The service worker already scheduled a retry alarm for resetAt; this
       // only tells the user when that will happen.
-      showBanner(`${err.message} Retrying automatically ${relative(err.resetAt)}.${suffix}`);
+      showBanner(t('popupRetrying', [err.message, relative(err.resetAt), suffix]));
       return;
     }
     showBanner(`${sentence(err.message)}${suffix}`, {
-      label: 'Try again',
+      label: t('popupTryAgain'),
       onClick: () => doRefresh(),
     });
     return;
@@ -1326,14 +1347,14 @@ function renderBannerContent() {
   if (state.privacyNotice) {
     const notice = state.privacyNotice;
     showBanner(notice.message, {
-      label: 'Dismiss',
+      label: t('popupDismiss'),
       onClick: async () => {
         try {
           await dismissPrivacyNotice(notice.id);
           state.privacyNotice = await getPrivacyNotice();
           renderBanner();
         } catch (error) {
-          announce(`Could not dismiss the privacy notice. ${sentence(error.message)}`);
+          announce(t('popupPrivacyNoticeDismissError', [sentence(error.message)]));
         }
       },
     });
@@ -1344,7 +1365,7 @@ function renderBannerContent() {
       showBanner(
         'Access reduced: this refresh was unauthenticated after the previous snapshot used a token. Private repositories may be missing. Add the token again in Settings.',
         {
-          label: 'Open settings',
+          label: t('popupOpenSettingsAction'),
           onClick: () => chrome.runtime.openOptionsPage(),
         },
       );
@@ -1352,28 +1373,28 @@ function renderBannerContent() {
     }
     if (downgrade) {
       showBanner(downgrade, {
-        label: 'Open settings',
+        label: t('popupOpenSettingsAction'),
         onClick: () => chrome.runtime.openOptionsPage(),
       });
       return;
     }
     const reason = {
-      cap: `the ${state.cache.cap?.maxRepositories || 1500}-repository safety cap was reached`,
-      'parser-drift': 'a later GitHub page could not be parsed',
-      shortfall: 'GitHub listed fewer repositories than the account reports owning',
-      'rate-limited': 'GitHub asked StarBoard to slow down',
-      timeout: 'a later GitHub page timed out',
-      network: 'a later GitHub page could not be loaded',
-    }[state.cache.partialReason] || 'the refresh could not finish';
-    showBanner(`Partial snapshot: ${reason}. What loaded is still usable.`, {
-      label: 'Try again',
+      cap: t('popupPartialReasonCap', [state.cache.cap?.maxRepositories || 1500]),
+      'parser-drift': t('popupPartialReasonParser'),
+      shortfall: t('popupPartialReasonShortfall'),
+      'rate-limited': t('popupPartialReasonRate'),
+      timeout: t('popupPartialReasonTimeout'),
+      network: t('popupPartialReasonNetwork'),
+    }[state.cache.partialReason] || t('popupPartialReasonOther');
+    showBanner(t('popupPartialBanner', [reason]), {
+      label: t('popupTryAgain'),
       onClick: () => doRefresh(),
     });
     return;
   }
   if (downgrade) {
     showBanner(downgrade, {
-      label: 'Open settings',
+      label: t('popupOpenSettingsAction'),
       onClick: () => chrome.runtime.openOptionsPage(),
     });
     return;
@@ -1471,8 +1492,8 @@ function syncPortfolioViewControls() {
   el.filterCount.hidden = filterCount === 0;
   el.toggleFilters.title =
     filterCount === 0
-      ? 'Open repository filters'
-      : `${filterCount} non-default repository filter${filterCount === 1 ? '' : 's'}`;
+      ? t('popupOpenFilters')
+      : t('popupFilterCount', [filterCount, filterCount === 1 ? '' : 's']);
   const viewBusy = pendingPortfolioUpdates > 0;
   el.renameView.disabled = !state.cache?.repos || viewBusy || !activeViewId;
   el.deleteView.disabled = !state.cache?.repos || viewBusy || !activeViewId;
@@ -1500,14 +1521,14 @@ function render() {
     el.avatar.src = cache.profile.avatar_url;
     el.login.textContent = cache.profile.login;
     el.login.href = cache.profile.html_url;
-    const synced = `${nf.format(cache.repos.length)} repos synced`;
+    const synced = t('popupReposSynced', [nf.format(cache.repos.length)]);
     el.subline.textContent = settings.showFollowers
-      ? `${nf.format(cache.profile.followers)} followers · ${synced}`
+      ? t('popupFollowersSynced', [nf.format(cache.profile.followers), synced])
       : synced;
   } else {
-    el.login.textContent = settings.username ? `@${settings.username}` : 'No account';
+    el.login.textContent = settings.username ? `@${settings.username}` : t('popupNoAccount');
     el.login.href = settings.username ? `https://github.com/${settings.username}` : '#';
-    el.subline.textContent = settings.username ? 'Waiting to sync' : 'Open settings to connect';
+    el.subline.textContent = settings.username ? t('popupWaitingToSync') : t('popupOpenSettings');
   }
 
   renderBanner();
@@ -1516,8 +1537,8 @@ function render() {
 
   if (!settings.username && !settings.token) {
     el.totals.hidden = true;
-    renderEmpty('Set up StarBoard', 'Add your GitHub username to see your repo standings.', {
-      label: 'Open settings',
+    renderEmpty(t('popupSetupTitle'), t('popupSetupMessage'), {
+      label: t('popupOpenSettingsAction'),
       onClick: () => chrome.runtime.openOptionsPage(),
     });
     return;
@@ -1535,11 +1556,11 @@ function render() {
   if (!cache.repos.length) {
     el.totals.hidden = true;
     el.count.textContent = '';
-    el.updated.textContent = `${cache.stale ? 'Last successful update' : 'Updated'} ${relative(cache.fetchedAt)}`;
+    el.updated.textContent = `${cache.stale ? t('popupLastSuccessfulUpdate') : t('popupUpdated')} ${relative(cache.fetchedAt)}`;
     renderEmpty(
-      'No repositories yet',
-      `${cache.profile?.login ? `@${cache.profile.login}` : 'This account'} does not own any repositories that StarBoard can see. Create one on GitHub, or check the username in settings.`,
-      { label: 'Open settings', onClick: () => chrome.runtime.openOptionsPage() },
+      t('popupNoRepositories'),
+      t('popupNoRepositoriesMessage', [cache.profile?.login ? `@${cache.profile.login}` : 'This account']),
+      { label: t('popupOpenSettingsAction'), onClick: () => chrome.runtime.openOptionsPage() },
     );
     return;
   }
@@ -1551,34 +1572,34 @@ function render() {
   const allCount = allRows.length;
   el.count.textContent =
     rows.length === allCount
-      ? `${nf.format(rows.length)} shown`
-      : `${nf.format(rows.length)} of ${nf.format(allCount)} shown`;
+      ? t('popupShown', [nf.format(rows.length)])
+      : t('popupShownOf', [nf.format(rows.length), nf.format(allCount)]);
   if (cache.fetchedAt) {
     el.asOf.hidden = false;
-    el.asOf.textContent = `As of ${relative(cache.fetchedAt)}`;
-    el.asOf.title = `Snapshot captured ${dateTime.format(new Date(cache.fetchedAt))}`;
+    el.asOf.textContent = t('popupAsOf', [relative(cache.fetchedAt)]);
+    el.asOf.title = t('popupSnapshotCaptured', [dateTime.format(new Date(cache.fetchedAt))]);
   } else {
     el.asOf.hidden = true;
   }
-  el.updated.textContent = `${cache.stale ? 'Last successful update' : 'Updated'} ${relative(cache.fetchedAt)}`;
+  el.updated.textContent = `${cache.stale ? t('popupLastSuccessfulUpdate') : t('popupUpdated')} ${relative(cache.fetchedAt)}`;
   el.rate.hidden = !settings.showSourceStatus;
   if (cache.source === 'web') {
     const n = cache.pagesFetched || 0;
     const confidence =
       cache.confidence === 'partial'
-        ? ` · partial (${cache.partialReason || 'incomplete'})`
+        ? t('popupPartialSource', [cache.partialReason || t('popupPartialReasonOther')])
         : cache.confidence === 'approximate'
-          ? ' · some counts approximate'
+          ? t('popupApproximateSource')
           : cache.confidence === 'stale'
-            ? ' · stale'
+            ? t('popupStaleSource')
             : '';
-    el.rate.textContent = `via github.com · ${n} page${n === 1 ? '' : 's'}${confidence}`;
-    el.rate.title = 'Read from your github.com repositories tab — no API token in use';
+    el.rate.textContent = t('popupViaWebsite', [n, `${n === 1 ? '' : 's'}${confidence}`]);
+    el.rate.title = t('popupWebsiteRateTitle');
   } else {
     el.rate.textContent = cache.rate?.remaining != null
-      ? `${cache.rate.remaining}/${cache.rate.limit} API calls left`
+      ? t('popupViaApi', [cache.rate.remaining, cache.rate.limit])
       : '';
-    el.rate.title = 'GitHub API requests remaining this hour';
+    el.rate.title = t('popupApiRateTitle');
   }
 
   renderTrendTable(rows);
@@ -1587,9 +1608,9 @@ function render() {
     // Every other empty state offers a way out. This one hid its only escape
     // inside the collapsed filter panel.
     renderEmpty(
-      'Nothing matches',
-      'The current search and filters exclude every repository in this snapshot.',
-      { label: 'Reset filters', onClick: resetAllFilters },
+      t('popupNothingMatches'),
+      t('popupNothingMatchesMessage'),
+      { label: t('popupResetFiltersAction'), onClick: resetAllFilters },
     );
     return;
   }
@@ -1610,7 +1631,7 @@ async function doRefresh(rebase = false) {
   if (refreshing) return;
   refreshing = true;
   el.refresh.classList.add('spinning');
-  el.refresh.setAttribute('aria-label', 'Refreshing repositories');
+  el.refresh.setAttribute('aria-label', t('popupRefreshing'));
   syncControls();
   try {
     let res;
@@ -1622,7 +1643,7 @@ async function doRefresh(rebase = false) {
         state.cache ||
         { error: { message: error.message || 'The background refresh did not respond.' } };
       render();
-      announce(`Refresh failed. ${error.message || 'The background refresh did not respond.'}`);
+      announce(t('popupRefreshFailed', [error.message || t('popupRefreshFallback')]));
       return;
     }
 
@@ -1643,24 +1664,24 @@ async function doRefresh(rebase = false) {
     if (res?.ok) {
       announce(
         rebase
-          ? `Comparison baseline reset for ${res.cache.repos.length} repositories.`
-          : `Refresh complete. ${res.cache.repos.length} repositories loaded.`,
+          ? t('popupBaselineReset', [res.cache.repos.length])
+          : t('popupRefreshComplete', [res.cache.repos.length]),
       );
       if (rebase) updateUndoAvailability().catch(() => {});
     } else {
-      announce(`Refresh failed. ${res?.error?.message || 'The cached snapshot is still shown.'}`);
+      announce(t('popupRefreshFailed', [res?.error?.message || t('popupCachedSnapshot')]));
     }
   } finally {
     refreshing = false;
     el.refresh.classList.remove('spinning');
-    el.refresh.setAttribute('aria-label', 'Refresh now');
+    el.refresh.setAttribute('aria-label', t('popupRefreshNow'));
     syncControls();
   }
 }
 
 async function patchSettings(changes) {
   const response = await chrome.runtime.sendMessage({ type: 'patch-settings', changes });
-  if (!response?.ok) throw new Error(response?.error?.message || 'Could not save settings.');
+  if (!response?.ok) throw new Error(response?.error?.message || t('popupSettingsSaveError'));
   state.settings = response.settings;
   chrome.runtime.sendMessage({ type: 'update-badge' }).catch(() => {});
   return response.settings;
@@ -1674,7 +1695,7 @@ async function syncLegacyFilterSettings(filters) {
   });
 }
 
-async function applyFilterPatch(changes, message = 'Filters updated.', { defer = false } = {}) {
+async function applyFilterPatch(changes, message = t('popupFiltersUpdated'), { defer = false } = {}) {
   state.portfolioViews = await setActivePortfolioFilters(changes);
   render();
   if (
@@ -1712,7 +1733,7 @@ function openViewEditor(mode) {
     (view) => view.id === state.portfolioViews.activeViewId,
   );
   el.viewName.value = mode === 'rename' ? selected?.name || '' : '';
-  el.confirmView.textContent = mode === 'rename' ? 'Rename view' : 'Save view';
+  el.confirmView.textContent = mode === 'rename' ? t('popupRenameView') : t('popupSaveView');
   el.viewEditor.hidden = false;
   el.viewName.focus();
   el.viewName.select();
@@ -1744,7 +1765,7 @@ function queuePortfolioUpdate(work) {
     document.body.dataset.portfolioError = message;
     // The attribute alone told the user nothing; a saved view or filter that
     // failed to persist has to be visible.
-    announce(`Could not save that view change. ${sentence(message)}`);
+      announce(t('popupSavedViewChangeError', [sentence(message)]));
   });
   return result.finally(() => {
     pendingPortfolioUpdates -= 1;
@@ -1783,15 +1804,15 @@ function resetRebaseConfirmation() {
   rebaseArmedUntil = 0;
   el.rebase.classList.remove('confirming');
   const at = state.baseline?.at;
-  el.since.textContent = at ? `since ${relative(at)}` : 'since —';
+  el.since.textContent = at ? t('popupSince', [relative(at)]) : t('popupNoChangeRange');
 }
 
 el.rebase.addEventListener('click', () => {
   if (Date.now() > rebaseArmedUntil) {
     rebaseArmedUntil = Date.now() + 8000;
     el.rebase.classList.add('confirming');
-    el.since.textContent = 'Confirm reset baseline';
-    announce('Resetting the baseline changes every displayed delta. Activate again to confirm.');
+    el.since.textContent = t('popupConfirmResetBaseline');
+    announce(t('popupResetBaseline'));
     clearTimeout(rebaseResetTimer);
     rebaseResetTimer = setTimeout(resetRebaseConfirmation, 8000);
     return;
@@ -1803,10 +1824,10 @@ el.rebase.addEventListener('click', () => {
 const persistSearch = debounce((value, intent) => {
   queueFilterPatch(
     { query: value },
-    value.trim() ? `Filtering repositories by "${value.trim()}".` : 'Repository search cleared.',
+    value.trim() ? t('popupFiltering', [value.trim()]) : t('popupRepositorySearchCleared'),
     { defer: true },
     intent,
-  ).catch((error) => announce(error.message || 'Could not save the repository search.'));
+  ).catch((error) => announce(error.message || t('popupSearchSaveError')));
 }, 120);
 el.search.addEventListener('input', () => persistSearch(el.search.value, nextFilterIntent()));
 
@@ -1820,8 +1841,8 @@ el.sort.addEventListener('change', () => {
   const label = chosenLabel(el.sort);
   queueFilterPatch(
     { query: el.search.value, sortKey: value },
-    `Sorted by ${label}.`,
-  ).catch((error) => announce(error.message || 'Could not save the repository sort.'));
+    t('popupSortedBy', [label]),
+  ).catch((error) => announce(error.message || t('popupSortSaveError')));
 });
 
 for (const [control, key, name] of [
@@ -1838,8 +1859,8 @@ for (const [control, key, name] of [
     const label = chosenLabel(control);
     queueFilterPatch(
       { query: el.search.value, [key]: value },
-      `${name} filter set to ${label}.`,
-    ).catch((error) => announce(error.message || 'Could not save that filter.'));
+      t('popupFilterSet', [name, label]),
+    ).catch((error) => announce(error.message || t('popupFilterSaveError')));
   });
 }
 
@@ -1849,9 +1870,9 @@ el.toggleTrendTable.addEventListener('click', () => {
   el.toggleTrendTable.setAttribute('aria-expanded', String(opening));
   if (opening) {
     render();
-    announce('Trend table shown. It carries the same series as the row sparklines.');
+    announce(t('popupTrendTableShown'));
   } else {
-    announce('Trend table hidden.');
+    announce(t('popupTrendTableHidden'));
   }
 });
 
@@ -1876,13 +1897,13 @@ el.viewSelect.addEventListener('change', () => {
     await syncLegacyFilterSettings(state.portfolioViews.active);
     announce(
       state.portfolioViews.activeViewId
-        ? `Loaded ${el.viewSelect.selectedOptions[0]?.textContent || 'saved view'}.`
-        : 'Using a custom portfolio view.',
+        ? t('popupLoadedView', [el.viewSelect.selectedOptions[0]?.textContent || t('popupSavedView')])
+        : t('popupCustomView'),
     );
   }).catch(async (error) => {
     state.portfolioViews = await getPortfolioViewState();
     render();
-    announce(error.message || 'Could not load that saved view.');
+    announce(error.message || t('popupSavedViewLoadedError'));
   });
 });
 
@@ -1903,10 +1924,10 @@ el.viewEditor.addEventListener('submit', (event) => {
         name,
       );
       await updateUndoAvailability();
-      announce('Saved view renamed. Undo is available for 10 minutes.');
+      announce(t('popupSavedViewRenamed'));
     } else {
       state.portfolioViews = await saveCurrentPortfolioView(name);
-      announce('Portfolio view saved.');
+      announce(t('popupPortfolioViewSaved'));
     }
     closeViewEditor();
     render();
@@ -1923,7 +1944,7 @@ function resetDeleteConfirmation() {
   deleteViewArmedUntil = 0;
   clearTimeout(deleteViewResetTimer);
   el.deleteView.classList.remove('confirming');
-  el.deleteView.textContent = 'Delete';
+    el.deleteView.textContent = t('popupDeleteView');
 }
 
 el.deleteView.addEventListener('click', () => {
@@ -1933,9 +1954,9 @@ el.deleteView.addEventListener('click', () => {
   if (Date.now() > deleteViewArmedUntil) {
     deleteViewArmedUntil = Date.now() + 8000;
     el.deleteView.classList.add('confirming');
-    el.deleteView.textContent = 'Confirm delete';
+    el.deleteView.textContent = t('popupConfirmDelete');
     announce(
-      `${name || 'Saved view'} will be deleted. Activate again within 8 seconds to confirm.`,
+      t('popupSavedViewDeleteConfirm', [name || t('popupSavedView')]),
     );
     deleteViewResetTimer = setTimeout(resetDeleteConfirmation, 8000);
     return;
@@ -1947,8 +1968,8 @@ el.deleteView.addEventListener('click', () => {
     closeViewEditor();
     render();
     await updateUndoAvailability();
-    announce(`${name || 'Saved view'} deleted. Undo is available for 10 minutes.`);
-  }).catch((error) => announce(error.message || 'Could not delete that saved view.'));
+    announce(t('popupSavedViewDeleted', [name || t('popupSavedView')]));
+  }).catch((error) => announce(error.message || t('popupSavedViewDeleteError')));
 });
 
 // A committed value, not a keystroke: retyping "30" as "3" then "0" must not
@@ -1963,8 +1984,8 @@ el.trendCustomDays.addEventListener('change', () => {
   render();
   announce(
     adjusted
-      ? `Only ${retained} days are retained. Comparing against ${clamped} days.`
-      : `Repository changes now compare against ${clamped} days.`,
+      ? t('popupTrendCustomAdjusted', [retained, clamped])
+      : t('popupTrendCustomChanged', [clamped]),
   );
 });
 
@@ -1988,7 +2009,7 @@ el.trendRange.addEventListener('change', () => {
     state.trendRange === 'baseline'
       ? ''
       : [...el.quality.children].at(-1)?.textContent || '';
-  announce(`Repository changes now compare against ${label}. ${coverage}`.trim());
+  announce(t('popupTrendRangeChanged', [label, coverage]));
 });
 el.acknowledgeLifecycle.addEventListener('click', async () => {
   const ids = (state.cache?.lifecycleEvents || []).map((event) => event.id);
@@ -2000,10 +2021,10 @@ el.acknowledgeLifecycle.addEventListener('click', async () => {
     if (!response?.ok) throw new Error(response?.error?.message || 'StarBoard could not update.');
     state.cache = response.cache;
     render();
-    announce('Repository changes dismissed.');
+    announce(t('popupChangesDismissed'));
   } catch (error) {
     // Silence here left the button looking broken with no explanation.
-    announce(`Could not acknowledge those changes. ${sentence(error.message)}`);
+    announce(t('popupAcknowledgeError', [sentence(error.message)]));
   }
 });
 el.acknowledgeAlerts.addEventListener('click', async () => {
@@ -2012,9 +2033,9 @@ el.acknowledgeAlerts.addEventListener('click', async () => {
     if (!response?.ok) throw new Error(response?.error?.message || 'StarBoard could not update.');
     state.notificationState = response.state;
     render();
-    announce('Recent alerts dismissed.');
+    announce(t('popupAlertsDismissed'));
   } catch (error) {
-    announce(`Could not dismiss recent alerts. ${sentence(error.message)}`);
+    announce(t('popupAlertsDismissError', [sentence(error.message)]));
   }
 });
 el.undo.addEventListener('click', async () => {
@@ -2023,7 +2044,7 @@ el.undo.addEventListener('click', async () => {
     const response = await chrome.runtime.sendMessage({ type: 'undo' });
     if (!response?.ok) {
       el.undo.hidden = true;
-      announce(response?.error?.message || 'Undo is no longer available.');
+      announce(response?.error?.message || t('popupUndoUnavailable'));
       return;
     }
     state.cache = response.restored.cache;
@@ -2038,9 +2059,9 @@ el.undo.addEventListener('click', async () => {
     applyTheme(state.settings.theme);
     render();
     el.undo.hidden = true;
-    announce('Last data action undone.');
+    announce(t('popupLastActionUndone'));
   } catch (error) {
-    announce(`Could not undo the last data action. ${sentence(error.message)}`);
+    announce(t('popupUndoError', [sentence(error.message)]));
   } finally {
     el.undo.disabled = false;
   }
@@ -2051,12 +2072,12 @@ el.undo.addEventListener('click', async () => {
 window.addEventListener('offline', () => {
   if (!bootReady) return;
   renderBanner();
-  announce('You are offline. StarBoard is showing its stored snapshot.');
+  announce(t('popupOffline'));
 });
 window.addEventListener('online', () => {
   if (!bootReady) return;
   renderBanner();
-  announce('Back online. Refreshing.');
+  announce(t('popupOnline'));
   doRefresh();
 });
 

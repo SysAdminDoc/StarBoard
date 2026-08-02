@@ -61,7 +61,7 @@ import {
   markNotificationsNotified,
   notificationAvailability,
 } from './lib/notifications.js';
-import { message } from './lib/i18n.js';
+import { runtimeMessage as t } from './lib/i18n-messages.js';
 
 const ALARM = 'starboard-refresh';
 const CAPABILITY_ALARM = 'starboard-capabilities';
@@ -222,11 +222,7 @@ async function hasNotificationPermission() {
 }
 
 function createSystemNotification(options) {
-  const localized = {
-    ...options,
-    title: message(options.title),
-    message: message(options.message),
-  };
+  const localized = { ...options };
   return new Promise((resolve, reject) => {
     const id = `starboard-${Date.now()}-${crypto.randomUUID()}`;
     chrome.notifications.create(id, localized, (createdId) => {
@@ -261,11 +257,11 @@ async function deliverPendingNotifications() {
   await createSystemNotification({
     type: 'basic',
     iconUrl: chrome.runtime.getURL('icons/icon128.png'),
-    title: pending.length === 1 ? first.title : 'StarBoard portfolio update',
+    title: pending.length === 1 ? first.title : t('notificationPortfolioUpdate'),
     message:
       pending.length === 1
         ? first.message
-        : `${first.message} ${more} more alert${more === 1 ? '' : 's'} are saved in StarBoard.`,
+        : `${first.message} ${t('notificationMoreAlerts', [more, more === 1 ? '' : 's'])}`,
     priority: 0,
   });
   const next = markNotificationsNotified(
