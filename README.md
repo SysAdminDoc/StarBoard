@@ -354,6 +354,14 @@ access. Dependencies are reviewed manually — there is no Dependabot or Renovat
 configuration. Live API/web parity remains a local release check because CI must
 not depend on GitHub quota or credentials.
 
+**No dependency ships inside the extension.** The released ZIP contains only
+StarBoard's own files; Playwright, TypeScript and Pillow exist for tests, type
+checking and icon generation and are never bundled or loaded at runtime. The
+SPDX SBOM emitted next to each build lists them explicitly as `TEST_TOOL_OF`,
+`DEV_TOOL_OF` and `BUILD_TOOL_OF` with `filesAnalyzed: false`, so a scanner
+reading the document can tell they are build-time components rather than
+attributing their advisories to the shipped artifact.
+
 ### Layout
 
 ```

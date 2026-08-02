@@ -26,7 +26,18 @@ def snapshot(dist: Path) -> dict[str, str]:
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="starboard-release-") as temporary:
         clean_root = Path(temporary)
-        for entry in ("manifest.json", "src", "icons", "_locales", "LICENSE"):
+        # package.json and requirements-icons.txt are build inputs, not shipped
+        # files: the SBOM reads them to label build-only components. A fixture
+        # without them builds a different document than a real release.
+        for entry in (
+            "manifest.json",
+            "src",
+            "icons",
+            "_locales",
+            "LICENSE",
+            "package.json",
+            "requirements-icons.txt",
+        ):
             source = ROOT / entry
             destination = clean_root / entry
             if source.is_dir():
@@ -157,8 +168,39 @@ def main() -> None:
             text=True,
             capture_output=True,
         ).stdout.strip()
-        if sbom.get("packages", [{}])[0].get("sourceInfo") != f"git commit {commit}":
+        packages = {item.get("name"): item for item in sbom.get("packages", [])}
+        product = packages.get("StarBoard", {})
+        if product.get("sourceInfo") != f"git commit {commit}":
             raise SystemExit("SBOM does not record the source commit")
+
+        # A scanner reading this document must be able to tell that Playwright,
+        # TypeScript and Pillow are not inside the artifact. Without the labels
+        # their advisories get re-raised against the extension every quarter.
+        shipped_ids = {item["SPDXID"] for item in sbom.get("files", [])}
+        build_only = {
+            relationship["spdxElementId"]: relationship["relationshipType"]
+            for relationship in sbom.get("relationships", [])
+            if relationship["relationshipType"]
+            in {"BUILD_TOOL_OF", "TEST_TOOL_OF", "DEV_TOOL_OF", "DEV_DEPENDENCY_OF"}
+        }
+        if not build_only:
+            raise SystemExit("SBOM does not label any build-only component")
+        for name in ("playwright", "typescript", "Pillow"):
+            component = packages.get(name)
+            if component is None:
+                raise SystemExit(f"SBOM omits the build-only component {name}")
+            if component.get("filesAnalyzed") is not False:
+                raise SystemExit(f"build-only component {name} claims analyzed files")
+            if component["SPDXID"] not in build_only:
+                raise SystemExit(f"build-only component {name} has no build relationship")
+            if component["SPDXID"] in shipped_ids:
+                raise SystemExit(f"build-only component {name} is listed as a shipped file")
+        if any(
+            relationship["relationshipType"] == "CONTAINS"
+            and relationship["relatedSpdxElement"] in build_only
+            for relationship in sbom.get("relationships", [])
+        ):
+            raise SystemExit("a build-only component is declared as package contents")
         sbom_files = {
             entry["fileName"].removeprefix("./"): {
                 item["algorithm"]: item["checksumValue"] for item in entry["checksums"]

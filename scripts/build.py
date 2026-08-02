@@ -201,6 +201,39 @@ def _spdx_file(path: Path, name: str) -> dict[str, Any]:
     }
 
 
+DEV_TOOL_RELATIONSHIP = {
+    "playwright": "TEST_TOOL_OF",
+    "typescript": "DEV_TOOL_OF",
+    "@types/chrome": "DEV_DEPENDENCY_OF",
+    "@types/node": "DEV_DEPENDENCY_OF",
+    "Pillow": "BUILD_TOOL_OF",
+}
+
+
+def _dev_components() -> list[tuple[str, str, str]]:
+    """Build-time components as (name, version, relationship).
+
+    None of these are inside the ZIP. Listing them anyway, explicitly labelled,
+    is what stops a scanner reading the SBOM from attributing their advisories
+    to the shipped extension — the same advisories were otherwise re-raised
+    every quarter against a package that does not contain them.
+    """
+    components: list[tuple[str, str, str]] = []
+    manifest = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+    for name, spec in sorted((manifest.get("devDependencies") or {}).items()):
+        version = str(spec).lstrip("^~>=< ")
+        components.append((name, version, DEV_TOOL_RELATIONSHIP.get(name, "DEV_DEPENDENCY_OF")))
+    for line in (ROOT / "requirements-icons.txt").read_text(encoding="utf-8").splitlines():
+        entry = line.split("#", 1)[0].strip()
+        if not entry or "==" not in entry:
+            continue
+        name, _, version = entry.partition("==")
+        components.append(
+            (name.strip(), version.strip(), DEV_TOOL_RELATIONSHIP.get(name.strip(), "BUILD_TOOL_OF"))
+        )
+    return components
+
+
 def build_spdx(
     dest: Path,
     files: list[tuple[Path, str]],
@@ -221,6 +254,35 @@ def build_spdx(
     ).hexdigest()
     package_id = "SPDXRef-Package-StarBoard"
     document_id = "SPDXRef-DOCUMENT"
+    dev_components = _dev_components()
+    dev_packages = []
+    dev_relationships = []
+    for name, version, relationship in dev_components:
+        identifier = hashlib.sha256(name.encode("utf-8")).hexdigest()[:16]
+        component_id = f"SPDXRef-Package-Dev-{identifier}"
+        dev_packages.append(
+            {
+                "SPDXID": component_id,
+                "name": name,
+                "versionInfo": version,
+                "downloadLocation": "NOASSERTION",
+                # Nothing here is in the artifact, so there are no files to
+                # analyze and no verification code to compute.
+                "filesAnalyzed": False,
+                "licenseConcluded": "NOASSERTION",
+                "licenseDeclared": "NOASSERTION",
+                "copyrightText": "NOASSERTION",
+                "supplier": "NOASSERTION",
+                "comment": "Build-time only. Not present in the released extension package.",
+            }
+        )
+        dev_relationships.append(
+            {
+                "spdxElementId": component_id,
+                "relationshipType": relationship,
+                "relatedSpdxElement": package_id,
+            }
+        )
     document = {
         "spdxVersion": "SPDX-2.3",
         "dataLicense": "CC0-1.0",
@@ -236,6 +298,7 @@ def build_spdx(
         },
         "documentDescribes": [package_id],
         "packages": [
+            *dev_packages,
             {
                 "SPDXID": package_id,
                 "name": "StarBoard",
@@ -267,6 +330,7 @@ def build_spdx(
                 }
                 for item in spdx_files
             ],
+            *dev_relationships,
         ],
     }
     dest.write_text(
