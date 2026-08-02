@@ -44,6 +44,8 @@
   coverage count when some visible repositories have no retained comparison.
 - The trend table now sorts with a delta-only pass and builds full star/fork
   series only for its 50 displayed rows, keeping large portfolios bounded.
+- The scale gate now measures both baseline and 7-day sparkline/table rendering
+  at 200 and 1,500 rows, with a documented ceiling for the trend lane.
 - API authentication now records a redacted active, expired, revoked, denied,
   or rate-limited state with its last successful timestamp; confirmed expiry or
   revocation clears only a session token and offers replacement/Forget actions.

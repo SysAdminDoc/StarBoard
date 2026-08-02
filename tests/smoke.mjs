@@ -2238,9 +2238,13 @@ async function main() {
 
     // Blocking render cost must not scale with the portfolio. Measured against
     // the documented 1,500-repository safety cap, not just the live account.
-    const liveCache = await popup.evaluate(async () => {
+    const { liveCache, liveHistoryRecord } = await popup.evaluate(async () => {
       const { getCache } = await import('./lib/storage.js');
-      return getCache();
+      const stored = await chrome.storage.local.get('history');
+      return {
+        liveCache: await getCache(),
+        liveHistoryRecord: stored.history,
+      };
     });
     const paintCost = [];
     for (const count of [200, 1500]) {
@@ -2287,6 +2291,66 @@ async function main() {
         capped.paintMs <= Math.max(small.paintMs * 3, 25),
       JSON.stringify(paintCost),
     );
+
+    // The list benchmark above intentionally leaves trend mode off. Repeat it
+    // with a two-point retained history and the table open so each mode pays
+    // the real sparkline/render cost at the same 1,500-row cap.
+    const trendPaintCost = [];
+    for (const count of [200, 1500]) {
+      await popup.evaluate(
+        async ([base, size]) => {
+          const { setCache, setHistory } = await import('./lib/storage.js');
+          const { recordDailyHistory } = await import('./lib/history.js');
+          const now = Date.now();
+          const cache = {
+            ...base,
+            generation: `trend-${size}`,
+            fetchedAt: now,
+            repos: Array.from({ length: size }, (_, i) => ({
+              id: 200000 + i,
+              name: `trend-${i}`,
+              full_name: `octocat/trend-${i}`,
+              html_url: `https://github.com/octocat/trend-${i}`,
+              description: 'Synthetic repository used to measure trend render cost.',
+              language: ['JavaScript', 'Python', 'Rust', 'Go'][i % 4],
+              stargazers_count: size - i,
+              forks_count: i % 7,
+              private: false,
+              fork: false,
+              archived: false,
+              pushed_at: new Date(now - i * 60_000).toISOString(),
+            })),
+          };
+          const first = recordDailyHistory(null, cache, { now: now - 7 * 86_400_000 });
+          const history = recordDailyHistory(first, cache, { now });
+          await setCache(cache);
+          await setHistory(history);
+        },
+        [liveCache, count],
+      );
+      await popup.reload();
+      await popup.waitForSelector('.row', { timeout: 20000 });
+      await listPainted(popup);
+      const baselinePaintMs = await popup.evaluate(() => Number(document.body.dataset.listPaintMs));
+      await popup.selectOption('#trendRange', '7');
+      await popup.waitForFunction(() => document.querySelector('#trendRange').value === '7');
+      const trendPaintMs = await popup.evaluate(() => {
+        const toggle = document.querySelector('#toggleTrendTable');
+        const started = performance.now();
+        toggle.click();
+        return performance.now() - started;
+      });
+      await popup.waitForFunction(() => !document.querySelector('#trendTable').hidden);
+      trendPaintCost.push({ rows: count, baselinePaintMs, trendPaintMs });
+    }
+    const [trendSmall, trendCapped] = trendPaintCost;
+    check(
+      'sparkline render cost stays within the 1,500-repository cap',
+      trendSmall.rows === 200 &&
+        trendCapped.rows === 1500 &&
+        trendCapped.trendPaintMs <= Math.max(trendSmall.trendPaintMs * 3, 75),
+      JSON.stringify(trendPaintCost),
+    );
     const rowLayoutPolicy = await popup.evaluate(() => {
       const list = document.querySelector('#list');
       const row = document.querySelector('.row');
@@ -2309,10 +2373,11 @@ async function main() {
         rowLayoutPolicy.restored,
       JSON.stringify(rowLayoutPolicy),
     );
-    await popup.evaluate(async (base) => {
+    await popup.evaluate(async ([base, historyRecord]) => {
       const { setCache } = await import('./lib/storage.js');
       await setCache({ ...base, fetchedAt: Date.now() });
-    }, liveCache);
+      await chrome.storage.local.set({ history: historyRecord });
+    }, [liveCache, liveHistoryRecord]);
     await popup.reload();
     await popup.waitForSelector('.row', { timeout: 20000 });
     await listPainted(popup);
