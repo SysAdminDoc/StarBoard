@@ -142,6 +142,80 @@ function captureErrors(target, label) {
   target.on('pageerror', (error) => console.error(`${label} error: ${error.message}`));
 }
 
+/**
+ * Broad semantic guard for every major UI surface. It intentionally checks
+ * roles, accessible names, live regions and busy/error state rather than
+ * snapshotting repository text or translated copy.
+ */
+async function semanticSurface(root, label, state) {
+  const result = await root.evaluate((node, expectedState) => {
+    const visible = (element) => {
+      if (element.hidden || element.getAttribute('aria-hidden') === 'true') return false;
+      const style = getComputedStyle(element);
+      return style.display !== 'none' && style.visibility !== 'hidden';
+    };
+    const text = (element) => element?.textContent?.replace(/\s+/g, ' ').trim() || '';
+    const name = (element) => {
+      const labelledBy = element.getAttribute('aria-labelledby');
+      if (labelledBy) {
+        const labelled = labelledBy
+          .split(/\s+/)
+          .map((id) => document.getElementById(id))
+          .filter(Boolean)
+          .map(text)
+          .join(' ')
+          .trim();
+        if (labelled) return labelled;
+      }
+      const aria = element.getAttribute('aria-label');
+      if (aria?.trim()) return aria.trim();
+      const labels = element.labels ? [...element.labels].map(text).join(' ').trim() : '';
+      if (labels) return labels;
+      const enclosing = element.closest('label');
+      if (enclosing) return text(enclosing);
+      return text(element);
+    };
+    const controls = [...node.querySelectorAll(
+      'button, a[href], input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="combobox"], [role="radio"], [role="tab"]',
+    )].filter(visible);
+    const unlabeled = controls
+      .filter((element) => !name(element))
+      .map((element) => element.id || element.tagName.toLowerCase());
+    const liveRegions = [...node.querySelectorAll('[aria-live]')].filter(visible);
+    const brokenControls = controls
+      .map((element) => element.getAttribute('aria-controls'))
+      .filter(Boolean)
+      .filter((id) => !document.getElementById(id));
+    const result = {
+      main: node.querySelectorAll('main').length,
+      controls: controls.length,
+      unlabeled,
+      liveRegions: liveRegions.length,
+      brokenControls,
+      alerts: [...node.querySelectorAll('[role="alert"]')].filter(visible).length,
+      busy: [...node.querySelectorAll('[aria-busy="true"]')].filter(visible).length,
+      theme: document.documentElement.dataset.theme || 'unknown',
+    };
+    const statePass =
+      expectedState !== 'loading' || result.busy > 0;
+    const errorPass = expectedState !== 'error' || result.alerts > 0;
+    result.pass =
+      result.main > 0 &&
+      result.controls > 0 &&
+      result.unlabeled.length === 0 &&
+      result.liveRegions > 0 &&
+      result.brokenControls.length === 0 &&
+      statePass &&
+      errorPass;
+    return result;
+  }, state);
+  check(
+    `${label} ${state} state has semantic controls and live regions`,
+    result.pass,
+    JSON.stringify(result),
+  );
+}
+
 async function closeContext(context) {
   await Promise.race([
     context.close(),
@@ -622,6 +696,7 @@ async function main() {
       'unconfigured popup shows setup prompt',
       (await popup.textContent('.empty h3')) === 'Set up StarBoard',
     );
+    await semanticSurface(popup.locator('body'), 'popup', 'empty');
     const panelHost = await ctx.newPage();
     await panelHost.setViewportSize({ width: 360, height: 900 });
     await panelHost.goto(`chrome-extension://${extId}/src/panel.html`);
@@ -641,6 +716,7 @@ async function main() {
         panelLayout.footerVisible,
       JSON.stringify(panelLayout),
     );
+    await semanticSurface(panelFrame.locator('body'), 'side panel', 'empty');
     await popup.click('#openPanel');
     await popup.waitForTimeout(100);
     const panelOpenStatus = await popup.textContent('#live-status');
@@ -941,6 +1017,7 @@ async function main() {
         !errorBanner.text.includes('..'),
       `${errorBanner.role} / ${errorBanner.action}`,
     );
+    await semanticSurface(popup.locator('body'), 'popup', 'error');
 
     const settingsRecoveryCases = [
       ['TOKEN_REJECTED', 'Token rejected (401).', 'token'],
@@ -3567,6 +3644,7 @@ async function main() {
     }, searchTerm);
     const filtered = await popup.$$eval('.row', (n) => n.length);
     check('search filters the list', filtered > 0 && filtered <= rows.length, `${filtered} rows`);
+    await semanticSurface(popup.locator('body'), 'popup', 'filter');
 
     // Typing settles the persistence debounce once per keystroke burst. Each
     // settle used to restart the same spoken sentence mid-word.
@@ -3983,6 +4061,7 @@ async function main() {
       'options page loads with saved settings',
       (await options.inputValue('#username')) === USERNAME,
     );
+    await semanticSurface(options.locator('body'), 'settings', 'golden');
     const switchNames = await options.$$eval('.details-card [role="switch"]', (nodes) =>
       nodes.map((node) => node.labels?.[0]?.innerText.trim() || ''),
     );
@@ -4399,6 +4478,7 @@ async function main() {
     await popup.waitForSelector('.row', { timeout: 30000 });
     const lightBg = await popup.evaluate(() => getComputedStyle(document.body).backgroundColor);
     check('light theme applies', lightBg === 'rgb(255, 255, 255)', lightBg);
+    await semanticSurface(popup.locator('body'), 'popup light theme', 'golden');
     const lightContrast = await minimumTextContrast(popup, 'light');
     check(
       'light-theme normal text contrast reaches 4.5:1',
@@ -4867,6 +4947,7 @@ async function main() {
       buffer: Buffer.from(completeBackupText),
     });
     await options.waitForSelector('#importPreview:not([hidden])');
+    await semanticSurface(options.locator('body'), 'settings', 'restore');
     check(
       'restore performs a dry run before applying records',
       /repositories/.test(await options.textContent('#importSummary')) &&
@@ -5056,6 +5137,7 @@ async function main() {
     });
     await busyOptions.goto(`chrome-extension://${extId}/src/options.html`);
     await busyOptions.waitForSelector('#save');
+    await semanticSurface(busyOptions.locator('body'), 'settings', 'loading');
     const busyState = await busyOptions.evaluate(() => ({
       busy: document.querySelector('#settingsGrid').getAttribute('aria-busy'),
       banner: !document.querySelector('#loadingBanner').hidden,

@@ -161,6 +161,11 @@
   artifact. Playwright moved to 1.62.1.
 - The screenshot freshness gate compares each capture against the surface it
   shows, instead of failing an options screenshot whenever popup markup moved.
+- The browser smoke suite now checks semantic control names, live regions,
+  landmarks, controlled-target references and busy/error states across popup,
+  side panel and Settings empty, loading, error, filter, restore and both-theme
+  states. The checks remain data-agnostic and keep the existing contrast and
+  reduced-motion gates.
 
 ## v1.4.0 — 2026-07-31
 
