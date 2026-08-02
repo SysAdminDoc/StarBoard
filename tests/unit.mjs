@@ -3804,6 +3804,38 @@ await test('notification milestones and deltas deduplicate across worker restart
     noRepeat.pending.filter((event) => event.id.includes('milestone')).length,
     0,
   );
+
+  const mutedRepository = evaluateNotificationEvents(
+    previous,
+    current,
+    { ...config, repositoryDelta: 1, repositoryAlertMode: 'all', repositoryAlerts: ['id:1'] },
+    emptyNotificationState(),
+    { generation: 'notification-muted', now: 5000 },
+  );
+  assert.equal(
+    mutedRepository.pending.some((event) => event.id.includes('octocat/demo')),
+    false,
+  );
+  assert.equal(
+    mutedRepository.pending.some((event) => event.id.includes('octocat/other')),
+    true,
+  );
+
+  const selectedRepository = evaluateNotificationEvents(
+    previous,
+    current,
+    { ...config, repositoryDelta: 1, repositoryAlertMode: 'selected', repositoryAlerts: ['id:1'] },
+    emptyNotificationState(),
+    { generation: 'notification-selected', now: 5000 },
+  );
+  assert.equal(
+    selectedRepository.pending.some((event) => event.id.includes('octocat/demo')),
+    true,
+  );
+  assert.equal(
+    selectedRepository.pending.some((event) => event.id.includes('octocat/other')),
+    false,
+  );
 });
 
 await test('nine notified alerts remain reachable until the user acknowledges them', async () => {

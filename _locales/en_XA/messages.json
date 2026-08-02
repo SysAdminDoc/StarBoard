@@ -230,6 +230,9 @@
   "optionsNoNetwork": {
     "message": "［Ñó ñétwórk çóññéçtíóñ — $1 ········］"
   },
+  "optionsNoRepositoriesForAlerts": {
+    "message": "［Ñó répóšítóríéš áré áváíláblé fór íñdívídúál álértš ýét. ·················］"
+  },
   "optionsNotAuthenticated": {
     "message": "［ñót áúthéñtíçátéd ·····］"
   },
@@ -1013,6 +1016,9 @@
   "text_01da9a0c": {
     "message": "［Réfréšh rhýthm ····］"
   },
+  "text_023d7f04": {
+    "message": "［Áll répóšítóríéš ·····］"
+  },
   "text_028a1dcd": {
     "message": "［Príváçý át á gláñçé ······］"
   },
@@ -1280,6 +1286,9 @@
   "text_5797ea6a": {
     "message": "［Délété ··］"
   },
+  "text_585a5d3a": {
+    "message": "［Répóšítóríéš réçéívíñg álértš ·········］"
+  },
   "text_588389dc": {
     "message": "［Lóçál díágñóštíçš ·····］"
   },
@@ -1460,6 +1469,9 @@
   "text_9c1ffb03": {
     "message": "［Láñgúágé áñd áçtívítý ······］"
   },
+  "text_a0fde485": {
+    "message": "［Çhóóšé whíçh répóšítóríéš çáñ çréáté íñdívídúál míléštóñé ór grówth álértš. Pórtfólíó álértš áré úñçháñgéd. ································］"
+  },
   "text_a1d0c7a1": {
     "message": "［Ñééd hélp? ···］"
   },
@@ -1502,6 +1514,9 @@
   "text_b62edd87": {
     "message": "［GítHúb ÁPÍ — tókéñ óptíóñál ········］"
   },
+  "text_b6c7cf67": {
+    "message": "［Répóšítórý álért šçópé ·······］"
+  },
   "text_b6c87f75": {
     "message": "［Çóññéçt thé pórtfólíó ýóú wáñt ŠtárBóárd tó wátçh. ···············］"
   },
@@ -1510,6 +1525,9 @@
   },
   "text_ba4b8279": {
     "message": "［7 dáýš ··］"
+  },
+  "text_bc963964": {
+    "message": "［Óñlý šéléçtéd répóšítóríéš ········］"
   },
   "text_c0a5b02e": {
     "message": "［Répóšítórý fíltérš ·····］"

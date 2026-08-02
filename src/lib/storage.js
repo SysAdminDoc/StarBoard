@@ -989,7 +989,7 @@ export async function pruneStoredHistory(keepDays) {
 
 export async function getNotificationConfig() {
   const stored = await readRecord(STORAGE_KEYS.notificationConfig);
-  if (stored) return stored;
+  if (stored) return normalizeNotificationConfig(stored);
   const config = { ...DEFAULT_NOTIFICATION_CONFIG };
   await writeRecords({ [STORAGE_KEYS.notificationConfig]: config });
   return config;

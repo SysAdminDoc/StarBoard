@@ -27,6 +27,7 @@ import { testWebsiteConnection } from './lib/scrape.js';
 import { formatters, localizeDocument, message as i18nMessage } from './lib/i18n.js';
 import { runtimeMessage as t } from './lib/i18n-messages.js';
 import { dismissPrivacyNotice, getPrivacyNotice } from './lib/install.js';
+import { repositoryAlertKey } from './lib/notifications.js';
 
 const GITHUB_ORIGIN = 'https://github.com/*';
 const WEB_MIN_REFRESH_MINUTES = 360;
@@ -63,6 +64,7 @@ const notificationFields = {
   quietStart: $('quietStart'),
   quietEnd: $('quietEnd'),
   cooldownMinutes: $('notificationCooldown'),
+  repositoryAlertMode: $('repositoryAlertMode'),
 };
 
 const SOURCE_HINTS = {
@@ -281,6 +283,7 @@ function busyControls() {
 
 let pageBusy = true;
 let notificationState = null;
+let notificationCache = null;
 
 function setPageBusy(busy) {
   pageBusy = busy;
@@ -500,10 +503,55 @@ function notificationPatch() {
     quietStart: notificationFields.quietStart.value,
     quietEnd: notificationFields.quietEnd.value,
     cooldownMinutes: Number(notificationFields.cooldownMinutes.value),
+    repositoryAlertMode: notificationFields.repositoryAlertMode.value,
+    repositoryAlerts: repositoryPreferencePatch(),
   };
 }
 
-function syncNotificationUI(config, permitted, pending = 0, dropped = 0) {
+function repositoryPreferencePatch() {
+  const mode = notificationFields.repositoryAlertMode.value;
+  const existing = new Set(notificationState?.config?.repositoryAlerts || []);
+  const inputs = [...$('repositoryAlertList').querySelectorAll('input[data-repository-key]')];
+  const current = new Set(inputs.map((input) => input.dataset.repositoryKey));
+  const next = new Set([...existing].filter((key) => !current.has(key)));
+  for (const input of inputs) {
+    const enabled = input.checked;
+    if ((mode === 'selected' && enabled) || (mode !== 'selected' && !enabled)) {
+      next.add(input.dataset.repositoryKey);
+    }
+  }
+  return [...next].slice(0, 500);
+}
+
+function renderRepositoryAlertPreferences(config, cache = notificationCache) {
+  notificationCache = cache;
+  const list = $('repositoryAlertList');
+  list.replaceChildren();
+  const repos = [...(cache?.repos || [])].sort((a, b) => a.full_name.localeCompare(b.full_name));
+  if (!repos.length) {
+    list.textContent = t('optionsNoRepositoriesForAlerts');
+    return;
+  }
+  const preferences = new Set(config.repositoryAlerts || []);
+  for (const repo of repos) {
+    const key = repositoryAlertKey(repo);
+    const label = document.createElement('label');
+    label.className = 'repository-alert-row';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.dataset.repositoryKey = key;
+    input.checked = config.repositoryAlertMode === 'selected'
+      ? preferences.has(key)
+      : !preferences.has(key);
+    input.disabled = pageBusy || !config.enabled;
+    const name = document.createElement('span');
+    name.textContent = repo.full_name;
+    label.append(input, name);
+    list.append(label);
+  }
+}
+
+function syncNotificationUI(config, permitted, pending = 0, dropped = 0, cache = notificationCache) {
   notificationState = { config, permitted, pending, dropped };
   $('notificationsEnabled').checked = !!config.enabled;
   $('notificationsEnabled').disabled = pageBusy;
@@ -511,6 +559,7 @@ function syncNotificationUI(config, permitted, pending = 0, dropped = 0) {
     field.value = String(config[key]);
     field.disabled = pageBusy || !config.enabled;
   }
+  renderRepositoryAlertPreferences(config, cache);
   $('notificationControls').setAttribute('aria-disabled', String(!config.enabled));
   $('notificationPermissionState').textContent =
     config.enabled && permitted
@@ -529,9 +578,12 @@ function syncNotificationUI(config, permitted, pending = 0, dropped = 0) {
 }
 
 async function loadNotificationConfig() {
-  const response = await chrome.runtime.sendMessage({ type: 'notification-status' });
+  const [response, cache] = await Promise.all([
+    chrome.runtime.sendMessage({ type: 'notification-status' }),
+    getCache().catch(() => null),
+  ]);
   if (!response?.ok) throw messageError(response?.error, 'Could not load notifications.');
-  syncNotificationUI(response.config, response.permitted, response.pending, response.dropped);
+  syncNotificationUI(response.config, response.permitted, response.pending, response.dropped, cache);
 }
 
 /**
@@ -1038,6 +1090,26 @@ for (const field of Object.values(notificationFields)) {
     }
   });
 }
+
+$("repositoryAlertList").addEventListener('change', async (event) => {
+  if (!(event.target instanceof HTMLInputElement)) return;
+  event.target.disabled = true;
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'patch-notification-config',
+      changes: notificationPatch(),
+    });
+    if (!response?.ok) {
+      throw messageError(response?.error, 'Could not save repository alert settings.');
+    }
+    syncNotificationUI(response.config, response.permitted, response.pending, response.dropped);
+    sayT('optionsNotificationSaved', null, 'ok');
+  } catch (error) {
+    await loadNotificationConfig().catch(() => {});
+    if (error.message) say(error.message, 'err');
+    else sayT('optionsNotificationSaveError', null, 'err');
+  }
+});
 
 chrome.permissions.onRemoved.addListener(async (permissions) => {
   if (permissions.permissions?.includes('notifications')) {

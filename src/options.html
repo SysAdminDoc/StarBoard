@@ -342,6 +342,20 @@
               </select>
             </label>
           </div>
+          <div class="repository-alert-settings">
+            <label class="field">
+              <span>Repository alert scope</span>
+              <select id="repositoryAlertMode">
+                <option value="all">All repositories</option>
+                <option value="selected">Only selected repositories</option>
+              </select>
+            </label>
+            <p class="note">
+              Choose which repositories can create individual milestone or growth alerts. Portfolio
+              alerts are unchanged.
+            </p>
+            <div id="repositoryAlertList" class="repository-alert-list" role="group" aria-label="Repositories receiving alerts"></div>
+          </div>
           <p class="note callout">
             Approximate/partial snapshots do not trigger portfolio alerts, and approximate
             repository rows are skipped. Failed refreshes never create alerts.

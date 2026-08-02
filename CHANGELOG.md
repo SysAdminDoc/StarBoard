@@ -41,6 +41,9 @@
   checked for missing keys and expansion.
 - The full repository board can stay open in Chrome's side panel, using the
   same responsive page as the compact toolbar popup.
+- Notification settings can target every repository or a bounded list of
+  individually selected or muted repositories, while portfolio alerts remain
+  unchanged and private names stay filtered from default backups.
 
 ### Fixed
 

@@ -1039,6 +1039,44 @@ input[type='checkbox'][role='switch']:focus-visible {
   width: 100%;
 }
 
+.repository-alert-settings {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.repository-alert-settings .field {
+  max-width: 320px;
+  margin-bottom: 8px;
+}
+
+.repository-alert-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px 12px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.repository-alert-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.repository-alert-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 footer {
   margin-top: 26px;
   color: var(--faint);
@@ -1119,6 +1157,10 @@ footer::before {
 
   .notification-grid {
     grid-template-columns: 1fr;
+  }
+
+  .repository-alert-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .status:empty {

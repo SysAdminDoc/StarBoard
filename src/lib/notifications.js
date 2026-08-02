@@ -9,6 +9,8 @@ export const DEFAULT_NOTIFICATION_CONFIG = Object.freeze({
   repositoryMilestone: 10,
   portfolioDelta: 10,
   repositoryDelta: 3,
+  repositoryAlertMode: 'all',
+  repositoryAlerts: [],
   quietStart: '22:00',
   quietEnd: '08:00',
   cooldownMinutes: 360,
@@ -16,6 +18,7 @@ export const DEFAULT_NOTIFICATION_CONFIG = Object.freeze({
 
 const MAX_PENDING = 50;
 const MAX_SEEN = 500;
+export const MAX_REPOSITORY_ALERT_PREFERENCES = 500;
 // Bound to the extension UI language, not navigator.language: an OS
 // notification showing `1,234` beside German text is the same defect as in the
 // popup, just harder to notice.
@@ -46,6 +49,12 @@ export function normalizeNotificationConfig(value = {}) {
     ),
   };
   config.enabled = !!config.enabled;
+  config.repositoryAlertMode = config.repositoryAlertMode === 'selected' ? 'selected' : 'all';
+  config.repositoryAlerts = [...new Set(
+    Array.isArray(config.repositoryAlerts)
+      ? config.repositoryAlerts.filter((key) => typeof key === 'string')
+      : [],
+  )].slice(0, MAX_REPOSITORY_ALERT_PREFERENCES);
   for (const key of [
     'portfolioMilestone',
     'repositoryMilestone',
@@ -67,9 +76,36 @@ export function validateNotificationConfig(config) {
   count(config.portfolioDelta, 'portfolio delta');
   count(config.repositoryDelta, 'repository delta');
   count(config.cooldownMinutes, 'notification cooldown', 10_080);
+  if (config.repositoryAlertMode !== undefined) {
+    assert(
+      config.repositoryAlertMode === 'all' || config.repositoryAlertMode === 'selected',
+      'invalid repository alert mode',
+    );
+  }
+  if (config.repositoryAlerts !== undefined) {
+    assert(
+      Array.isArray(config.repositoryAlerts) &&
+        config.repositoryAlerts.length <= MAX_REPOSITORY_ALERT_PREFERENCES,
+      'too many repository alert preferences',
+    );
+    config.repositoryAlerts.forEach((key) => {
+      assert(typeof key === 'string' && key.length > 0 && key.length <= 240, 'invalid repository alert preference');
+    });
+  }
   assert(validTime(config.quietStart), 'invalid quiet-hours start');
   assert(validTime(config.quietEnd), 'invalid quiet-hours end');
   return config;
+}
+
+/** Prefer the stable API id; website rows fall back to their visible name. */
+export function repositoryAlertKey(repo) {
+  const id = String(repo?.id ?? '').trim();
+  return /^\d+$/.test(id) ? `id:${id}` : `name:${repo?.full_name || ''}`;
+}
+
+function repositoryAlertsEnabled(config, repo) {
+  const selected = config.repositoryAlerts.includes(repositoryAlertKey(repo));
+  return config.repositoryAlertMode === 'selected' ? selected : !selected;
 }
 
 export function emptyNotificationState() {
@@ -211,6 +247,7 @@ export function evaluateNotificationEvents(
 
   for (const repo of current.repos) {
     if ((!includeForks && repo.fork) || repo.approx) continue;
+    if (!repositoryAlertsEnabled(normalized, repo)) continue;
     const before = previousRepos.get(repositoryHistoryKey(repo));
     if (!before || before.approx) continue;
     const gain = repo.stargazers_count - before.stargazers_count;

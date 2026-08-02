@@ -4096,6 +4096,62 @@ async function main() {
       !(await options.isChecked('#notificationsEnabled')) &&
         (await options.isDisabled('#portfolioMilestone')),
     );
+    await options.evaluate(async () => {
+      await chrome.runtime.sendMessage({
+        type: 'patch-notification-config',
+        changes: { enabled: true, repositoryAlertMode: 'selected', repositoryAlerts: [] },
+      });
+    });
+    await options.reload();
+    await options.waitForFunction(
+      () =>
+        document.querySelector('#repositoryAlertMode')?.value === 'selected' &&
+        document.querySelectorAll('#repositoryAlertList input[data-repository-key]').length > 0,
+    );
+    const repositoryAlertInputs = options.locator('#repositoryAlertList input[data-repository-key]');
+    const firstRepositoryKey = await repositoryAlertInputs.first().getAttribute('data-repository-key');
+    check(
+      'notification settings expose bounded per-repository selection',
+      (await repositoryAlertInputs.count()) > 0 &&
+        (await repositoryAlertInputs.evaluateAll((inputs) => inputs.every((input) => !input.checked))),
+      firstRepositoryKey,
+    );
+    await repositoryAlertInputs.first().check();
+    await options.waitForFunction(() => /Notification settings saved/.test(document.querySelector('#status')?.textContent || ''));
+    const selectedRepositoryPreference = await options.evaluate(async () => {
+      const { getNotificationConfig } = await import('./lib/storage.js');
+      return await getNotificationConfig();
+    });
+    check(
+      'a repository alert preference persists independently of portfolio thresholds',
+      selectedRepositoryPreference.repositoryAlertMode === 'selected' &&
+        selectedRepositoryPreference.repositoryAlerts.includes(firstRepositoryKey),
+      JSON.stringify(selectedRepositoryPreference),
+    );
+    const disabledNotification = await options.evaluate(async () =>
+      await chrome.runtime.sendMessage({
+        type: 'patch-notification-config',
+        changes: { enabled: false },
+      }),
+    );
+    check('repository alert selection disables cleanly', disabledNotification?.ok === true);
+    await options.reload();
+    await options.waitForFunction(
+      () => document.querySelector('#settingsGrid')?.getAttribute('aria-busy') === 'false',
+    );
+    check(
+      'repository alert selection can be disabled without changing its scope',
+      !(await options.isChecked('#notificationsEnabled')) &&
+        (await options.inputValue('#repositoryAlertMode')) === 'selected',
+    );
+    if (permissionMocked) {
+      await options.evaluate(() => {
+        Object.defineProperty(chrome.permissions, 'request', {
+          configurable: true,
+          value: async () => false,
+        });
+      });
+    }
     if (permissionMocked) {
       await options.click('#notificationsEnabled');
       await options.waitForFunction(() =>

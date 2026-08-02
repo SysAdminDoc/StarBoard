@@ -19,6 +19,7 @@ import {
   historyStats,
   validateHistory,
 } from './history.js';
+import { repositoryAlertKey } from './notifications.js';
 
 export const BACKUP_FORMAT = 'starboard-backup';
 export const BACKUP_FORMAT_VERSION = 1;
@@ -159,6 +160,31 @@ function sanitizeHistory(history, includePrivate, names) {
   );
 }
 
+function notificationRepositoryKeys(cache, history) {
+  const publicKeys = new Set();
+  const privateKeys = new Set();
+  for (const repo of cache?.repos || []) {
+    (repo.private ? privateKeys : publicKeys).add(repositoryAlertKey(repo));
+  }
+  for (const entry of history?.repos || []) {
+    const [, fullName, isPrivate] = entry;
+    (isPrivate === 1 ? privateKeys : publicKeys).add(`name:${fullName}`);
+  }
+  return { publicKeys, privateKeys };
+}
+
+function sanitizeNotificationConfig(config, includePrivate, cache, history) {
+  const clean = copy(config);
+  if (!Array.isArray(clean?.repositoryAlerts)) return clean;
+  const { publicKeys, privateKeys } = notificationRepositoryKeys(cache, history);
+  clean.repositoryAlerts = clean.repositoryAlerts.filter((key) => {
+    if (key.startsWith('id:')) return true;
+    if (publicKeys.has(key)) return true;
+    return includePrivate && privateKeys.has(key);
+  });
+  return clean;
+}
+
 function sanitizePortfolioViews(state, includePrivate, names) {
   if (!state) return null;
   const clean = copy(state);
@@ -222,7 +248,9 @@ export async function createBackup({
     );
   }
   if (notificationConfig) {
-    records[STORAGE_KEYS.notificationConfig] = portableRecord(notificationConfig);
+    records[STORAGE_KEYS.notificationConfig] = portableRecord(
+      sanitizeNotificationConfig(notificationConfig, includePrivate, cache, sourceHistory),
+    );
   }
   const cleanViews = sanitizePortfolioViews(portfolioViews, includePrivate, names);
   if (cleanViews) {

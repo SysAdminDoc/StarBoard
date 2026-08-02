@@ -230,6 +230,9 @@
   "optionsNoNetwork": {
     "message": "No network connection — $1"
   },
+  "optionsNoRepositoriesForAlerts": {
+    "message": "No repositories are available for individual alerts yet."
+  },
   "optionsNotAuthenticated": {
     "message": "not authenticated"
   },
@@ -1013,6 +1016,9 @@
   "text_01da9a0c": {
     "message": "Refresh rhythm"
   },
+  "text_023d7f04": {
+    "message": "All repositories"
+  },
   "text_028a1dcd": {
     "message": "Privacy at a glance"
   },
@@ -1280,6 +1286,9 @@
   "text_5797ea6a": {
     "message": "Delete"
   },
+  "text_585a5d3a": {
+    "message": "Repositories receiving alerts"
+  },
   "text_588389dc": {
     "message": "Local diagnostics"
   },
@@ -1460,6 +1469,9 @@
   "text_9c1ffb03": {
     "message": "Language and activity"
   },
+  "text_a0fde485": {
+    "message": "Choose which repositories can create individual milestone or growth alerts. Portfolio alerts are unchanged."
+  },
   "text_a1d0c7a1": {
     "message": "Need help?"
   },
@@ -1502,6 +1514,9 @@
   "text_b62edd87": {
     "message": "GitHub API — token optional"
   },
+  "text_b6c7cf67": {
+    "message": "Repository alert scope"
+  },
   "text_b6c87f75": {
     "message": "Connect the portfolio you want StarBoard to watch."
   },
@@ -1510,6 +1525,9 @@
   },
   "text_ba4b8279": {
     "message": "7 days"
+  },
+  "text_bc963964": {
+    "message": "Only selected repositories"
   },
   "text_c0a5b02e": {
     "message": "Repository filters"

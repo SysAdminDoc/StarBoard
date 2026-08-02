@@ -262,6 +262,7 @@ export const RUNTIME_MESSAGES = Object.freeze({
   optionsAlertsEnabled: 'Local alerts enabled.',
   optionsAlertsDisabled: 'Local alerts disabled.',
   optionsNotificationSaved: 'Notification settings saved.',
+  optionsNoRepositoriesForAlerts: 'No repositories are available for individual alerts yet.',
   optionsNotificationsOn: 'On · $1 unread alert$2 saved in the popup$3. Quiet hours and cooldown apply locally.',
   optionsNotificationsDropped: '; $1 older alert$2 could not be retained',
   optionsNotifPermissionRemoved: 'Notification access was removed. Turn alerts off and on to grant it again.',
