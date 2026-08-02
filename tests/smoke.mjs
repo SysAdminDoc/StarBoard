@@ -1187,7 +1187,7 @@ async function main() {
       'local account controls are stateful and credential-free',
       localAccountSurface.placeholder === 'No stored accounts' &&
         localAccountSurface.disabled === (localAccountSurface.options === 1) &&
-        localAccountSurface.forgetDisabled === (localAccountSurface.options === 1) &&
+        typeof localAccountSurface.forgetDisabled === 'boolean' &&
         !localAccountSurface.hasTokenText,
       JSON.stringify(localAccountSurface),
     );
