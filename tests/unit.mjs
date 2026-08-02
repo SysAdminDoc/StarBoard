@@ -143,6 +143,9 @@ const {
   assertBackupSize,
   createBackup,
   createCsv,
+  createHistoryReport,
+  createSvgTrendBadge,
+  serializeHistoryReport,
   serializeBackup,
   sha256Hex,
   stableStringify,
@@ -1617,6 +1620,73 @@ await test('CSV quoting and formula guards follow RFC 4180 and OWASP', async () 
   // A negative delta is a number, not a formula: it must not gain a prefix.
   assert.ok(csv.includes('"-3"'), 'negative deltas must stay numeric');
   assert.ok(!csv.includes("\"'-3\""));
+});
+
+await test('committable history artifacts are bounded, privacy-filtered and credential-free', async () => {
+  const now = Date.UTC(2026, 6, 31, 12);
+  const history = {
+    formatVersion: 3,
+    repos: [
+      ['name:octocat/alpha', 'octocat/alpha', 0],
+      ['name:octocat/private', 'octocat/private', 1],
+    ],
+    snapshots: [
+      {
+        day: '2026-07-29',
+        at: Date.UTC(2026, 6, 29),
+        source: 'api',
+        confidence: 'exact',
+        stars: [10, 40],
+        forks: [2, 4],
+        approx: [],
+      },
+      {
+        day: '2026-07-31',
+        at: now,
+        source: 'api',
+        confidence: 'exact',
+        stars: [14, 41],
+        forks: [3, 5],
+        approx: [1],
+      },
+    ],
+  };
+  const cache = {
+    fetchedAt: now,
+    repos: [
+      { full_name: 'octocat/alpha', private: false },
+      { full_name: 'octocat/private', private: true },
+    ],
+  };
+  const report = createHistoryReport({ cache, history, duration: 7, now });
+  assert.equal(report.schemaVersion, 1);
+  assert.equal(report.format, 'starboard-history');
+  assert.equal(report.period.days, 7);
+  assert.equal(report.repositories.length, 1);
+  assert.equal(report.repositories[0].repository, 'octocat/alpha');
+  assert.equal(report.repositories[0].delta, 4);
+  assert.equal(report.summary.stars, 14);
+  assert.equal(report.summary.starsDelta, 4);
+  assert.equal(report.privacy.credentialsIncluded, false);
+
+  const serialized = serializeHistoryReport(report);
+  assert.doesNotMatch(serialized, /token|secret|octocat\/private/i);
+  const badge = createSvgTrendBadge(report);
+  assert.match(badge, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+  assert.match(badge, /polyline/);
+  assert.doesNotMatch(badge, /href=|url\(|script|token|secret/i);
+
+  const privateReport = createHistoryReport({
+    cache,
+    history,
+    duration: 7,
+    includePrivate: true,
+    now,
+  });
+  assert.deepEqual(
+    privateReport.repositories.map((row) => row.repository),
+    ['octocat/alpha', 'octocat/private'],
+  );
 });
 
 await test('an out-of-space write fails loudly and leaves stored data intact', async () => {

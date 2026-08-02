@@ -60,6 +60,10 @@ telemetry — the API token, if you choose to use one, is sent only to
 - **Portable by choice** — download a checksummed JSON backup or timestamped
   CSV, dry-run restores before applying them, and roll back an import for 10
   minutes.
+- **Commit-friendly history** — export a bounded 7-, 30- or 90-day machine-readable
+  history report plus a self-contained SVG trend badge. Both are generated locally;
+  the JSON is also shaped for Shields endpoint badges, and neither artifact contains
+  credentials.
 - **Supportable without surveillance** — inspect and copy a redacted local
   diagnostics snapshot without enabling telemetry or sending data anywhere.
 - **Alerts on your terms** — opt into local portfolio/repository star
@@ -199,6 +203,9 @@ the release check requires every declared entry to opt into Chrome's
   known private repository names are redacted from view names and searches.
   PATs are always omitted, and restore preserves the credential already held by
   this browser profile.
+- **Committed artifacts:** history JSON and SVG badge exports follow the same
+  private-name choice. They contain only bounded counts, dates, visibility and
+  confidence metadata; no settings, cookies, session values or PATs are copied.
 
 ### CSV column contract
 
@@ -253,6 +260,13 @@ Open **Settings → Local data** to download a portable file:
 - **Export CSV** writes timestamped repository star/fork counts, deltas, source
   and confidence. With history selected it exports the retained daily series;
   otherwise it exports the current snapshot against the comparison baseline.
+- **Download history JSON** emits `StarBoard-history-v1-{days}d-YYYY-MM-DD.json`.
+  It includes a `repositories` series and portfolio points, and its top-level
+  `schemaVersion`, `label`, `message` and `color` fields are compatible with
+  Shields' endpoint badge format.
+- **Download SVG badge** emits `StarBoard-badge-{days}d-YYYY-MM-DD.svg`, a
+  standalone image with no external fonts, images, scripts or network references.
+  Choose the 7-, 30- or 90-day window beside the two buttons before downloading.
 - **Restore JSON…** verifies the checksum, rejects credentials and unsupported
   records, runs storage migrations and shows a dry-run record summary. Nothing
   changes until **Apply restore** is clicked; the prior state can then be
@@ -443,7 +457,7 @@ src/lib/lifecycle.js repository add/remove/rename event derivation
 src/lib/history.js   bounded daily history and offline trend comparisons
 src/lib/notifications.js local milestone evaluation and delivery deduplication
 src/lib/portfolio-views.js bounded saved views and repository filter predicates
-src/lib/transfer.js  checksummed backup/restore and privacy-aware CSV export
+src/lib/transfer.js  checksummed backup/restore, CSV and committable history export
 src/lib/diagnostics.js allow-listed local support metadata
 src/lib/storage.js   versioned settings/cache/baseline persistence and recovery
 scripts/build.py     reproducible unsigned ZIP, hashes and SPDX packaging

@@ -224,6 +224,15 @@
   "optionsGitHubWebsite": {
     "message": "［GítHúb wébšíté ····］"
   },
+  "optionsHistoryReportDownloaded": {
+    "message": "［Çómmíttáblé híštórý JŠÓÑ dówñlóádéd. Príváté ñáméš áñd çrédéñtíálš wéré éxçlúdéd áççórdíñg tó ýóúr šéléçtíóñš. ·································］"
+  },
+  "optionsHistoryReportError": {
+    "message": "［Çóúld ñót çréáté thé híštórý ártífáçt. ···········］"
+  },
+  "optionsHistoryReportSvgDownloaded": {
+    "message": "［Šélf-çóñtáíñéd ŠVG tréñd bádgé dówñlóádéd. ·············］"
+  },
   "optionsLastActionUndone": {
     "message": "［Lášt dátá áçtíóñ úñdóñé. ·······］"
   },
@@ -1283,6 +1292,9 @@
   "text_555cbe68": {
     "message": "［Kéép ·］"
   },
+  "text_5650b78b": {
+    "message": "［Çómmíttáblé híštórý ártífáçtš ·········］"
+  },
   "text_5797ea6a": {
     "message": "［Délété ··］"
   },
@@ -1454,6 +1466,9 @@
   "text_97ecd300": {
     "message": "［Qúíét hóúrš štárt ·····］"
   },
+  "text_995cbfe4": {
+    "message": "［Tréñd wíñdów fór híštórý ártífáçtš ··········］"
+  },
   "text_9a4719de": {
     "message": "［Ñámé Á–Ž ··］"
   },
@@ -1487,6 +1502,9 @@
   "text_a40bdf44": {
     "message": "［Réfréšh ñów ···］"
   },
+  "text_a5d6766c": {
+    "message": "［Tréñd wíñdów ····］"
+  },
   "text_a8ef9ecd": {
     "message": "［Mátçh thé íñtérfáçé áñd tóólbár šígñál tó ýóúr wórkšpáçé. ·················］"
   },
@@ -1519,6 +1537,9 @@
   },
   "text_b6c87f75": {
     "message": "［Çóññéçt thé pórtfólíó ýóú wáñt ŠtárBóárd tó wátçh. ···············］"
+  },
+  "text_b77eb77d": {
+    "message": "［Géñéráté á lóçál híštórý JŠÓÑ áñd šélf-çóñtáíñéd ŠVG bádgé. Príváté ñáméš áré éxçlúdéd úñléšš šéléçtéd ábóvé. ·································］"
   },
   "text_b81b8b70": {
     "message": "［Móré tháñ óñé ýéár ·····］"
@@ -1574,6 +1595,9 @@
   "text_c930706f": {
     "message": "［Áçtívé óñlý ···］"
   },
+  "text_c99a5ca8": {
+    "message": "［Dówñlóád ŠVG bádgé ·····］"
+  },
   "text_c9ca5769": {
     "message": "［25 štárš ··］"
   },
@@ -1603,6 +1627,9 @@
   },
   "text_d5b5b6bc": {
     "message": "［1 štár ··］"
+  },
+  "text_d610023d": {
+    "message": "［Dówñlóád híštórý JŠÓÑ ······］"
   },
   "text_d6ebe159": {
     "message": "［Báçkúp & éxpórt ·····］"

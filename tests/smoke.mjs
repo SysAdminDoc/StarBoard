@@ -4735,6 +4735,36 @@ async function main() {
         !publicCsv.includes('private-smoke-fixture'),
     );
 
+    const [publicHistoryReportDownload] = await Promise.all([
+      options.waitForEvent('download'),
+      options.click('#exportHistoryJson'),
+    ]);
+    const publicHistoryReportText = readFileSync(
+      await publicHistoryReportDownload.path(),
+      'utf8',
+    );
+    const publicHistoryReport = JSON.parse(publicHistoryReportText);
+    check(
+      'default history JSON is Shields-compatible, bounded, and credential-free',
+      publicHistoryReport.schemaVersion === 1 &&
+        publicHistoryReport.format === 'starboard-history' &&
+        publicHistoryReport.privacy?.credentialsIncluded === false &&
+        !publicHistoryReportText.includes('private-smoke-fixture') &&
+        !publicHistoryReportText.includes('smoke-export-secret'),
+    );
+
+    const [publicHistoryBadgeDownload] = await Promise.all([
+      options.waitForEvent('download'),
+      options.click('#exportHistorySvg'),
+    ]);
+    const publicHistoryBadge = readFileSync(await publicHistoryBadgeDownload.path(), 'utf8');
+    check(
+      'default SVG badge is self-contained and credential-free',
+      publicHistoryBadge.startsWith('<svg xmlns="http://www.w3.org/2000/svg"') &&
+        !publicHistoryBadge.includes('href=') &&
+        !publicHistoryBadge.includes('smoke-export-secret'),
+    );
+
     await options.check('#includePrivateExport');
     await options.check('#includeHistoryExport');
     const [completeBackupDownload] = await Promise.all([
@@ -4749,6 +4779,20 @@ async function main() {
         Object.hasOwn(completeBackup.records, 'history') &&
         completeBackup.records.portfolioViews?.data?.views?.length === 1 &&
         !completeBackupText.includes('smoke-export-secret'),
+    );
+
+    const [completeHistoryReportDownload] = await Promise.all([
+      options.waitForEvent('download'),
+      options.click('#exportHistoryJson'),
+    ]);
+    const completeHistoryReportText = readFileSync(
+      await completeHistoryReportDownload.path(),
+      'utf8',
+    );
+    check(
+      'opted-in history JSON carries private names but never a PAT',
+      completeHistoryReportText.includes('private-smoke-fixture') &&
+        !completeHistoryReportText.includes('smoke-export-secret'),
     );
 
     const [historyCsvDownload] = await Promise.all([

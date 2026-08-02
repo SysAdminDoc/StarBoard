@@ -464,6 +464,24 @@
               <button id="chooseImport" class="secondary-btn" type="button">Restore JSON…</button>
               <input id="importFile" type="file" accept="application/json,.json" hidden />
             </div>
+            <div class="report-export">
+              <div>
+                <b>Committable history artifacts</b>
+                <p>Generate a local history JSON and self-contained SVG badge. Private names are excluded unless selected above.</p>
+              </div>
+              <div class="data-tool-actions">
+                <label>
+                  Trend window
+                  <select id="historyReportDuration" aria-label="Trend window for history artifacts">
+                    <option value="7">7 days</option>
+                    <option value="30" selected>30 days</option>
+                    <option value="90">90 days</option>
+                  </select>
+                </label>
+                <button id="exportHistoryJson" class="secondary-btn" type="button">Download history JSON</button>
+                <button id="exportHistorySvg" class="secondary-btn" type="button">Download SVG badge</button>
+              </div>
+            </div>
             <div id="importPreview" class="import-preview" role="status" hidden>
               <div>
                 <b>Dry run complete</b>

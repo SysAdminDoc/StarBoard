@@ -920,6 +920,35 @@ input[type='checkbox'][role='switch']:focus-visible {
   flex-wrap: wrap;
 }
 
+.report-export {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px 18px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.report-export > div:first-child {
+  flex: 1 1 320px;
+}
+
+.report-export b {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.report-export p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.report-export .data-tool-actions {
+  flex-wrap: wrap;
+}
+
 .import-preview {
   display: flex;
   flex: 1 1 100%;

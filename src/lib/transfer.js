@@ -16,6 +16,7 @@ import {
   emptyHistory,
   filterHistoryRepositories,
   historyRows,
+  historySeriesForRepo,
   historyStats,
   validateHistory,
 } from './history.js';
@@ -46,6 +47,15 @@ export const CSV_COLUMNS = Object.freeze([
   'confidence',
 ]);
 export const BACKUP_MAX_BYTES = 5 * 1024 * 1024;
+export const HISTORY_REPORT_FORMAT = 'starboard-history';
+export const HISTORY_REPORT_FORMAT_VERSION = 1;
+export const HISTORY_REPORT_DURATIONS = Object.freeze([7, 30, 90]);
+export const HISTORY_REPORT_COLORS = Object.freeze({
+  positive: 'brightgreen',
+  negative: 'red',
+  neutral: 'blue',
+  empty: 'lightgrey',
+});
 /** @type {string[]} */
 const PORTABLE_KEYS = [
   STORAGE_KEYS.settings,
@@ -458,4 +468,212 @@ export function createCsv({
       ? historyCsvRows(history, includePrivate)
       : currentCsvRows(cache, baseline, includePrivate);
   return `\uFEFF${[[...CSV_COLUMNS], ...rows].map(csvLine).join('\r\n')}\r\n`;
+}
+
+function reportDuration(days) {
+  const value = Number(days);
+  assert(
+    Number.isInteger(value) && HISTORY_REPORT_DURATIONS.includes(value),
+    `unsupported history report duration: ${days}`,
+  );
+  return value;
+}
+
+function reportCount(value) {
+  return Number.isFinite(value) ? value : null;
+}
+
+function reportNames(cache, history, includePrivate) {
+  const visibility = new Map();
+  for (const repo of cache?.repos || []) {
+    if (!repo?.full_name) continue;
+    visibility.set(repo.full_name, !!repo.private);
+  }
+  for (const [, fullName, isPrivate] of history?.repos || []) {
+    if (!fullName) continue;
+    visibility.set(fullName, !!isPrivate || visibility.get(fullName) === true);
+  }
+  return [...visibility.entries()]
+    .filter(([, isPrivate]) => includePrivate || !isPrivate)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([fullName, isPrivate]) => ({ fullName, private: isPrivate }));
+}
+
+function reportPortfolioPoints(rows) {
+  const dates = rows[0]?.points?.map((point) => point.date) || [];
+  return dates.map((date, index) => {
+    let stars = 0;
+    let forks = 0;
+    let measuredRepositories = 0;
+    let approximate = false;
+    for (const row of rows) {
+      const point = row.points[index];
+      if (point.stars === null) continue;
+      stars += point.stars;
+      forks += point.forks;
+      measuredRepositories += 1;
+      approximate ||= point.approximate;
+    }
+    return {
+      date,
+      stars: measuredRepositories ? stars : null,
+      forks: measuredRepositories ? forks : null,
+      measuredRepositories,
+      approximate,
+    };
+  });
+}
+
+function reportColor(delta, measured) {
+  if (!measured) return HISTORY_REPORT_COLORS.empty;
+  if (delta > 0) return HISTORY_REPORT_COLORS.positive;
+  if (delta < 0) return HISTORY_REPORT_COLORS.negative;
+  return HISTORY_REPORT_COLORS.neutral;
+}
+
+function reportDelta(value) {
+  if (!Number.isFinite(value)) return null;
+  return value;
+}
+
+/**
+ * Build the local, commit-friendly report used by the JSON and SVG exports.
+ *
+ * The top-level Shields fields are intentional: the same JSON can be committed
+ * to a gist or repository and passed to img.shields.io/endpoint without a
+ * second conversion step. The additional StarBoard fields retain the actual
+ * bounded history instead of reducing it to a badge message.
+ * @param {{cache?: any, history?: any, includePrivate?: boolean, duration?: number, now?: number}} options
+ */
+export function createHistoryReport({
+  cache,
+  history,
+  includePrivate = false,
+  duration = 30,
+  now = Date.now(),
+} = {}) {
+  const days = reportDuration(duration);
+  const sourceHistory = history || emptyHistory();
+  validateHistory(sourceHistory);
+  const names = reportNames(cache, sourceHistory, includePrivate);
+  const rows = names.map(({ fullName, private: isPrivate }) => {
+    const repo = { full_name: fullName };
+    const stars = historySeriesForRepo(sourceHistory, repo, days, { now, metric: 'stars' });
+    const forks = historySeriesForRepo(sourceHistory, repo, days, { now, metric: 'forks' });
+    const points = stars.values.map((point, index) => ({
+      date: point.day,
+      stars: reportCount(point.value),
+      forks: reportCount(forks.values[index]?.value),
+      approximate: !!point.approximate || !!forks.values[index]?.approximate,
+    }));
+    return {
+      repository: fullName,
+      visibility: isPrivate ? 'private' : 'public',
+      points,
+      measured: stars.measured,
+      gaps: stars.gaps,
+      first: reportCount(stars.first),
+      last: reportCount(stars.last),
+      delta: reportDelta(stars.delta),
+      approximate: stars.approximate,
+    };
+  });
+  const portfolioPoints = reportPortfolioPoints(rows);
+  const measuredRows = rows.filter((row) => row.measured > 0);
+  const stars = measuredRows.reduce((total, row) => total + (row.last || 0), 0);
+  const forks = rows.reduce((total, row) => {
+    const last = row.points.findLast((point) => point.forks !== null);
+    return total + (last?.forks || 0);
+  }, 0);
+  const delta = measuredRows.reduce((total, row) => total + (row.delta || 0), 0);
+  const measured = portfolioPoints.some((point) => point.stars !== null);
+  const newest = portfolioPoints.at(-1)?.date || null;
+  const oldest = portfolioPoints[0]?.date || null;
+  const message = measured
+    ? `${stars.toLocaleString('en-US')} stars · ${delta >= 0 ? '+' : ''}${delta.toLocaleString('en-US')} over ${days}d`
+    : `No retained history over ${days}d`;
+
+  return {
+    schemaVersion: HISTORY_REPORT_FORMAT_VERSION,
+    label: 'StarBoard stars',
+    message,
+    color: reportColor(delta, measured),
+    format: HISTORY_REPORT_FORMAT,
+    formatVersion: HISTORY_REPORT_FORMAT_VERSION,
+    generatedAt: new Date(now).toISOString(),
+    privacy: {
+      privateRepositoryNamesIncluded: !!includePrivate,
+      credentialsIncluded: false,
+    },
+    period: { days, from: oldest, to: newest },
+    summary: {
+      repositories: rows.length,
+      measuredRepositories: measuredRows.length,
+      stars,
+      forks,
+      starsDelta: delta,
+    },
+    portfolio: { points: portfolioPoints },
+    repositories: rows,
+  };
+}
+
+export function serializeHistoryReport(report) {
+  assert(report?.format === HISTORY_REPORT_FORMAT, 'invalid history report');
+  assert(report?.privacy?.credentialsIncluded === false, 'history report credentials are not allowed');
+  return `${JSON.stringify(report, null, 2)}\n`;
+}
+
+function svgEscape(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
+}
+
+function svgPoints(points, width, height) {
+  const measured = points.filter((point) => point.stars !== null);
+  if (!measured.length) return '';
+  const values = measured.map((point) => point.stars);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = Math.max(1, max - min);
+  const lastIndex = Math.max(1, points.length - 1);
+  return measured
+    .map((point) => {
+      const index = points.indexOf(point);
+      const x = 12 + (index / lastIndex) * (width - 24);
+      const y = height - 8 - ((point.stars - min) / range) * (height - 16);
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(' ');
+}
+
+/** Render a self-contained SVG with no network references or embedded data. */
+export function createSvgTrendBadge(report) {
+  assert(report?.format === HISTORY_REPORT_FORMAT, 'invalid history report');
+  const points = report.portfolio?.points || [];
+  const width = 360;
+  const height = 72;
+  const chart = svgPoints(points, 92, 28);
+  const delta = report.summary?.starsDelta || 0;
+  const deltaLabel = report.summary?.measuredRepositories
+    ? `${delta >= 0 ? '+' : ''}${delta.toLocaleString('en-US')} / ${report.period.days}d`
+    : 'no retained history';
+  const title = `${report.label}: ${report.message}`;
+  const chartMarkup = chart
+    ? `<polyline points="${chart}" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`
+    : '<text x="12" y="18" fill="#ffffff" font-size="8">No data</text>';
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${svgEscape(title)}">`,
+    `<title>${svgEscape(title)}</title>`,
+    `<rect width="${width}" height="${height}" rx="8" fill="#24292f"/>`,
+    `<text x="16" y="24" fill="#ffffff" font-family="Arial, sans-serif" font-size="13" font-weight="700">${svgEscape(report.label)}</text>`,
+    `<text x="16" y="48" fill="#ffffff" font-family="Arial, sans-serif" font-size="18" font-weight="700">${svgEscape(report.summary?.stars?.toLocaleString('en-US') || '0')}</text>`,
+    `<text x="82" y="47" fill="#d0d7de" font-family="Arial, sans-serif" font-size="11">${svgEscape(deltaLabel)}</text>`,
+    `<g transform="translate(252 22)">${chartMarkup}</g>`,
+    '</svg>',
+  ].join('');
 }

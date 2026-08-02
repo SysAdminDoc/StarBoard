@@ -16,10 +16,14 @@ import {
 import { historyStats } from './lib/history.js';
 import {
   CSV_FORMAT_VERSION,
+  HISTORY_REPORT_FORMAT_VERSION,
   assertBackupSize,
   createBackup,
   createCsv,
+  createHistoryReport,
+  createSvgTrendBadge,
   serializeBackup,
+  serializeHistoryReport,
   validateBackupText,
 } from './lib/transfer.js';
 import { testApiConnection } from './lib/github.js';
@@ -271,6 +275,9 @@ function busyControls() {
     $('includeHistoryExport'),
     $('backupJson'),
     $('exportCsv'),
+    $('historyReportDuration'),
+    $('exportHistoryJson'),
+    $('exportHistorySvg'),
     $('chooseImport'),
     $('applyImport'),
     $('cancelImport'),
@@ -921,6 +928,40 @@ $('exportCsv').addEventListener('click', async () => {
     );
     sayT('optionsCsvDownloaded', null, 'ok', 'transfer');
   }).catch((error) => reportError(error, 'transfer', t('optionsCsvError')));
+});
+
+async function readHistoryReport() {
+  const { cache, history } = await readPortableState();
+  return createHistoryReport({
+    cache,
+    history,
+    includePrivate: $('includePrivateExport').checked,
+    duration: Number($('historyReportDuration').value),
+  });
+}
+
+$('exportHistoryJson').addEventListener('click', async () => {
+  await withBusy($('exportHistoryJson'), t('optionsPreparing'), async () => {
+    const report = await readHistoryReport();
+    downloadText(
+      serializeHistoryReport(report),
+      `StarBoard-history-v${HISTORY_REPORT_FORMAT_VERSION}-${report.period.days}d-${exportDate()}.json`,
+      'application/json',
+    );
+    sayT('optionsHistoryReportDownloaded', null, 'ok', 'transfer');
+  }).catch((error) => reportError(error, 'transfer', t('optionsHistoryReportError')));
+});
+
+$('exportHistorySvg').addEventListener('click', async () => {
+  await withBusy($('exportHistorySvg'), t('optionsPreparing'), async () => {
+    const report = await readHistoryReport();
+    downloadText(
+      createSvgTrendBadge(report),
+      `StarBoard-badge-${report.period.days}d-${exportDate()}.svg`,
+      'image/svg+xml;charset=utf-8',
+    );
+    sayT('optionsHistoryReportSvgDownloaded', null, 'ok', 'transfer');
+  }).catch((error) => reportError(error, 'transfer', t('optionsHistoryReportError')));
 });
 
 let pendingImportRecords = null;

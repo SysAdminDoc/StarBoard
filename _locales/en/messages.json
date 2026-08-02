@@ -224,6 +224,15 @@
   "optionsGitHubWebsite": {
     "message": "GitHub website"
   },
+  "optionsHistoryReportDownloaded": {
+    "message": "Committable history JSON downloaded. Private names and credentials were excluded according to your selections."
+  },
+  "optionsHistoryReportError": {
+    "message": "Could not create the history artifact."
+  },
+  "optionsHistoryReportSvgDownloaded": {
+    "message": "Self-contained SVG trend badge downloaded."
+  },
   "optionsLastActionUndone": {
     "message": "Last data action undone."
   },
@@ -1283,6 +1292,9 @@
   "text_555cbe68": {
     "message": "Keep"
   },
+  "text_5650b78b": {
+    "message": "Committable history artifacts"
+  },
   "text_5797ea6a": {
     "message": "Delete"
   },
@@ -1454,6 +1466,9 @@
   "text_97ecd300": {
     "message": "Quiet hours start"
   },
+  "text_995cbfe4": {
+    "message": "Trend window for history artifacts"
+  },
   "text_9a4719de": {
     "message": "Name A–Z"
   },
@@ -1487,6 +1502,9 @@
   "text_a40bdf44": {
     "message": "Refresh now"
   },
+  "text_a5d6766c": {
+    "message": "Trend window"
+  },
   "text_a8ef9ecd": {
     "message": "Match the interface and toolbar signal to your workspace."
   },
@@ -1519,6 +1537,9 @@
   },
   "text_b6c87f75": {
     "message": "Connect the portfolio you want StarBoard to watch."
+  },
+  "text_b77eb77d": {
+    "message": "Generate a local history JSON and self-contained SVG badge. Private names are excluded unless selected above."
   },
   "text_b81b8b70": {
     "message": "More than one year"
@@ -1574,6 +1595,9 @@
   "text_c930706f": {
     "message": "Active only"
   },
+  "text_c99a5ca8": {
+    "message": "Download SVG badge"
+  },
   "text_c9ca5769": {
     "message": "25 stars"
   },
@@ -1603,6 +1627,9 @@
   },
   "text_d5b5b6bc": {
     "message": "1 star"
+  },
+  "text_d610023d": {
+    "message": "Download history JSON"
   },
   "text_d6ebe159": {
     "message": "Backup & export"

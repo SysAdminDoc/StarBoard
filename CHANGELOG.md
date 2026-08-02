@@ -47,6 +47,9 @@
 - Account-specific snapshots, baselines, trend history, saved views and local
   alert state now remain separate when the configured GitHub username changes;
   existing single-account data is migrated into its first namespace.
+- Local history can now be exported as a bounded 7-, 30- or 90-day JSON report
+  and a self-contained SVG trend badge. The JSON carries a Shields-compatible
+  badge payload plus per-repository points, and both artifacts omit credentials.
 
 ### Fixed
 
