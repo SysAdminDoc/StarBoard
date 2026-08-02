@@ -2993,8 +2993,8 @@ async function main() {
       const candidates = cache.repos.filter((repo) => !repo.fork);
       const flat = candidates[0];
       const stranded = candidates[1];
-      const strandedOffsets = new Set([29, 28, 27, 10, 0]);
-      const offsets = [29, 28, 27, 10, 4, 3, 2, 1, 0];
+      const strandedOffsets = new Set([30, 29, 28, 27, 10, 0]);
+      const offsets = [30, 29, 28, 27, 10, 4, 3, 2, 1, 0];
       const flatKey = `name:${flat.full_name}`;
       const strandedKey = `name:${stranded.full_name}`;
       const now = Date.now();
@@ -3022,8 +3022,21 @@ async function main() {
       return { flat: flat?.full_name, stranded: stranded?.full_name, settings };
     });
     await popup.reload();
+    await popup.waitForFunction(
+      (names) =>
+        [names.flat, names.stranded].every((fullName) =>
+          [...document.querySelectorAll('.row')].some((row) => row.href.endsWith(`/${fullName}`)),
+        ),
+      edgeFixture,
+    );
     await popup.selectOption('#trendRange', '30');
-    await popup.waitForFunction(() => document.querySelectorAll('.row').length > 0);
+    await popup.waitForFunction(
+      (names) =>
+        [names.flat, names.stranded].every((fullName) =>
+          [...document.querySelectorAll('.row')].some((row) => row.href.endsWith(`/${fullName}`)),
+        ),
+      edgeFixture,
+    );
     const edgeGeometry = await popup.evaluate((names) => {
       const rowFor = (fullName) =>
         [...document.querySelectorAll('.row')].find((row) => row.href.endsWith(`/${fullName}`));
