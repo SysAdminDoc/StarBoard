@@ -54,6 +54,10 @@ telemetry — the API token, if you choose to use one, is sent only to
   30 or 90 days from bounded local history: one year of daily points followed
   by a compact weekly archive for older coverage; ranges longer than the data
   retained are marked unavailable.
+- **Pinned comparisons** — pin up to eight repositories in the trend table to
+  keep a small side-by-side comparison set at the top of the locally retained
+  series. Missing days remain visible as gaps; pinning is account-scoped and
+  does not make another GitHub request.
 - **Multiple accounts** — switching the configured GitHub username keeps each
   account's snapshot, baseline, trend history, saved views and local alert
   preferences in its own namespace; existing single-account data migrates on

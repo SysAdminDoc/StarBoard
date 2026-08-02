@@ -10,6 +10,7 @@ export const MAX_SAVED_VIEWS = 12;
 export const MAX_REPOSITORY_LABELS = 1000;
 export const MAX_LABELS_PER_REPOSITORY = 12;
 export const MAX_LABEL_LENGTH = 32;
+export const MAX_COMPARISON_REPOSITORIES = 8;
 export const NO_LANGUAGE = '__none__';
 
 export const DEFAULT_PORTFOLIO_FILTERS = Object.freeze({
@@ -70,6 +71,26 @@ export function normalizeRepositoryLabels(value = {}) {
     if (clean.length) labels[key] = clean;
   }
   return labels;
+}
+
+export function normalizeComparisonKeys(value = []) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(
+    value
+      .filter((key) => typeof key === 'string' && key.length >= 3 && key.length <= 240)
+      .slice(0, MAX_COMPARISON_REPOSITORIES),
+  )];
+}
+
+export function validateComparisonKeys(value = []) {
+  assert(Array.isArray(value) && value.length <= MAX_COMPARISON_REPOSITORIES, 'too many comparison repositories');
+  const seen = new Set();
+  for (const key of value) {
+    assert(typeof key === 'string' && key.length >= 3 && key.length <= 240, 'invalid comparison repository key');
+    assert(!seen.has(key), 'duplicate comparison repository key');
+    seen.add(key);
+  }
+  return value;
 }
 
 export function validateRepositoryLabels(value = {}) {
@@ -140,6 +161,7 @@ export function emptyPortfolioViewState(filters = {}) {
     active: normalizePortfolioFilters(filters),
     views: [],
     labels: {},
+    comparisonKeys: [],
   };
 }
 
@@ -156,6 +178,7 @@ export function validatePortfolioViewState(state) {
   );
   validatePortfolioFilters(state.active);
   if (state.labels !== undefined) validateRepositoryLabels(state.labels);
+  if (state.comparisonKeys !== undefined) validateComparisonKeys(state.comparisonKeys);
   assert(Array.isArray(state.views) && state.views.length <= MAX_SAVED_VIEWS, 'too many saved views');
   const ids = new Set();
   const names = new Set();
@@ -187,6 +210,7 @@ function cloneState(state) {
   validatePortfolioViewState(state);
   const next = structuredClone(state);
   next.labels = normalizeRepositoryLabels(next.labels);
+  next.comparisonKeys = normalizeComparisonKeys(next.comparisonKeys);
   return next;
 }
 
@@ -221,6 +245,13 @@ export function setRepositoryLabels(state, key, labels) {
   const clean = normalizedLabels(labels);
   if (clean.length) next.labels[key] = clean;
   else delete next.labels[key];
+  validatePortfolioViewState(next);
+  return next;
+}
+
+export function setComparisonRepositories(state, keys) {
+  const next = cloneState(state);
+  next.comparisonKeys = normalizeComparisonKeys(keys);
   validatePortfolioViewState(next);
   return next;
 }

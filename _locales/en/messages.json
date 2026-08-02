@@ -554,6 +554,15 @@
   "popupChangesMeasured": {
     "message": "Changes are measured from $1. Activate to measure from now instead."
   },
+  "popupComparisonCleared": {
+    "message": "Pinned comparison cleared."
+  },
+  "popupComparisonLimit": {
+    "message": "A comparison can contain at most $1 repositories."
+  },
+  "popupComparisonSaveError": {
+    "message": "Could not save the pinned comparison."
+  },
   "popupConfirmDelete": {
     "message": "Confirm delete"
   },
@@ -767,6 +776,12 @@
   "popupPartialSource": {
     "message": " · partial ($1)"
   },
+  "popupPinnedComparison": {
+    "message": "$1 of $2 repositories pinned for comparison. Pinned rows stay at the top of this offline table."
+  },
+  "popupPinRepository": {
+    "message": "Pin $1 for comparison"
+  },
   "popupPortfolioViewSaved": {
     "message": "Portfolio view saved."
   },
@@ -818,6 +833,9 @@
   "popupRepos": {
     "message": "Repos"
   },
+  "popupRepositoryPinned": {
+    "message": "$1 pinned for offline comparison."
+  },
   "popupRepositoryPlural": {
     "message": "repositories"
   },
@@ -826,6 +844,9 @@
   },
   "popupRepositorySingular": {
     "message": "repository"
+  },
+  "popupRepositoryUnpinned": {
+    "message": "$1 removed from offline comparison."
   },
   "popupReposSynced": {
     "message": "$1 repos synced"
@@ -1009,6 +1030,9 @@
   },
   "popupUndoUnavailable": {
     "message": "Undo is no longer available."
+  },
+  "popupUnpinRepository": {
+    "message": "Unpin $1 from comparison"
   },
   "popupUp": {
     "message": "up"
@@ -1403,6 +1427,9 @@
   "text_66dd4fed": {
     "message": "Keep token"
   },
+  "text_6a706ef0": {
+    "message": "Clear pinned"
+  },
   "text_6d1a1f5f": {
     "message": "Momentum · forks"
   },
@@ -1705,6 +1732,9 @@
   },
   "text_d3b4ca9d": {
     "message": "repo"
+  },
+  "text_d4479a34": {
+    "message": "Pin"
   },
   "text_d44cf960": {
     "message": "Download a checksummed JSON backup or a timestamped CSV. Personal access tokens are never included."

@@ -202,10 +202,15 @@
     </div>
 
     <section id="trendTable" class="trend-table" aria-labelledby="trendTableCaption" hidden>
+      <div class="trend-selection-tools">
+        <span id="trendSelectionSummary" role="status" aria-live="polite"></span>
+        <button id="clearTrendSelection" class="compact-btn" type="button" hidden>Clear pinned</button>
+      </div>
       <table>
         <caption id="trendTableCaption"></caption>
         <thead>
           <tr>
+            <th scope="col">Pin</th>
             <th scope="col">Repository</th>
             <th scope="col">Stars start</th>
             <th scope="col">Stars end</th>

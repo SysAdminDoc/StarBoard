@@ -128,7 +128,10 @@ function classifiedNames(cache, history) {
   const privateLabelKeys = new Set();
   for (const repo of cache?.repos || []) {
     (repo.private ? privateNames : publicNames).add(repo.full_name);
-    if (repo.private) privateLabelKeys.add(repositoryLabelKey(repo));
+    if (repo.private) {
+      privateLabelKeys.add(repositoryLabelKey(repo));
+      privateLabelKeys.add(`name:${repo.full_name}`);
+    }
   }
   for (const entry of history?.repos || []) {
     const [, fullName, isPrivate] = entry;
@@ -202,6 +205,9 @@ function sanitizeNotificationConfig(config, includePrivate, cache, history) {
 function sanitizePortfolioViews(state, includePrivate, names) {
   if (!state) return null;
   const clean = copy(state);
+  clean.comparisonKeys = (clean.comparisonKeys || []).filter(
+    (key) => includePrivate || !names.privateLabelKeys?.has(key),
+  );
   clean.labels = Object.fromEntries(
     Object.entries(clean.labels || {}).filter(
       ([key]) => includePrivate || !names.privateLabelKeys?.has(key),

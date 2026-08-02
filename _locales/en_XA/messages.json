@@ -554,6 +554,15 @@
   "popupChangesMeasured": {
     "message": "［Çháñgéš áré méášúréd fróm $1. Áçtíváté tó méášúré fróm ñów íñštéád. ····················］"
   },
+  "popupComparisonCleared": {
+    "message": "［Píññéd çómpáríšóñ çléáréd. ········］"
+  },
+  "popupComparisonLimit": {
+    "message": "［Á çómpáríšóñ çáñ çóñtáíñ át móšt $1 répóšítóríéš. ···············］"
+  },
+  "popupComparisonSaveError": {
+    "message": "［Çóúld ñót šávé thé píññéd çómpáríšóñ. ···········］"
+  },
   "popupConfirmDelete": {
     "message": "［Çóñfírm délété ····］"
   },
@@ -767,6 +776,12 @@
   "popupPartialSource": {
     "message": "［ · pártíál ($1) ·····］"
   },
+  "popupPinRepository": {
+    "message": "［Píñ $1 fór çómpáríšóñ ······］"
+  },
+  "popupPinnedComparison": {
+    "message": "［$1 óf $2 répóšítóríéš píññéd fór çómpáríšóñ. Píññéd rówš štáý át thé tóp óf thíš ófflíñé táblé. ·····························］"
+  },
   "popupPortfolioViewSaved": {
     "message": "［Pórtfólíó víéw šávéd. ······］"
   },
@@ -821,6 +836,9 @@
   "popupReposSynced": {
     "message": "［$1 répóš šýñçéd ·····］"
   },
+  "popupRepositoryPinned": {
+    "message": "［$1 píññéd fór ófflíñé çómpáríšóñ. ··········］"
+  },
   "popupRepositoryPlural": {
     "message": "［répóšítóríéš ····］"
   },
@@ -829,6 +847,9 @@
   },
   "popupRepositorySingular": {
     "message": "［répóšítórý ···］"
+  },
+  "popupRepositoryUnpinned": {
+    "message": "［$1 rémóvéd fróm ófflíñé çómpáríšóñ. ···········］"
   },
   "popupRequestAccessError": {
     "message": "［Çóúld ñót réqúéšt áççéšš. $1 ········］"
@@ -1009,6 +1030,9 @@
   },
   "popupUndoUnavailable": {
     "message": "［Úñdó íš ñó lóñgér áváíláblé. ········］"
+  },
+  "popupUnpinRepository": {
+    "message": "［Úñpíñ $1 fróm çómpáríšóñ ·······］"
   },
   "popupUp": {
     "message": "［úp ·］"
@@ -1403,6 +1427,9 @@
   "text_66dd4fed": {
     "message": "［Kéép tókéñ ···］"
   },
+  "text_6a706ef0": {
+    "message": "［Çléár píññéd ····］"
+  },
   "text_6d1a1f5f": {
     "message": "［Móméñtúm · fórkš ·····］"
   },
@@ -1705,6 +1732,9 @@
   },
   "text_d3b4ca9d": {
     "message": "［répó ·］"
+  },
+  "text_d4479a34": {
+    "message": "［Píñ ·］"
   },
   "text_d44cf960": {
     "message": "［Dówñlóád á çhéçkšúmméd JŠÓÑ báçkúp ór á tíméštámpéd ÇŠV. Péršóñál áççéšš tókéñš áré ñévér íñçlúdéd. ······························］"

@@ -1479,6 +1479,22 @@ select:disabled {
   text-align: left;
 }
 
+.trend-selection-tools {
+  display: flex;
+  min-height: 25px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--faint);
+  font-size: 9px;
+}
+
+.trend-selection-tools .compact-btn {
+  min-height: 22px;
+  padding: 2px 6px;
+  font-size: 9px;
+}
+
 .trend-table th,
 .trend-table td {
   padding: 3px 5px 3px 0;
@@ -1489,6 +1505,21 @@ select:disabled {
 
 .trend-table th:first-child,
 .trend-table td:first-child {
+  width: 24px;
+  padding-inline-end: 3px;
+  text-align: center;
+}
+
+.trend-pin {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.trend-table th:nth-child(2),
+.trend-table td:nth-child(2) {
   max-width: 150px;
   overflow: hidden;
   text-align: left;

@@ -69,6 +69,10 @@
 - History now keeps a bounded weekly archive after the daily window. Weekly
   points use the last observed cumulative counts, preserve explicit gaps, and
   participate transparently in longer local trend queries.
+- Trend tables can pin up to eight repository identities for comparison. Pinned
+  rows stay together across refreshes and account switches, retain explicit
+  missing-data markers, and use no additional network request; the selection
+  follows the existing credential-free backup privacy filter.
 
 ### Fixed
 

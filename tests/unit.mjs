@@ -183,6 +183,7 @@ const {
   repositoryLabelKey,
   renamePortfolioView,
   savePortfolioView,
+  setComparisonRepositories,
   setRepositoryLabels,
 } = await import('../src/lib/portfolio-views.js');
 
@@ -3116,6 +3117,21 @@ await test('repository labels are bounded, case-insensitive, identity-keyed, and
   assert.equal(Object.hasOwn(state.labels, 'id:42'), false);
 });
 
+await test('selected comparisons are bounded, account-scoped, and persist by history identity', async () => {
+  let state = emptyPortfolioViewState();
+  state = setComparisonRepositories(state, [
+    'name:octocat/alpha',
+    'name:octocat/beta',
+    ...Array.from({ length: 12 }, (_, index) => `name:octocat/${index}`),
+    'name:octocat/alpha',
+  ]);
+  assert.equal(state.comparisonKeys.length, 8);
+  assert.deepEqual(state.comparisonKeys.slice(0, 2), [
+    'name:octocat/alpha',
+    'name:octocat/beta',
+  ]);
+});
+
 await test('saved portfolio views activate, rename, delete, and reject duplicates', async () => {
   let state = emptyPortfolioViewState();
   state = patchActivePortfolioFilters(state, {
@@ -3970,6 +3986,10 @@ await test('portable backups are checksummed, credential-free, and privacy-filte
     repositoryLabelKey(repos[1]),
     ['private-label'],
   );
+  portfolioViews = setComparisonRepositories(portfolioViews, [
+    'name:octocat/public-demo',
+    'name:octocat/private-demo',
+  ]);
 
   const publicBackup = await createBackup({
     settings,
@@ -3986,9 +4006,10 @@ await test('portable backups are checksummed, credential-free, and privacy-filte
   const publicText = JSON.stringify(publicBackup);
   assert.doesNotMatch(
     publicText,
-    /must-never-export|private-demo|private-removed|private-label/,
+    /must-never-export|private-demo|private-removed|private-label|name:octocat\/private-demo/,
   );
   assert.match(publicText, /public-label/);
+  assert.match(publicText, /name:octocat\/public-demo/);
   const publicPreview = await validateBackupText(publicText);
   assert.equal(publicPreview.summary.repositories, 1);
   assert.equal(publicPreview.summary.historyDays, 0);
@@ -4017,6 +4038,7 @@ await test('portable backups are checksummed, credential-free, and privacy-filte
   const privateText = JSON.stringify(privateBackup);
   assert.match(privateText, /private-demo/);
   assert.match(privateText, /public-label|private-label/);
+  assert.match(privateText, /name:octocat\/private-demo/);
   assert.doesNotMatch(privateText, /must-never-export/);
   const privatePreview = await validateBackupText(privateText);
   assert.equal(privatePreview.summary.privateRepositories, 1);

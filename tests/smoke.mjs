@@ -2856,11 +2856,11 @@ async function main() {
     await popup.waitForSelector('#trendTable:not([hidden]) tbody tr');
     const boundedTable = await popup.evaluate((missingFullName) => {
       const row = [...document.querySelectorAll('#trendTable tbody tr')].find((node) =>
-        node.children[0]?.textContent.trim().endsWith(missingFullName),
+        node.children[1]?.textContent.trim().endsWith(missingFullName),
       );
       return {
-        change: row?.children[3]?.textContent.trim() || '',
-        measured: row?.children[6]?.textContent.trim() || '',
+        change: row?.children[4]?.textContent.trim() || '',
+        measured: row?.children[7]?.textContent.trim() || '',
       };
     }, historyFixture.missingAt7);
     check(
@@ -3085,28 +3085,28 @@ async function main() {
     });
     check(
       'a table fallback carries the same series the sparklines encode',
-      trendTable.expanded === 'true' &&
+        trendTable.expanded === 'true' &&
         trendTable.rowHeaderScope === 'row' &&
         trendTable.headers.join('|') ===
-          'Repository|Stars start|Stars end|Stars change|Stars growth|Forks change|Days measured|Events' &&
-        /24 of 30/.test(trendTable.cells[6]) &&
+          'Pin|Repository|Stars start|Stars end|Stars change|Stars growth|Forks change|Days measured|Events' &&
+        /24 of 30/.test(trendTable.cells[7]) &&
         trendTable.eventCells.some((cell) => /Renamed from octocat\/old-name/.test(cell)) &&
         /Star growth over the last 30 days/.test(trendTable.caption),
       JSON.stringify(trendTable),
     );
     const growth = await popup.evaluate(() => {
       const rows = [...document.querySelectorAll('#trendTable tbody tr')];
-      const deltas = rows.map((row) => Number(row.children[3].textContent.replace(/[+,~]/g, '')));
+      const deltas = rows.map((row) => Number(row.children[4].textContent.replace(/[+,~]/g, '')));
       const first = rows[0].children;
       return {
         shown: rows.length,
         listRows: document.querySelectorAll('.row').length,
         sortedByGrowth: deltas.every((value, i) => i === 0 || deltas[i - 1] >= value),
-        percent: first[4].textContent,
-        forkChange: first[5].textContent,
-        starChange: first[3].textContent,
-        starStart: first[1].textContent,
-        gapsMuted: first[6].className,
+        percent: first[5].textContent,
+        forkChange: first[6].textContent,
+        starChange: first[4].textContent,
+        starStart: first[2].textContent,
+        gapsMuted: first[7].className,
         caption: document.querySelector('#trendTableCaption').textContent,
       };
     });
@@ -3117,6 +3117,24 @@ async function main() {
         /^\+\d/.test(growth.forkChange) &&
         growth.sortedByGrowth,
       JSON.stringify(growth),
+    );
+    const firstPin = popup.locator('#trendTable tbody .trend-pin').first();
+    await firstPin.check();
+    await popup.waitForFunction(
+      () => /1 of 8 repositories pinned/.test(document.querySelector('#trendSelectionSummary')?.textContent || ''),
+    );
+    const pinned = await popup.evaluate(async () => {
+      const { getPortfolioViewState } = await import('./lib/storage.js');
+      return (await getPortfolioViewState()).comparisonKeys;
+    });
+    check(
+      'selected repositories pin into the local comparison set',
+      pinned.length === 1 && document.querySelectorAll('.trend-pin:checked').length >= 1,
+      JSON.stringify(pinned),
+    );
+    await popup.click('#clearTrendSelection');
+    await popup.waitForFunction(
+      () => /0 of 8 repositories pinned/.test(document.querySelector('#trendSelectionSummary')?.textContent || ''),
     );
     check(
       'the comparison set is bounded and says what it excluded',

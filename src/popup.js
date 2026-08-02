@@ -12,6 +12,7 @@ import {
   getHistory,
   getNotificationState,
   getPortfolioViewState,
+  setComparisonRepositories,
   setActivePortfolioFilters,
   saveCurrentPortfolioView,
   renameSavedPortfolioView,
@@ -45,6 +46,7 @@ import {
   NO_LANGUAGE,
   activeAdvancedFilterCount,
   filterRepositories,
+  MAX_COMPARISON_REPOSITORIES,
   repositoryLabelKey,
 } from './lib/portfolio-views.js';
 import {
@@ -140,6 +142,8 @@ const el = {
   trendCustomHint: $('trendCustomHint'),
   toggleTrendTable: $('toggleTrendTable'),
   trendTable: $('trendTable'),
+  trendSelectionSummary: $('trendSelectionSummary'),
+  clearTrendSelection: $('clearTrendSelection'),
   trendTableCaption: $('trendTableCaption'),
   trendTableBody: $('trendTableBody'),
   count: $('count'),
@@ -789,6 +793,12 @@ function renderTrendTable(rows) {
   const days = sparklineDays();
   const active = !el.trendTable.hidden;
   el.toggleTrendTable.disabled = !days || !rows.length;
+  const pinned = new Set(state.portfolioViews?.comparisonKeys || []);
+  el.trendSelectionSummary.textContent = t('popupPinnedComparison', [
+    nf.format(pinned.size),
+    nf.format(MAX_COMPARISON_REPOSITORIES),
+  ]);
+  el.clearTrendSelection.hidden = pinned.size === 0;
   if (!days) {
     el.trendTable.hidden = true;
     el.toggleTrendTable.setAttribute('aria-expanded', 'false');
@@ -804,7 +814,11 @@ function renderTrendTable(rows) {
     }))
     // Biggest movers first: a comparison ordered by current stars answers a
     // different question than the one this table is for.
-    .sort((a, b) => compareHistoryDeltas(a.stars, b.stars));
+    .sort((a, b) => {
+      const aPinned = pinned.has(repositoryHistoryKey(a.repo));
+      const bPinned = pinned.has(repositoryHistoryKey(b.repo));
+      return Number(bPinned) - Number(aPinned) || compareHistoryDeltas(a.stars, b.stars);
+    });
   const shown = compared.slice(0, TREND_TABLE_MAX_ROWS).map(({ repo }) => ({
     repo,
     stars: seriesFor(repo),
@@ -824,6 +838,19 @@ function renderTrendTable(rows) {
   for (const entry of shown) {
     const { repo, stars, forks } = entry;
     const tr = document.createElement('tr');
+    const pinCell = document.createElement('td');
+    pinCell.className = 'trend-pin-cell';
+    const pin = document.createElement('input');
+    pin.type = 'checkbox';
+    pin.className = 'trend-pin';
+    pin.checked = pinned.has(repositoryHistoryKey(repo));
+    pin.dataset.comparisonKey = repositoryHistoryKey(repo);
+    pin.setAttribute(
+      'aria-label',
+      t(pin.checked ? 'popupUnpinRepository' : 'popupPinRepository', [repo.full_name]),
+    );
+    pinCell.appendChild(pin);
+    tr.appendChild(pinCell);
     const cells = [
       repo.full_name,
       stars.first === null ? '—' : `${stars.approximate ? '~' : ''}${nf.format(stars.first)}`,
@@ -1946,6 +1973,51 @@ el.toggleTrendTable.addEventListener('click', () => {
     announce(t('popupTrendTableShown'));
   } else {
     announce(t('popupTrendTableHidden'));
+  }
+});
+
+async function updateComparisonPin(input) {
+  const key = input.dataset.comparisonKey;
+  if (!key || !state.portfolioViews) return;
+  const current = [...(state.portfolioViews.comparisonKeys || [])];
+  const next = current.filter((candidate) => candidate !== key);
+  if (input.checked) {
+    if (current.length >= MAX_COMPARISON_REPOSITORIES) {
+      input.checked = false;
+      announce(t('popupComparisonLimit', [MAX_COMPARISON_REPOSITORIES]));
+      return;
+    }
+    next.push(key);
+  }
+  input.disabled = true;
+  try {
+    state.portfolioViews = await setComparisonRepositories(next);
+    render();
+    announce(
+      t(input.checked ? 'popupRepositoryPinned' : 'popupRepositoryUnpinned', [key.replace(/^name:/, '')]),
+    );
+  } catch (error) {
+    input.checked = !input.checked;
+    input.disabled = false;
+    announce(error.message || t('popupComparisonSaveError'));
+  }
+}
+
+el.trendTableBody.addEventListener('change', (event) => {
+  const input = event.target.closest('.trend-pin');
+  if (input) void updateComparisonPin(input);
+});
+
+el.clearTrendSelection.addEventListener('click', async () => {
+  if (!state.portfolioViews?.comparisonKeys?.length) return;
+  el.clearTrendSelection.disabled = true;
+  try {
+    state.portfolioViews = await setComparisonRepositories([]);
+    render();
+    announce(t('popupComparisonCleared'));
+  } catch (error) {
+    el.clearTrendSelection.disabled = false;
+    announce(error.message || t('popupComparisonSaveError'));
   }
 });
 
