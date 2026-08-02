@@ -2578,17 +2578,89 @@ async function main() {
     check(
       'a table fallback carries the same series the sparklines encode',
       trendTable.expanded === 'true' &&
-        trendTable.rows === trendTable.listRows &&
         trendTable.rowHeaderScope === 'row' &&
-        trendTable.headers.join('|') === 'Repository|Start|End|Change|Days measured' &&
-        /24 of 30/.test(trendTable.cells[4]) &&
-        /Stars history over the last 30 days|Star history over the last 30 days/.test(
-          trendTable.caption,
-        ),
+        trendTable.headers.join('|') ===
+          'Repository|Stars start|Stars end|Stars change|Stars growth|Forks change|Days measured' &&
+        /24 of 30/.test(trendTable.cells[6]) &&
+        /Star growth over the last 30 days/.test(trendTable.caption),
       JSON.stringify(trendTable),
+    );
+    const growth = await popup.evaluate(() => {
+      const rows = [...document.querySelectorAll('#trendTable tbody tr')];
+      const deltas = rows.map((row) => Number(row.children[3].textContent.replace(/[+,~]/g, '')));
+      const first = rows[0].children;
+      return {
+        shown: rows.length,
+        listRows: document.querySelectorAll('.row').length,
+        sortedByGrowth: deltas.every((value, i) => i === 0 || deltas[i - 1] >= value),
+        percent: first[4].textContent,
+        forkChange: first[5].textContent,
+        starChange: first[3].textContent,
+        starStart: first[1].textContent,
+        gapsMuted: first[6].className,
+        caption: document.querySelector('#trendTableCaption').textContent,
+      };
+    });
+    check(
+      'growth is compared as both an absolute change and a percentage',
+      /^\+\d/.test(growth.starChange) &&
+        /^\+[\d.]+%$/.test(growth.percent) &&
+        /^\+\d/.test(growth.forkChange) &&
+        growth.sortedByGrowth,
+      JSON.stringify(growth),
+    );
+    check(
+      'the comparison set is bounded and says what it excluded',
+      growth.shown === Math.min(50, growth.listRows) &&
+        (growth.shown === growth.listRows
+          ? !/excluded/.test(growth.caption)
+          : /more are excluded/.test(growth.caption)) &&
+        /A dash means no measurement was retained/.test(growth.caption) &&
+        growth.gapsMuted.includes('has-gaps'),
+      JSON.stringify(growth),
     );
     await popup.click('#toggleTrendTable');
     await popup.waitForSelector('#trendTable[hidden]', { state: 'attached' });
+
+    // A custom range must be bounded by what the history can actually serve.
+    await popup.selectOption('#trendRange', 'custom');
+    await popup.waitForSelector('#trendCustomField:not([hidden])');
+    await popup.fill('#trendCustomDays', '12');
+    await popup.locator('#trendCustomDays').press('Enter');
+    await popup.waitForFunction(
+      () => /compare against 12 days/i.test(document.querySelector('#live-status').textContent),
+    );
+    const custom = await popup.evaluate(() => ({
+      max: document.querySelector('#trendCustomDays').max,
+      hint: document.querySelector('#trendCustomHint').textContent,
+      label: document.querySelector('.row svg.spark, .row .spark-thin')?.getAttribute('aria-label'),
+    }));
+    check(
+      'a custom range compares over exactly the days requested',
+      /Stars over 12 days/.test(custom.label || '') &&
+        Number(custom.max) >= 30 &&
+        /Between 2 and \d+ retained days/.test(custom.hint),
+      JSON.stringify(custom),
+    );
+    await popup.fill('#trendCustomDays', '9999');
+    await popup.locator('#trendCustomDays').press('Enter');
+    await popup.waitForFunction(
+      () => /only \d+ days are retained/i.test(document.querySelector('#live-status').textContent),
+    );
+    const clamped = await popup.evaluate(() => ({
+      value: document.querySelector('#trendCustomDays').value,
+      spoken: document.querySelector('#live-status').textContent,
+      label: document.querySelector('.row svg.spark, .row .spark-thin')?.getAttribute('aria-label'),
+    }));
+    check(
+      'a custom range beyond the retained window is clamped and announced',
+      Number(clamped.value) < 9999 &&
+        Number(clamped.value) >= 30 &&
+        /only \d+ days are retained/i.test(clamped.spoken) &&
+        new RegExp(`Stars over ${clamped.value} days`).test(clamped.label || ''),
+      JSON.stringify(clamped),
+    );
+    await popup.selectOption('#trendRange', '30');
 
     // Below a handful of retained points a line only encodes "up or down".
     await popup.evaluate(async () => {

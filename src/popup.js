@@ -120,6 +120,9 @@ const el = {
   filterActivity: $('filterActivity'),
   resetFilters: $('resetFilters'),
   trendRange: $('trendRange'),
+  trendCustomField: $('trendCustomField'),
+  trendCustomDays: $('trendCustomDays'),
+  trendCustomHint: $('trendCustomHint'),
   toggleTrendTable: $('toggleTrendTable'),
   trendTable: $('trendTable'),
   trendTableCaption: $('trendTableCaption'),
@@ -153,6 +156,8 @@ let state = {
   portfolioViews: null,
   storageRecoveryNotice: null,
   trendRange: 'baseline',
+  // Only meaningful while `trendRange` is 'custom'.
+  trendCustomDays: 14,
   movement: new Set(),
 };
 let refreshing = false;
@@ -195,6 +200,23 @@ function hasSetup() {
   return !!(state.settings?.username || state.settings?.token);
 }
 
+/**
+ * The comparison window in days, or null while the baseline is selected. The
+ * control's value and the number of days stopped being the same thing once a
+ * custom range existed.
+ */
+function effectiveTrendDays() {
+  if (state.trendRange === 'baseline') return null;
+  if (state.trendRange === 'custom') return state.trendCustomDays;
+  return Number.parseInt(state.trendRange, 10);
+}
+
+/** How the current range reads in a sentence. */
+function trendRangeLabel() {
+  const days = effectiveTrendDays();
+  return days === null ? 'the comparison baseline' : `${days} days`;
+}
+
 function syncControls() {
   const hasRows = !!state.cache?.repos;
   const viewBusy = pendingPortfolioUpdates > 0;
@@ -208,13 +230,36 @@ function syncControls() {
   const retained = historyRetainedDays(state.history);
   let longestAvailable = 'baseline';
   for (const option of el.trendRange.options) {
-    if (option.value === 'baseline') continue;
+    if (option.value === 'baseline' || option.value === 'custom') continue;
     const days = Number(option.value);
     const unavailable = hasRows && retained < days;
     option.disabled = unavailable;
     option.textContent = unavailable ? `${days} days — not retained yet` : `${days} days`;
     if (!unavailable) longestAvailable = option.value;
   }
+  // A custom range is offered only once the history can serve the two days a
+  // comparison needs at minimum.
+  const customOption = [...el.trendRange.options].find((o) => o.value === 'custom');
+  customOption.disabled = hasRows && retained < 2;
+  // Same discipline as the fixed ranges: a window the history stopped covering
+  // must move to what it can serve rather than silently returning dashes.
+  if (hasRows && state.trendRange === 'custom' && retained >= 2 && state.trendCustomDays > retained) {
+    const previousCustom = state.trendCustomDays;
+    state.trendCustomDays = retained;
+    trendRangeFellBack = true;
+    queueMicrotask(() =>
+      announce(
+        `${previousCustom}-day trend is no longer retained. Showing ${retained} days instead.`,
+      ),
+    );
+  }
+  el.trendCustomField.hidden = state.trendRange !== 'custom';
+  el.trendCustomDays.max = String(Math.max(2, retained));
+  if (document.activeElement !== el.trendCustomDays) {
+    el.trendCustomDays.value = String(state.trendCustomDays);
+  }
+  el.trendCustomDays.disabled = !hasRows || customOption.disabled;
+  el.trendCustomHint.textContent = `Between 2 and ${nf.format(retained)} retained days.`;
   // A pruned or newly-capped window can disable the range that is currently
   // selected. Leaving it selected left every delta as a dash with no
   // explanation, so fall back to the longest range the history can serve.
@@ -222,7 +267,7 @@ function syncControls() {
     (option) => option.value === state.trendRange,
   );
   if (hasRows && selectedOption?.disabled) {
-    const previous = state.trendRange;
+    const previous = effectiveTrendDays();
     state.trendRange = longestAvailable;
     el.trendRange.value = longestAvailable;
     trendRangeFellBack = true;
@@ -338,6 +383,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 const nf = new Intl.NumberFormat();
 const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 const dateTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+const percentFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
 
 /** @type {[Intl.RelativeTimeFormatUnit, number][]} */
 const UNITS = [
@@ -414,8 +460,7 @@ function deltaNode(value, cls = 'delta', missing = false) {
 
 function withDeltas(cache) {
   const base = state.baseline?.counts || {};
-  const trendDays =
-    state.trendRange === 'baseline' ? null : Number.parseInt(state.trendRange, 10);
+  const trendDays = effectiveTrendDays();
   const historyPoints = trendDays
     ? historyPointsForRepos(state.history, cache?.repos || [], trendDays, {
         now: cache?.fetchedAt || Date.now(),
@@ -514,7 +559,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /** The window the sparkline covers, or null while the baseline is selected. */
 function sparklineDays() {
-  return state.trendRange === 'baseline' ? null : Number.parseInt(state.trendRange, 10);
+  return effectiveTrendDays();
 }
 
 // Rebuilt only when the history record itself changes: a findIndex per row was
@@ -618,6 +663,26 @@ function sparklineNode(series) {
   return svg;
 }
 
+/**
+ * The comparison is bounded on purpose. Filters, search and saved views choose
+ * the set; this caps how much of it is tabulated so the popup cannot be asked
+ * to lay out 343 rows of seven columns inside an 800x600 ceiling.
+ */
+const TREND_TABLE_MAX_ROWS = 50;
+
+function growthText(series, metric) {
+  if (!series || series.delta === null) return '—';
+  if (metric === 'percent') {
+    // Growth from nothing is not a percentage. Saying "+∞%" or "+100%" would
+    // both be inventions.
+    if (!series.first) return series.delta > 0 ? 'from 0' : '—';
+    const percent = (series.delta / series.first) * 100;
+    return `${percent > 0 ? '+' : ''}${percentFormat.format(percent)}%`;
+  }
+  const mark = series.approximate ? '~' : '';
+  return `${series.delta > 0 ? '+' : ''}${mark}${nf.format(series.delta)}`;
+}
+
 function renderTrendTable(rows) {
   const days = sparklineDays();
   const active = !el.trendTable.hidden;
@@ -628,26 +693,45 @@ function renderTrendTable(rows) {
     return;
   }
   if (!active) return;
+
+  const index = repoSeriesIndex();
+  const compared = rows
+    .map((repo) => ({
+      repo,
+      stars: historySeriesForRepo(state.history, repo, days, { index }),
+      forks: historySeriesForRepo(state.history, repo, days, { index, metric: 'forks' }),
+    }))
+    // Biggest movers first: a comparison ordered by current stars answers a
+    // different question than the one this table is for.
+    .sort((a, b) => (b.stars.delta ?? -Infinity) - (a.stars.delta ?? -Infinity));
+  const shown = compared.slice(0, TREND_TABLE_MAX_ROWS);
+  const dropped = compared.length - shown.length;
+
   el.trendTableCaption.textContent =
-    `Star history over the last ${nf.format(days)} days for ${nf.format(rows.length)} ` +
-    `visible repositor${rows.length === 1 ? 'y' : 'ies'}. A dash means no measurement was retained.`;
+    `Star growth over the last ${nf.format(days)} days, biggest movers first, for ` +
+    `${nf.format(shown.length)} of ${nf.format(rows.length)} visible ` +
+    `repositor${rows.length === 1 ? 'y' : 'ies'}. A dash means no measurement was retained ` +
+    'for that range; ~ marks a count GitHub abbreviated.' +
+    (dropped ? ` ${nf.format(dropped)} more are excluded — narrow the filters to see them.` : '');
+
   const body = document.createDocumentFragment();
-  for (const repo of rows) {
-    const series = seriesFor(repo);
+  for (const entry of shown) {
+    const { repo, stars, forks } = entry;
     const tr = document.createElement('tr');
     const cells = [
       repo.full_name,
-      series?.first === null || !series ? '—' : nf.format(series.first),
-      series?.last === null || !series ? '—' : nf.format(series.last),
-      series?.delta === null || !series
-        ? '—'
-        : `${series.delta > 0 ? '+' : ''}${nf.format(series.delta)}`,
-      series ? `${nf.format(series.measured)} of ${nf.format(series.days)}` : '—',
+      stars.first === null ? '—' : `${stars.approximate ? '~' : ''}${nf.format(stars.first)}`,
+      stars.last === null ? '—' : `${stars.approximate ? '~' : ''}${nf.format(stars.last)}`,
+      growthText(stars, 'absolute'),
+      growthText(stars, 'percent'),
+      growthText(forks, 'absolute'),
+      `${nf.format(stars.measured)} of ${nf.format(stars.days)}`,
     ];
-    cells.forEach((text, index) => {
-      const cell = document.createElement(index === 0 ? 'th' : 'td');
-      if (index === 0) cell.setAttribute('scope', 'row');
+    cells.forEach((text, at) => {
+      const cell = document.createElement(at === 0 ? 'th' : 'td');
+      if (at === 0) cell.setAttribute('scope', 'row');
       cell.textContent = text;
+      if (stars.gaps && at === 6) cell.classList.add('has-gaps');
       tr.appendChild(cell);
     });
     body.appendChild(tr);
@@ -889,7 +973,7 @@ function renderTotals(rows, allRows) {
   el.totalStars.title = approximate
     ? 'Approximate total — one or more website counts are abbreviated'
     : '';
-  const trendDays = trendSelected ? Number.parseInt(state.trendRange, 10) : null;
+  const trendDays = effectiveTrendDays();
   el.trendRange.title = trendSelected
     ? `${comparable} of ${rows.length} visible repositories have a retained ${trendDays}-day comparison point`
     : 'Compare against the point you last reset';
@@ -1732,16 +1816,36 @@ el.deleteView.addEventListener('click', () => {
   }).catch((error) => announce(error.message || 'Could not delete that saved view.'));
 });
 
+// A committed value, not a keystroke: retyping "30" as "3" then "0" must not
+// render a three-day comparison in between.
+el.trendCustomDays.addEventListener('change', () => {
+  const retained = historyRetainedDays(state.history);
+  const requested = Number.parseInt(el.trendCustomDays.value, 10);
+  const clamped = Math.min(Math.max(Number.isFinite(requested) ? requested : 2, 2), Math.max(2, retained));
+  const adjusted = clamped !== requested;
+  state.trendCustomDays = clamped;
+  el.trendCustomDays.value = String(clamped);
+  render();
+  announce(
+    adjusted
+      ? `Only ${retained} days are retained. Comparing against ${clamped} days.`
+      : `Repository changes now compare against ${clamped} days.`,
+  );
+});
+
 el.trendRange.addEventListener('change', () => {
   state.trendRange = el.trendRange.value;
+  if (state.trendRange === 'custom') {
+    const retained = historyRetainedDays(state.history);
+    state.trendCustomDays = Math.min(state.trendCustomDays, Math.max(2, retained));
+  }
   trendRangeFellBack = false;
   render();
   // The range the user picked is no longer retained; `syncControls` already
   // moved the control and said so. Repeating the ordinary sentence over it
   // would claim a comparison that is not what is on screen.
   if (trendRangeFellBack) return;
-  const label =
-    state.trendRange === 'baseline' ? 'the comparison baseline' : `${state.trendRange} days`;
+  const label = trendRangeLabel();
   // The quality notes already carry the coverage sentence; reuse it so the
   // spoken and visible explanations cannot drift apart.
   // The coverage sentence is appended last and only exists for a day range.

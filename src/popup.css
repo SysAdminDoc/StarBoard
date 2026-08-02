@@ -1363,6 +1363,22 @@ select:disabled {
   text-overflow: ellipsis;
 }
 
+/* A row whose series has holes must not read as a clean measurement. */
+.trend-table td.has-gaps {
+  color: var(--muted);
+}
+
+.trend-control input[type='number'] {
+  width: 54px;
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--text);
+  font-size: 10px;
+}
+
 .trend-table thead th {
   position: sticky;
   top: 0;
