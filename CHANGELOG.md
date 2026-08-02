@@ -39,6 +39,8 @@
 - Popup, options, status, error, and notification prose now resolves through
   stable Chrome i18n keys, with generated English and pseudo-locale catalogs
   checked for missing keys and expansion.
+- The full repository board can stay open in Chrome's side panel, using the
+  same responsive page as the compact toolbar popup.
 
 ### Fixed
 

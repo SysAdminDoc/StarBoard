@@ -30,6 +30,11 @@
       "justification": "Parse github.com HTML with DOMParser when the optional website source is active."
     },
     {
+      "name": "sidePanel",
+      "required": true,
+      "justification": "Keep the full repository board open beside the user's browser while the toolbar popup remains a compact glance view."
+    },
+    {
       "name": "https://github.com/*",
       "required": false,
       "justification": "Read repository pages only after the user chooses the default website source and grants access."

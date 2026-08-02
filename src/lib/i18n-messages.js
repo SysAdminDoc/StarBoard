@@ -105,6 +105,7 @@ export const RUNTIME_MESSAGES = Object.freeze({
   popupNoAccount: 'No account',
   popupWaitingToSync: 'Waiting to sync',
   popupOpenSettings: 'Open settings to connect',
+  popupOpenPanelError: 'Could not open the full board: $1',
   popupReposSynced: '$1 repos synced',
   popupFollowersSynced: '$1 followers · $2',
   popupLastSuccessfulUpdate: 'Last successful update',

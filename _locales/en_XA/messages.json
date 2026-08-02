@@ -671,6 +671,9 @@
   "popupOpenFilters": {
     "message": "［Ópéñ répóšítórý fíltérš ·······］"
   },
+  "popupOpenPanelError": {
+    "message": "［Çóúld ñót ópéñ thé fúll bóárd: $1 ··········］"
+  },
   "popupOpenSettings": {
     "message": "［Ópéñ šéttíñgš tó çóññéçt ·······］"
   },
@@ -1081,6 +1084,9 @@
   },
   "text_1f58f993": {
     "message": "［Éxpórt ÇŠV ···］"
+  },
+  "text_20c85062": {
+    "message": "［Ópéñ fúll bóárd ·····］"
   },
   "text_21263b77": {
     "message": "［Répóšítórý týpé ·····］"

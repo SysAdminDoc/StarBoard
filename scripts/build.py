@@ -56,6 +56,8 @@ ALLOWED_FILES = (
     "src/lib/transfer.js",
     "src/offscreen.html",
     "src/offscreen.js",
+    "src/panel.html",
+    "src/panel-context.js",
     "src/options.css",
     "src/options.html",
     "src/options.js",

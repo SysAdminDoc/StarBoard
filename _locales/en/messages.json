@@ -671,6 +671,9 @@
   "popupOpenFilters": {
     "message": "Open repository filters"
   },
+  "popupOpenPanelError": {
+    "message": "Could not open the full board: $1"
+  },
   "popupOpenSettings": {
     "message": "Open settings to connect"
   },
@@ -1081,6 +1084,9 @@
   },
   "text_1f58f993": {
     "message": "Export CSV"
+  },
+  "text_20c85062": {
+    "message": "Open full board"
   },
   "text_21263b77": {
     "message": "Repository type"

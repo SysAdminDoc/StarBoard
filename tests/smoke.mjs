@@ -611,6 +611,35 @@ async function main() {
       'unconfigured popup shows setup prompt',
       (await popup.textContent('.empty h3')) === 'Set up StarBoard',
     );
+    const panelHost = await ctx.newPage();
+    await panelHost.setViewportSize({ width: 360, height: 900 });
+    await panelHost.goto(`chrome-extension://${extId}/src/panel.html`);
+    const panelFrame = panelHost.frameLocator('iframe');
+    await panelFrame.locator('.empty h3').waitFor({ timeout: 10000 });
+    const panelLayout = await panelFrame.locator('body').evaluate((body) => ({
+      surface: body.parentElement?.dataset.surface,
+      height: body.clientHeight,
+      width: body.clientWidth,
+      footerVisible: !!body.querySelector('#footer'),
+    }));
+    check(
+      'side panel hosts the shared board at full height',
+      panelLayout.surface === 'panel' &&
+        panelLayout.height >= 900 &&
+        panelLayout.width === 360 &&
+        panelLayout.footerVisible,
+      JSON.stringify(panelLayout),
+    );
+    await popup.click('#openPanel');
+    await popup.waitForTimeout(100);
+    const panelOpenStatus = await popup.textContent('#live-status');
+    check(
+      'popup can request the side panel from a user gesture',
+      !/Could not open the full board/i.test(panelOpenStatus),
+      panelOpenStatus,
+    );
+    await panelHost.screenshot({ path: `${SHOTS}/12-side-panel.png`, fullPage: true });
+    await panelHost.close();
     const localization = await popup.evaluate(() => ({
       locale: chrome.i18n.getUILanguage(),
       portfolioSignal: chrome.i18n.getMessage('text_8bb79ba5'),

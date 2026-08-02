@@ -47,6 +47,8 @@ telemetry — the API token, if you choose to use one, is sent only to
 ## Features
 
 - **Ranked instantly** — all repos sorted by stars, descending, the moment the popup opens.
+- **Full board** — open the same board in Chrome's side panel to keep it visible
+  while you switch tabs; the toolbar popup remains a compact glance view.
 - **Change tracking** — green `+3` / `+1` badges next to each repo's stars and forks, measured against a baseline snapshot you control.
 - **Offline trends** — compare portfolio and per-repository movement over 7,
   30 or 90 days from a full year of bounded daily history stored only in your

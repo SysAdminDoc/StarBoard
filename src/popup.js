@@ -98,6 +98,7 @@ const el = {
   subline: $('subline'),
   refresh: $('refresh'),
   settings: $('settings'),
+  openPanel: $('openPanel'),
   totals: $('totals'),
   totalStars: $('total-stars'),
   totalStarsLabel: $('total-stars-label'),
@@ -1797,6 +1798,14 @@ function queueFilterPatch(changes, message, options, intent = nextFilterIntent()
 
 el.refresh.addEventListener('click', () => doRefresh(false));
 el.settings.addEventListener('click', () => chrome.runtime.openOptionsPage());
+el.openPanel.addEventListener('click', async () => {
+  try {
+    const window = await chrome.windows.getCurrent();
+    await chrome.sidePanel.open({ windowId: window.id });
+  } catch (error) {
+    announce(t('popupOpenPanelError', [sentence(error?.message)]));
+  }
+});
 let rebaseArmedUntil = 0;
 let rebaseResetTimer;
 

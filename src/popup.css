@@ -155,6 +155,7 @@ html {
  * and silently pushed the footer past the ceiling.
  */
 body {
+  container: starboard / inline-size;
   width: 440px;
   height: 600px;
   max-height: 600px;
@@ -167,6 +168,71 @@ body {
   color: var(--text);
   font: 13px/1.45 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* The same page is the compact action popup and the persistent side panel.
+   The panel has a browser-height viewport, so it gets a fluid shell while the
+   popup keeps Chrome's documented 440×600 ceiling. */
+html[data-surface='panel'] body {
+  width: 100%;
+  min-width: 280px;
+  height: 100vh;
+  max-height: none;
+}
+
+html[data-surface='panel'] .header {
+  position: sticky;
+  z-index: 3;
+  top: 0;
+}
+
+html[data-surface='panel'] .list {
+  min-height: 0;
+}
+
+@container starboard (max-width: 370px) {
+  .brand {
+    min-width: 0;
+  }
+
+  .brand-copy small,
+  .account-copy {
+    display: none;
+  }
+
+  .header {
+    gap: 5px;
+    padding-inline: 8px;
+  }
+
+  .row {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    gap: 5px;
+    padding-inline: 6px;
+  }
+
+  .row .stat.forks {
+    display: none;
+  }
+}
+
+@container starboard (min-width: 620px) {
+  .toolbar,
+  .viewbar,
+  .chips {
+    max-width: 900px;
+    margin-inline: auto;
+  }
+
+  .list {
+    padding-inline: 14px;
+  }
+
+  .row {
+    grid-template-columns: 32px minmax(0, 1fr) auto auto;
+    max-width: 900px;
+    margin-inline: auto;
+  }
 }
 
 /* Chrome sizes the popup to the document, so html must not add a second box. */
