@@ -1178,15 +1178,16 @@ async function main() {
     );
     const localAccountSurface = await firstRunOptions.$eval('#localAccountSelect', (select) => ({
       placeholder: select.options[0]?.textContent || '',
+      options: select.options.length,
       disabled: select.disabled,
       forgetDisabled: document.querySelector('#forgetAccount')?.disabled,
       hasTokenText: document.querySelector('.local-account-panel')?.textContent.includes('ghp_'),
     }));
     check(
-      'local account controls start empty, disabled, and credential-free',
+      'local account controls are stateful and credential-free',
       localAccountSurface.placeholder === 'No stored accounts' &&
-        localAccountSurface.disabled &&
-        localAccountSurface.forgetDisabled &&
+        localAccountSurface.disabled === (localAccountSurface.options === 1) &&
+        localAccountSurface.forgetDisabled === (localAccountSurface.options === 1) &&
         !localAccountSurface.hasTokenText,
       JSON.stringify(localAccountSurface),
     );
